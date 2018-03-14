@@ -65,6 +65,8 @@ struct ivd_video_decode_op_t;
     diff = (((end).tv_sec - (start).tv_sec) * 1000000) + \
             ((end).tv_usec - (start).tv_usec);
 
+#define ALIGN64(x)                      ((((x) + 63) >> 6) << 6)
+
 #if 0
 class C2SoftAvcDecIntf : public C2ComponentInterface {
 public:
