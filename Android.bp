@@ -4,3 +4,6 @@ soong_namespace {
     ],
 }
 
+subdirs = [
+    "media",
+]
