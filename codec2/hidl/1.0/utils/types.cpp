@@ -826,7 +826,8 @@ c2_status_t objcpy(std::shared_ptr<C2Buffer>* d, const Buffer& s,
         // Construct a block.
         switch (sBaseBlock.type) {
         case BaseBlock::Type::NATIVE: {
-            const native_handle_t* sHandle = sBaseBlock.nativeBlock;
+            const native_handle_t* sHandle =
+                    native_handle_clone(sBaseBlock.nativeBlock);
             if (sHandle == nullptr) {
                 ALOGE("Null native handle in a block.");
                 return C2_BAD_VALUE;

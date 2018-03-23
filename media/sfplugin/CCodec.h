@@ -20,6 +20,7 @@
 #include <chrono>
 
 #include <C2Component.h>
+#include <codec2/hidl/client.h>
 
 #include <android/native_window.h>
 #include <media/hardware/MetadataBufferType.h>
@@ -119,7 +120,7 @@ private:
         inline int get() const { return mState; }
         inline void set(int newState) { mState = newState; }
 
-        std::shared_ptr<C2Component> comp;
+        std::shared_ptr<Codec2Client::Component> comp;
     private:
         int mState;
     };
@@ -146,7 +147,8 @@ private:
 
     Mutexed<State> mState;
     std::shared_ptr<CCodecBufferChannel> mChannel;
-    std::shared_ptr<C2Component::Listener> mListener;
+    std::shared_ptr<Codec2Client> mClient;
+    std::shared_ptr<Codec2Client::Listener> mListener;
     Mutexed<NamedTimePoint> mDeadline;
     Mutexed<Formats> mFormats;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
