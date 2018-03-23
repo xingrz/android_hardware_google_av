@@ -95,8 +95,16 @@ protected:
     sp<IComponentListener> mListener;
     sp<ComponentStore> mStore;
 
+    struct ComparePointer {
+        constexpr bool operator()(
+                const wp<IBinder>& x, const wp<IBinder>& y) const {
+            return std::less<IBinder*>()(x.unsafe_get(), y.unsafe_get());
+        }
+    };
+
     // Component lifetime management
-    typedef std::map<wp<IBinder>, std::weak_ptr<C2Component>> Roster;
+    typedef std::map<wp<IBinder>, std::weak_ptr<C2Component>,
+            ComparePointer> Roster;
     typedef Roster::const_iterator LocalId;
     LocalId mLocalId;
 
