@@ -153,13 +153,7 @@ Return<void> ComponentStore::createComponent(
             status = Status::CORRUPTED;
         } else {
             std::lock_guard<std::mutex> lock(mComponentRosterMutex);
-            auto emplaceResult =
-                    mComponentRoster.emplace(toBinder(component), c2component);
-            if (!emplaceResult.second) {
-                status = Status::CORRUPTED;
-            } else {
-                component->setLocalId(emplaceResult.first);
-            }
+            mComponentRoster[toBinder(component)] = c2component;
         }
     }
     _hidl_cb(status, component);
@@ -250,10 +244,14 @@ void ComponentStore::reportComponentDeath(
 }
 
 std::shared_ptr<C2Component> ComponentStore::findC2Component(
-        const wp<IBinder>& binder) const {
+        const wp<IBinder>& binder) {
     std::lock_guard<std::mutex> lock(mComponentRosterMutex);
     Component::LocalId it = mComponentRoster.find(binder);
     if (it == mComponentRoster.end()) {
+        return std::shared_ptr<C2Component>();
+    }
+    if (it->first.promote() == nullptr) {
+        mComponentRoster.erase(it);
         return std::shared_ptr<C2Component>();
     }
     return it->second.lock();
