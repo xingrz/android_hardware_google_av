@@ -129,7 +129,8 @@ struct InputSurfaceConnection::Impl : public ComponentWrapper {
 
         std::shared_ptr<C2GraphicAllocation> alloc;
         C2Handle* handle = WrapNativeCodec2GrallocHandle(
-                buffer->handle, buffer->width, buffer->height,
+                native_handle_clone(buffer->handle),
+                buffer->width, buffer->height,
                 buffer->format, buffer->usage, buffer->stride);
         mAllocatorMutex.lock();
         c2_status_t err = mAllocator->priorGraphicAllocation(handle, &alloc);
@@ -150,9 +151,8 @@ struct InputSurfaceConnection::Impl : public ComponentWrapper {
                 // TODO: fence
                 new Buffer2D(block->share(
                         C2Rect(block->width(), block->height()), ::C2Fence())),
-                [handle, bufferId, src = mSource](C2Buffer* ptr) {
+                [bufferId, src = mSource](C2Buffer* ptr) {
                     delete ptr;
-                    native_handle_delete(handle);
                     sp<GraphicBufferSource> source = src.promote();
                     if (source != nullptr) {
                         // TODO: fence
