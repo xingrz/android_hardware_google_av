@@ -1412,7 +1412,9 @@ status_t CCodecBufferChannel::start(
                     break;
                 }
             }
-            mCallback->onInputBufferAvailable(index, buffer);
+            if (buffer) {
+                mCallback->onInputBufferAvailable(index, buffer);
+            }
         }
     } else {
         (void)mInputSurface->connect(mComponent);
