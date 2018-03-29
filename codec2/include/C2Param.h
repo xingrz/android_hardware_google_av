@@ -288,9 +288,6 @@ public:
         /// constructor/conversion from uint32_t
         inline Index(uint32_t index) : Type(index) { }
 
-        /// copy constructor
-        inline Index(const Index &index) = default;
-
         // no conversion from uint64_t
         inline Index(uint64_t index) = delete;
 
@@ -703,9 +700,6 @@ struct C2ParamField {
     inline C2ParamField(S* param)
         : _mIndex(param->index()), _mFieldId(0u, param->size()) { }
 
-    /** Copy constructor. */
-    inline C2ParamField(const C2ParamField &other) = default;
-
     /**
      * Equality operator.
      */
@@ -760,10 +754,6 @@ public:
         Primitive(float value)       : fp(value)  { }
 
         Primitive() : u64(0) { }
-
-        inline bool operator==(const Primitive &other) const {
-            return u64 == other.u64;
-        }
 
         /** gets value out of the union */
         template<typename T> const T &ref() const;
@@ -1476,10 +1466,5 @@ struct C2ParamFieldValues {
 };
 
 /// @}
-
-// include debug header for C2Params.h if C2Debug.h was already included
-#ifdef C2UTILS_DEBUG_H_
-#include <util/C2Debug-param.h>
-#endif
 
 #endif  // C2PARAM_H_
