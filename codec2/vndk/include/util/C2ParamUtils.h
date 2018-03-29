@@ -17,7 +17,6 @@
 #ifndef C2UTILS_PARAM_UTILS_H_
 #define C2UTILS_PARAM_UTILS_H_
 
-#include <C2Debug.h>
 #include <C2Param.h>
 #include <util/_C2MacroUtils.h>
 
@@ -61,8 +60,6 @@ private:
 
 /// \endcond
 
-#ifdef __C2_GENERATE_GLOBAL_VARS__
-
 #undef DEFINE_C2_ENUM_VALUE_AUTO_HELPER
 #define DEFINE_C2_ENUM_VALUE_AUTO_HELPER(name, type, prefix, ...) \
 template<> C2FieldDescriptor::NamedValuesType C2FieldDescriptor::namedValuesFor(const name &r __unused) { \
@@ -79,7 +76,6 @@ template<> C2FieldDescriptor::NamedValuesType C2FieldDescriptor::namedValuesFor(
             std::vector<std::pair<C2StringLiteral, name>> names); \
 }
 
-#endif
 
 class C2ParamUtils {
 private:
@@ -122,10 +118,10 @@ private:
         } type = kNone;
         size_t word_start = 0;
         for (size_t ix = 0; ix < name.size(); ++ix) {
-            C2_LOG(VERBOSE) << name.substr(0, word_start) << "|"
+            /* std::cout << name.substr(0, word_start) << "|"
                     << name.substr(word_start, ix - word_start) << "["
                     << name.substr(ix, 1) << "]" << name.substr(ix + 1)
-                    << ": " << (char)type;
+                    << ": " << (char)type << std::endl; */
             if (isupper(name[ix])) {
                 if (type == kLower) {
                     name.insert(ix++, 1, '-');
@@ -163,7 +159,7 @@ private:
                 name.resize(ix);
             }
         }
-        C2_LOG(VERBOSE) << "=> " << name;
+        // std::cout << "=> " << name << std::endl;
         return name;
     }
 
@@ -178,12 +174,12 @@ private:
             extraUnderscores = countLeadingUnderscores(_prefix);
             prefix = _prefix + extraUnderscores;
             first = false;
-            C2_LOG(VERBOSE) << "prefix:" << prefix << ", underscores:" << extraUnderscores;
+            // std::cout << "prefix:" << prefix << ", underscores:" << extraUnderscores << std::endl;
         }
 
         // calculate prefix and minimum leading underscores
         for (C2StringLiteral s : names) {
-            C2_LOG(VERBOSE) << s;
+            // std::cout << s << std::endl;
             size_t underscores = countLeadingUnderscores(s);
             if (first) {
                 extraUnderscores = underscores;
@@ -196,7 +192,7 @@ private:
                 prefix.resize(matching);
                 extraUnderscores = std::min(underscores, extraUnderscores);
             }
-            C2_LOG(VERBOSE) << "prefix:" << prefix << ", underscores:" << extraUnderscores;
+            // std::cout << "prefix:" << prefix << ", underscores:" << extraUnderscores << std::endl;
             if (prefix.size() == 0 && extraUnderscores == 0) {
                 break;
             }
@@ -220,7 +216,7 @@ private:
         }
 
         for (C2String s : sanitizedNames) {
-            C2_LOG(VERBOSE) << s;
+            std::cout << s << std::endl;
         }
 
         return sanitizedNames;
@@ -288,17 +284,17 @@ public:
 
 /* ======================== UTILITY TEMPLATES FOR PARAMETER REFLECTION ======================== */
 
+#if 1
 template<typename... Params>
 class C2_HIDE _C2Tuple { };
 
-#if 0
 C2_HIDE
-inline void addC2Params(std::list<const C2FieldDescriptor> &, _C2Tuple<> *) {
+void addC2Params(std::list<const C2FieldDescriptor> &, _C2Tuple<> *) {
 }
 
 template<typename T, typename... Params>
 C2_HIDE
-inline void addC2Params(std::list<const C2FieldDescriptor> &fields, _C2Tuple<T, Params...> *)
+void addC2Params(std::list<const C2FieldDescriptor> &fields, _C2Tuple<T, Params...> *)
 {
     //C2Param::CodeIndex index = T::CORE_INDEX;
     //(void)index;
@@ -308,7 +304,7 @@ inline void addC2Params(std::list<const C2FieldDescriptor> &fields, _C2Tuple<T, 
 
 template<typename... Params>
 C2_HIDE
-inline std::list<const C2FieldDescriptor> describeC2Params() {
+std::list<const C2FieldDescriptor> describeC2Params() {
     std::list<const C2FieldDescriptor> fields;
     addC2Params(fields, (_C2Tuple<Params...> *)nullptr);
     return fields;
