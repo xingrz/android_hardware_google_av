@@ -23,9 +23,6 @@
 
 #include <C2Component.h>
 
-// TODO: Remove this once "setenv()" call is removed.
-#include <stdlib.h>
-
 // This is created by module "codec2.vendor.base.policy". This can be modified.
 static constexpr char kBaseSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/codec2.vendor.base.policy";
@@ -98,9 +95,6 @@ public:
 
 int main(int /* argc */, char** /* argv */) {
     ALOGD("hardware.google.media.c2@1.0-service starting...");
-
-    // TODO: Remove this when all the build settings and sepolicies are in place.
-    setenv("TREBLE_TESTING_OVERRIDE", "true", true);
 
     signal(SIGPIPE, SIG_IGN);
     android::SetUpMinijail(kBaseSeccompPolicyPath, kExtSeccompPolicyPath);
