@@ -25,8 +25,11 @@
 #include <C2V4l2Support.h>
 
 #include <android/IOMXBufferSource.h>
+#include <android/IGraphicBufferSource.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
+#include <gui/IGraphicBufferProducer.h>
 #include <gui/Surface.h>
+#include <media/omx/1.0/WOmx.h>
 #include <media/stagefright/codec2/1.0/InputSurface.h>
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/PersistentSurface.h>
@@ -40,6 +43,7 @@ namespace android {
 
 using namespace std::chrono_literals;
 using ::android::hardware::graphics::bufferqueue::V1_0::utils::H2BGraphicBufferProducer;
+using BGraphicBufferSource = ::android::IGraphicBufferSource;
 
 namespace {
 
@@ -185,7 +189,7 @@ private:
 
 class GraphicBufferSourceWrapper : public InputSurfaceWrapper {
 public:
-    explicit GraphicBufferSourceWrapper(const sp<IGraphicBufferSource> &source) : mSource(source) {}
+    explicit GraphicBufferSourceWrapper(const sp<BGraphicBufferSource> &source) : mSource(source) {}
     ~GraphicBufferSourceWrapper() override = default;
 
     status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
@@ -224,7 +228,7 @@ public:
     }
 
 private:
-    sp<IGraphicBufferSource> mSource;
+    sp<BGraphicBufferSource> mSource;
     sp<C2OMXNode> mNode;
 };
 
@@ -459,6 +463,26 @@ void CCodec::initiateCreateInputSurface() {
 }
 
 void CCodec::createInputSurface() {
+    using namespace ::android::hardware::media::omx::V1_0;
+    sp<IOmx> tOmx = IOmx::getService("default");
+    if (tOmx == nullptr) {
+        ALOGE("Failed to create input surface");
+        mCallback->onInputSurfaceCreationFailed(UNKNOWN_ERROR);
+        return;
+    }
+    sp<IOMX> omx = new utils::LWOmx(tOmx);
+
+    sp<IGraphicBufferProducer> bufferProducer;
+    sp<BGraphicBufferSource> bufferSource;
+    status_t err = omx->createInputSurface(&bufferProducer, &bufferSource);
+
+    if (err != OK) {
+        ALOGE("Failed to create input surface: %d", err);
+        mCallback->onInputSurfaceCreationFailed(err);
+        return;
+    }
+
+#if 0
     std::shared_ptr<Codec2Client::InputSurface> surface;
 
     status_t err = static_cast<status_t>(mClient->createInputSurface(&surface));
@@ -472,8 +496,10 @@ void CCodec::createInputSurface() {
         mCallback->onInputSurfaceCreationFailed(UNKNOWN_ERROR);
         return;
     }
+#endif
 
-    err = setupInputSurface(std::make_shared<C2InputSurfaceWrapper>(surface));
+//    err = setupInputSurface(std::make_shared<C2InputSurfaceWrapper>(surface));
+    err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(bufferSource));
     if (err != OK) {
         ALOGE("Failed to set up input surface: %d", err);
         mCallback->onInputSurfaceCreationFailed(err);
@@ -490,7 +516,7 @@ void CCodec::createInputSurface() {
     mCallback->onInputSurfaceCreated(
             inputFormat,
             outputFormat,
-            new BufferProducerWrapper(surface->getGraphicBufferProducer()));
+            new BufferProducerWrapper(bufferProducer));
 }
 
 status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface) {
