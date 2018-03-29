@@ -1548,9 +1548,10 @@ void CCodecBufferChannel::onWorkDone(const std::unique_ptr<C2Work> &work) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         if (!(*buffers)->registerBuffer(buffer, &index, &outBuffer)) {
             ALOGE("onWorkDone: unable to register output buffer");
-            buffers.unlock();
-            mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
-            buffers.lock();
+            // TODO
+            // buffers.unlock();
+            // mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            // buffers.lock();
             return;
         }
     }
