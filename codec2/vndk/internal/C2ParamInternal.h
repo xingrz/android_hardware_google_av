@@ -40,8 +40,24 @@ struct C2_HIDE _C2ParamInspector {
         return pf._mFieldId._mSize;
     }
 
+    inline static uint32_t GetOffset(const _C2FieldId &f) {
+        return f._mOffset;
+    }
+
+    inline static uint32_t GetSize(const _C2FieldId &f) {
+        return f._mSize;
+    }
+
+    inline static _C2FieldId GetField(const C2FieldDescriptor &fd) {
+        return fd._mFieldId;
+    }
+
     inline static uint32_t GetAttrib(const C2ParamDescriptor &pd) {
         return pd._mAttrib;
+    }
+
+    inline static _C2FieldId GetField(const C2ParamField &pf) {
+        return pf._mFieldId;
     }
 
     inline static
