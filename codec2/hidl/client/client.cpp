@@ -60,7 +60,7 @@ auto gClientInitializers = []() ->
 
         "default",
 
-        "system",
+        "software",
 
         property_get_bool("debug.stagefright.ccodec_v4l2", 0) ?
             "v4l2" : nullptr,
