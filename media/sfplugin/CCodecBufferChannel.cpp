@@ -1024,7 +1024,8 @@ CCodecBufferChannel::~CCodecBufferChannel() {
     }
 }
 
-void CCodecBufferChannel::setComponent(const std::shared_ptr<C2Component> &component) {
+void CCodecBufferChannel::setComponent(
+        const std::shared_ptr<Codec2Client::Component> &component) {
     mComponent = component;
 }
 
@@ -1073,7 +1074,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
 
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
-    return mComponent->queue_nb(&items);
+    return mComponent->queue(&items);
 }
 
 status_t CCodecBufferChannel::queueInputBuffer(const sp<MediaCodecBuffer> &buffer) {
@@ -1307,7 +1308,7 @@ status_t CCodecBufferChannel::start(
         const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat) {
     C2StreamFormatConfig::input iStreamFormat(0u);
     C2StreamFormatConfig::output oStreamFormat(0u);
-    c2_status_t err = mComponent->intf()->query_vb(
+    c2_status_t err = mComponent->query(
             { &iStreamFormat, &oStreamFormat },
             {},
             C2_DONT_BLOCK,
@@ -1315,7 +1316,7 @@ status_t CCodecBufferChannel::start(
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
     }
-    bool secure = mComponent->intf()->getName().find(".secure") != std::string::npos;
+    bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
     if (inputFormat != nullptr) {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
@@ -1352,10 +1353,17 @@ status_t CCodecBufferChannel::start(
         ALOGV("graphic = %s", graphic ? "true" : "false");
         std::shared_ptr<C2BlockPool> pool;
         if (graphic) {
-            err = GetCodec2BlockPool(C2BlockPool::BASIC_GRAPHIC, mComponent, &pool);
+            err = mComponent->getLocalBlockPool(
+                    C2BlockPool::BASIC_GRAPHIC,
+                    &pool);
         } else {
-            err = CreateCodec2BlockPool(C2PlatformAllocatorStore::ION,
-                                        mComponent, &pool);
+            /* TODO: Use BufferPool-based BlockPool
+            err = mComponent->createLocalBlockPool(
+                    C2PlatformAllocatorStore::ION,
+                    &pool);*/
+            err = mComponent->getLocalBlockPool(
+                    C2BlockPool::BASIC_LINEAR,
+                    &pool);
         }
         if (err == C2_OK) {
             (*buffers)->setPool(pool);

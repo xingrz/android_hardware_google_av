@@ -49,7 +49,9 @@ public:
 
 }  // namespace
 
-C2OMXNode::C2OMXNode(const std::shared_ptr<C2Component> &comp) : mComp(comp) {}
+C2OMXNode::C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp) :
+    mComp(comp) {
+}
 
 status_t C2OMXNode::freeNode() {
     mComp.reset();
@@ -196,7 +198,7 @@ status_t C2OMXNode::emptyBuffer(
         sp<Fence> fence = new Fence(fenceFd);
         fence->waitForever(LOG_TAG);
     }
-    std::shared_ptr<C2Component> comp = mComp.lock();
+    std::shared_ptr<Codec2Client::Component> comp = mComp.lock();
     if (!comp) {
         return NO_INIT;
     }
@@ -247,7 +249,7 @@ status_t C2OMXNode::emptyBuffer(
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
 
-    c2_status_t err = comp->queue_nb(&items);
+    c2_status_t err = comp->queue(&items);
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
     }
