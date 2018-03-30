@@ -50,7 +50,7 @@ public:
 }  // namespace
 
 C2OMXNode::C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp) :
-    mComp(comp) {
+    mComp(comp), mWidth(0), mHeight(0) {
 }
 
 status_t C2OMXNode::freeNode() {
@@ -82,8 +82,8 @@ status_t C2OMXNode::getParameter(OMX_INDEXTYPE index, void *params, size_t size)
             // TODO: read these from intf()
             pDef->nBufferCountActual = 16;
             pDef->eDomain = OMX_PortDomainVideo;
-            pDef->format.video.nFrameWidth = 1080;
-            pDef->format.video.nFrameHeight = 1920;
+            pDef->format.video.nFrameWidth = mWidth;
+            pDef->format.video.nFrameHeight = mHeight;
             err = OK;
             break;
         }
@@ -277,6 +277,11 @@ status_t C2OMXNode::dispatchMessage(const omx_message& msg) {
 
 sp<IOMXBufferSource> C2OMXNode::getSource() {
     return mBufferSource;
+}
+
+void C2OMXNode::setFrameSize(uint32_t width, uint32_t height) {
+    mWidth = width;
+    mHeight = height;
 }
 
 }  // namespace android

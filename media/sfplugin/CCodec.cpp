@@ -189,7 +189,12 @@ private:
 
 class GraphicBufferSourceWrapper : public InputSurfaceWrapper {
 public:
-    explicit GraphicBufferSourceWrapper(const sp<BGraphicBufferSource> &source) : mSource(source) {}
+//    explicit GraphicBufferSourceWrapper(const sp<BGraphicBufferSource> &source) : mSource(source) {}
+    GraphicBufferSourceWrapper(
+            const sp<BGraphicBufferSource> &source,
+            uint32_t width,
+            uint32_t height)
+        : mSource(source), mWidth(width), mHeight(height) {}
     ~GraphicBufferSourceWrapper() override = default;
 
     status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
@@ -197,6 +202,7 @@ public:
         android_dataspace dataSpace = HAL_DATASPACE_BT709;
 
         mNode = new C2OMXNode(comp);
+        mNode->setFrameSize(mWidth, mHeight);
         mSource->configure(mNode, dataSpace);
 
         // TODO: configure according to intf().
@@ -230,6 +236,8 @@ public:
 private:
     sp<BGraphicBufferSource> mSource;
     sp<C2OMXNode> mNode;
+    uint32_t mWidth;
+    uint32_t mHeight;
 };
 
 }  // namespace
@@ -401,28 +409,23 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         // XXX: hack
         bool audio = mime.startsWithIgnoreCase("audio/");
-        if (encoder) {
-            if (audio) {
+        if (!audio) {
+            int32_t tmp;
+            if (msg->findInt32("width", &tmp)) {
+                outputFormat->setInt32("width", tmp);
+            }
+            if (msg->findInt32("height", &tmp)) {
+                outputFormat->setInt32("height", tmp);
+            }
+        } else {
+            if (encoder) {
                 inputFormat->setInt32("channel-count", 1);
                 inputFormat->setInt32("sample-rate", 44100);
                 outputFormat->setInt32("channel-count", 1);
                 outputFormat->setInt32("sample-rate", 44100);
             } else {
-                outputFormat->setInt32("width", 1080);
-                outputFormat->setInt32("height", 1920);
-            }
-        } else {
-            if (audio) {
                 outputFormat->setInt32("channel-count", 2);
                 outputFormat->setInt32("sample-rate", 44100);
-            } else {
-                int32_t tmp;
-                if (msg->findInt32("width", &tmp)) {
-                    outputFormat->setInt32("width", tmp);
-                }
-                if (msg->findInt32("height", &tmp)) {
-                    outputFormat->setInt32("height", tmp);
-                }
             }
         }
 
@@ -499,19 +502,23 @@ void CCodec::createInputSurface() {
 #endif
 
 //    err = setupInputSurface(std::make_shared<C2InputSurfaceWrapper>(surface));
-    err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(bufferSource));
-    if (err != OK) {
-        ALOGE("Failed to set up input surface: %d", err);
-        mCallback->onInputSurfaceCreationFailed(err);
-        return;
-    }
-
     sp<AMessage> inputFormat;
     sp<AMessage> outputFormat;
     {
         Mutexed<Formats>::Locked formats(mFormats);
         inputFormat = formats->inputFormat;
         outputFormat = formats->outputFormat;
+    }
+    int32_t width = 0;
+    (void)outputFormat->findInt32("width", &width);
+    int32_t height = 0;
+    (void)outputFormat->findInt32("height", &height);
+    err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
+            bufferSource, width, height));
+    if (err != OK) {
+        ALOGE("Failed to set up input surface: %d", err);
+        mCallback->onInputSurfaceCreationFailed(err);
+        return;
     }
     mCallback->onInputSurfaceCreated(
             inputFormat,
@@ -536,20 +543,23 @@ void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
 }
 
 void CCodec::setInputSurface(const sp<PersistentSurface> &surface) {
-    status_t err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
-            surface->getBufferSource()));
-    if (err != OK) {
-        ALOGE("Failed to set up input surface: %d", err);
-        mCallback->onInputSurfaceDeclined(err);
-        return;
-    }
-
     sp<AMessage> inputFormat;
     sp<AMessage> outputFormat;
     {
         Mutexed<Formats>::Locked formats(mFormats);
         inputFormat = formats->inputFormat;
         outputFormat = formats->outputFormat;
+    }
+    int32_t width = 0;
+    (void)outputFormat->findInt32("width", &width);
+    int32_t height = 0;
+    (void)outputFormat->findInt32("height", &height);
+    status_t err = setupInputSurface(std::make_shared<GraphicBufferSourceWrapper>(
+            surface->getBufferSource(), width, height));
+    if (err != OK) {
+        ALOGE("Failed to set up input surface: %d", err);
+        mCallback->onInputSurfaceDeclined(err);
+        return;
     }
     mCallback->onInputSurfaceAccepted(inputFormat, outputFormat);
 }
