@@ -76,12 +76,15 @@ struct C2OMXNode : public BnOMXNode {
     status_t dispatchMessage(const omx_message &msg) override;
 
     sp<IOMXBufferSource> getSource();
+    void setFrameSize(uint32_t width, uint32_t height);
 
 private:
     std::weak_ptr<Codec2Client::Component> mComp;
     sp<IOMXBufferSource> mBufferSource;
     std::shared_ptr<C2Allocator> mAllocator;
     std::atomic_uint64_t mFrameIndex;
+    uint32_t mWidth;
+    uint32_t mHeight;
 };
 
 }  // namespace android
