@@ -34,18 +34,19 @@ cc_binary {
 }
 
 cc_binary {
-    name: "hardware.google.media.c2@1.0-service-system",
+    name: "hardware.google.media.c2@1.0-service-software",
     defaults: ["hidl_defaults"],
+    soc_specific: true,
     relative_install_path: "hw",
     srcs: [
-        "system.cpp",
+        "software.cpp",
     ],
 
-    init_rc: ["hardware.google.media.c2@1.0-service-system.rc"],
+    init_rc: ["hardware.google.media.c2@1.0-service-software.rc"],
 
     shared_libs: [
         "hardware.google.media.c2@1.0",
-        "libavservices_minijail",
+        "libavservices_minijail_vendor",
         "libcutils",
         "libhidlbase",
         "libhidltransport",
@@ -59,10 +60,10 @@ cc_binary {
 
     arch: {
         arm: {
-            required: ["codec2.system.base.policy"],
+            required: ["codec2.software.base.policy"],
         },
         x86: {
-            required: ["codec2.system.base.policy"],
+            required: ["codec2.software.base.policy"],
         },
     },
 
