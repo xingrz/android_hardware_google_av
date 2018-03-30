@@ -70,6 +70,17 @@ struct C2_HIDE _C2ParamInspector {
         return C2ParamField(index, field._mOffset, field._mSize);
     }
 
+    inline static void AddNamedValues(
+            C2FieldDescriptor &fd, C2FieldDescriptor::NamedValuesType &&namedValues) {
+        fd._mNamedValues = std::move(namedValues);
+    }
+
+    inline static
+    C2StructDescriptor CreateStructDescriptor(C2Param::CoreIndex index,
+                                        std::vector<C2FieldDescriptor> &&fields) {
+        return C2StructDescriptor(index, std::move(fields));
+    }
+
     // expose attributes
     typedef C2ParamDescriptor::attrib_t attrib_t;
 };

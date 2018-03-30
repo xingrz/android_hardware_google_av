@@ -482,11 +482,50 @@ c2_status_t Codec2Client::copyBuffer(
 
 std::shared_ptr<C2ParamReflector>
         Codec2Client::getParamReflector() {
-    // TODO: Implement this once there is a way to construct C2StructDescriptor
-    // dynamically.
-    ALOGE("getParamReflector -- not implemented.");
-    return nullptr;
-}
+    // TODO: this is not meant to be exposed as C2ParamReflector on the client side; instead, it
+    // should reflect the HAL API.
+    struct SimpleParamReflector : public C2ParamReflector {
+        virtual std::unique_ptr<C2StructDescriptor> describe(C2Param::CoreIndex coreIndex) const {
+            hidl_vec<ParamIndex> indices(1);
+            indices[0] = static_cast<ParamIndex>(coreIndex.coreIndex());
+            std::unique_ptr<C2StructDescriptor> descriptor;
+            Return<void> transStatus = mBase->getStructDescriptors(
+                    indices,
+                    [&descriptor](
+                            Status s,
+                            const hidl_vec<StructDescriptor>& sd) {
+                        c2_status_t status = static_cast<c2_status_t>(s);
+                        if (status != C2_OK) {
+                            ALOGE("getStructDescriptors -- call failed. "
+                                    "Error code = %d", static_cast<int>(status));
+                            descriptor.reset();
+                            return;
+                        }
+                        if (sd.size() != 1) {
+                            ALOGD("getStructDescriptors -- returned vector of size %zu.",
+                                    sd.size());
+                            descriptor.reset();
+                            return;
+                        }
+                        status = objcpy(&descriptor, sd[0]);
+                        if (status != C2_OK) {
+                            ALOGD("getStructDescriptors -- failed to convert. "
+                                    "Error code = %d", static_cast<int>(status));
+                            descriptor.reset();
+                            return;
+                        }
+                    });
+            return descriptor;
+        }
+
+        SimpleParamReflector(sp<Base> base)
+            : mBase(base) { }
+
+        sp<Base> mBase;
+    };
+
+    return std::make_shared<SimpleParamReflector>(base());
+};
 
 std::shared_ptr<Codec2Client> Codec2Client::CreateFromService(
         const char* instanceName, bool waitForService) {
