@@ -55,16 +55,10 @@ namespace /* unnamed */ {
 constexpr c2_status_t C2_TRANSACTION_FAILED = C2_CORRUPTED;
 
 // List of known IComponentStore services.
-auto gClientInitializers = []() ->
-        std::vector<const char*> { return {
-
+constexpr const char* kClientNames[] = {
         "default",
-
         "software",
-
-        property_get_bool("debug.stagefright.ccodec_v4l2", 0) ?
-            "v4l2" : nullptr,
-};};
+    };
 
 std::vector<std::shared_ptr<Codec2Client>> gClients;
 
@@ -76,8 +70,8 @@ void prepareClients() {
     if (clientsInitialized) {
         return;
     }
-    std::vector<const char*> clientNames = gClientInitializers();
-    for (const char* clientName : clientNames) {
+    gClients.reserve(std::extent<decltype(kClientNames)>::value);
+    for (const char* clientName : kClientNames) {
         gClients.emplace_back(Codec2Client::CreateFromService(clientName));
     }
     clientsInitialized = true;
@@ -574,7 +568,7 @@ const std::vector<C2Component::Traits>& Codec2Client::ListComponents() {
                 continue;
             }
             list.insert(
-                    traitsList.end(),
+                    list.end(),
                     client->listComponents().begin(),
                     client->listComponents().end());
         }
