@@ -747,6 +747,22 @@ c2_status_t Codec2Client::Component::release() {
     return status;
 }
 
+c2_status_t Codec2Client::Component::setOutputSurface(
+        const sp<IGraphicBufferProducer>& surface) {
+    Return<Status> transStatus = base()->setOutputSurface(surface);
+    if (!transStatus.isOk()) {
+        ALOGE("setOutputSurface -- transaction failed.");
+        return C2_TRANSACTION_FAILED;
+    }
+    c2_status_t status =
+            static_cast<c2_status_t>(static_cast<Status>(transStatus));
+    if (status != C2_OK) {
+        ALOGE("setOutputSurface -- call failed. "
+                "Error code = %d", static_cast<int>(status));
+    }
+    return status;
+}
+
 c2_status_t Codec2Client::Component::connectToInputSurface(
         const std::shared_ptr<InputSurface>& surface) {
     Return<Status> transStatus = base()->connectToInputSurface(
