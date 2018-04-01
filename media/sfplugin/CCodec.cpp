@@ -423,9 +423,11 @@ void CCodec::configure(const sp<AMessage> &msg) {
         if (!audio) {
             int32_t tmp;
             if (msg->findInt32("width", &tmp)) {
+                inputFormat->setInt32("width", tmp);
                 outputFormat->setInt32("width", tmp);
             }
             if (msg->findInt32("height", &tmp)) {
+                inputFormat->setInt32("height", tmp);
                 outputFormat->setInt32("height", tmp);
             }
         } else {
