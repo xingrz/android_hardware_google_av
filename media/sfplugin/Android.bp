@@ -19,7 +19,10 @@ cc_library_shared {
     ],
 
     shared_libs: [
+        "android.hardware.cas.native@1.0",
+        "android.hardware.media.omx@1.0",
         "libbinder",
+        "libcodec2_hidl_client",
         "libcutils",
         "libgui",
         "libhidlallocatorutils",
@@ -27,6 +30,7 @@ cc_library_shared {
         "liblog",
         "libmedia",
         "libmedia_omx",
+        "libstagefright_bufferqueue_helper",
         "libstagefright_codec2",
         "libstagefright_codec2_vndk",
         "libstagefright_codecbase",
@@ -37,11 +41,6 @@ cc_library_shared {
         "libutils",
         // TODO: Remove libv4l2_c2_componentstore.
         "libv4l2_c2componentstore",
-        "android.hardware.cas.native@1.0",
-
-        // TODO: do not link directly with impl
-        "libstagefright_bufferqueue_helper",
-        "android.hardware.media.c2@1.0-service-impl",
     ],
 
     sanitize: {

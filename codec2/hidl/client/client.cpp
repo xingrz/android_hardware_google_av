@@ -60,7 +60,7 @@ auto gClientInitializers = []() ->
 
         "default",
 
-        "system",
+        "software",
 
         property_get_bool("debug.stagefright.ccodec_v4l2", 0) ?
             "v4l2" : nullptr,
@@ -742,6 +742,22 @@ c2_status_t Codec2Client::Component::release() {
             static_cast<c2_status_t>(static_cast<Status>(transStatus));
     if (status != C2_OK) {
         ALOGE("release -- call failed. "
+                "Error code = %d", static_cast<int>(status));
+    }
+    return status;
+}
+
+c2_status_t Codec2Client::Component::setOutputSurface(
+        const sp<IGraphicBufferProducer>& surface) {
+    Return<Status> transStatus = base()->setOutputSurface(surface);
+    if (!transStatus.isOk()) {
+        ALOGE("setOutputSurface -- transaction failed.");
+        return C2_TRANSACTION_FAILED;
+    }
+    c2_status_t status =
+            static_cast<c2_status_t>(static_cast<Status>(transStatus));
+    if (status != C2_OK) {
+        ALOGE("setOutputSurface -- call failed. "
                 "Error code = %d", static_cast<int>(status));
     }
     return status;
