@@ -75,7 +75,7 @@ class C2ParamTest : public ::testing::Test {
 };
 
 class C2ParamTest_ParamFieldList
-        : public ::testing::TestWithParam<std::initializer_list<const C2FieldDescriptor>> {
+        : public ::testing::TestWithParam<std::initializer_list<C2FieldDescriptor>> {
 };
 
 enum {
@@ -94,7 +94,7 @@ struct C2SizeStruct {
     int32_t width;
     int32_t height;
     enum : uint32_t { CORE_INDEX = kParamIndexSize };                        // <= needed for C2FieldDescriptor
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;  // <= needed for C2FieldDescriptor
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;  // <= needed for C2FieldDescriptor
     const static FD::type_t TYPE = (FD::type_t)(CORE_INDEX | FD::STRUCT_FLAG);
 };
 
@@ -105,7 +105,7 @@ DEFINE_NO_NAMED_VALUES_FOR(C2SizeStruct)
 bool operator==(const C2FieldDescriptor &a, const C2FieldDescriptor &b) {
     return a.type() == b.type()
             && a.extent() == b.extent()
-            && strcmp(a.name(), b.name()) == 0
+            && a.name() == b.name()
             && a._mFieldId == b._mFieldId;
 }
 
@@ -120,12 +120,12 @@ struct C2TestStruct_A {
     char string[100];
     bool yesNo[100];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = kParamIndexTest };
     // typedef C2TestStruct_A _type;
 } __attribute__((packed));
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_A::FIELD_LIST =
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_A::FIELD_LIST =
     { { FD::INT32,    1, "s32",   0, 4 },
       { FD::INT64,    2, "s64",   4, 8 },
       { FD::UINT32,   1, "u32",  20, 4 },
@@ -137,11 +137,11 @@ const std::initializer_list<const C2FieldDescriptor> C2TestStruct_A::FIELD_LIST 
       { FD::BLOB,   100, "y-n", 260, 1 } };
 
 TEST_P(C2ParamTest_ParamFieldList, VerifyStruct) {
-    std::vector<const C2FieldDescriptor> fields = GetParam(), expected = C2TestStruct_A::FIELD_LIST;
+    std::vector<C2FieldDescriptor> fields = GetParam(), expected = C2TestStruct_A::FIELD_LIST;
 
     // verify first field descriptor
     EXPECT_EQ(FD::INT32, fields[0].type());
-    EXPECT_STREQ("s32", fields[0].name());
+    EXPECT_STREQ("s32", fields[0].name().c_str());
     EXPECT_EQ(1u, fields[0].extent());
     EXPECT_EQ(_C2FieldId(0, 4), fields[0]._mFieldId);
 
@@ -161,7 +161,7 @@ TEST_P(C2ParamTest_ParamFieldList, VerifyStruct) {
 INSTANTIATE_TEST_CASE_P(InitializerList, C2ParamTest_ParamFieldList, ::testing::Values(C2TestStruct_A::FIELD_LIST));
 
 // define fields using C2FieldDescriptor pointer constructor
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_A_FD_PTR_fieldList =
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_A_FD_PTR_fieldList =
     { C2FieldDescriptor(&((C2TestStruct_A*)(nullptr))->signed32,   "s32"),
       C2FieldDescriptor(&((C2TestStruct_A*)(nullptr))->signed64,   "s64"),
       C2FieldDescriptor(&((C2TestStruct_A*)(nullptr))->unsigned32, "u32"),
@@ -176,7 +176,7 @@ const std::initializer_list<const C2FieldDescriptor> C2TestStruct_A_FD_PTR_field
 INSTANTIATE_TEST_CASE_P(PointerConstructor, C2ParamTest_ParamFieldList, ::testing::Values(C2TestStruct_A_FD_PTR_fieldList));
 
 // define fields using C2FieldDescriptor member-pointer constructor
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_A_FD_MEM_PTR_fieldList =
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_A_FD_MEM_PTR_fieldList =
     { C2FieldDescriptor((C2TestStruct_A*)0, &C2TestStruct_A::signed32,   "s32"),
       C2FieldDescriptor((C2TestStruct_A*)0, &C2TestStruct_A::signed64,   "s64"),
       C2FieldDescriptor((C2TestStruct_A*)0, &C2TestStruct_A::unsigned32, "u32"),
@@ -257,8 +257,8 @@ class C2ParamTest_FlexParamFieldList : public ::testing::Test {
 protected:
     using type_t=FD::type_t;
 
-    // static std::initializer_list<std::initializer_list<const C2FieldDescriptor>>
-    static std::vector<std::vector<const C2FieldDescriptor>>
+    // static std::initializer_list<std::initializer_list<C2FieldDescriptor>>
+    static std::vector<std::vector<C2FieldDescriptor>>
             GetLists();
 
     constexpr static type_t FlexType =
@@ -278,7 +278,7 @@ TYPED_TEST_CASE(C2ParamTest_FlexParamFieldList, FlexTypes);
 
 TYPED_TEST(C2ParamTest_FlexParamFieldList, VerifyStruct) {
     for (auto a : this->GetLists()) {
-        std::vector<const C2FieldDescriptor> fields = a;
+        std::vector<C2FieldDescriptor> fields = a;
         if (fields.size() > 1) {
             EXPECT_EQ(2u, fields.size());
             EXPECT_EQ(C2FieldDescriptor(FD::INT32, 1, "s32", 0, 4), fields[0]);
@@ -295,13 +295,13 @@ TYPED_TEST(C2ParamTest_FlexParamFieldList, VerifyStruct) {
 struct C2TestStruct_FlexS32 {
     int32_t mFlex[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = kParamIndexTestFlex, FLEX_SIZE = 4 };
     // typedef C2TestStruct_FlexS32 _type;
     // typedef int32_t FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexS32::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexS32::FIELD_LIST = {
     { FD::INT32, 0, "flex", 0, 4 }
 };
 
@@ -309,18 +309,18 @@ struct C2TestStruct_FlexEndS32 {
     int32_t signed32;
     int32_t mFlex[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = kParamIndexTestFlexEnd, FLEX_SIZE = 4 };
     // typedef C2TestStruct_FlexEnd _type;
     // typedef int32_t FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexEndS32::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexEndS32::FIELD_LIST = {
     { FD::INT32, 1, "s32", 0, 4 },
     { FD::INT32, 0, "flex", 4, 4 },
 };
 
-const static std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexEndS32_ptr_fieldList = {
+const static std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexEndS32_ptr_fieldList = {
     C2FieldDescriptor(&((C2TestStruct_FlexEndS32*)0)->signed32, "s32"),
     C2FieldDescriptor(&((C2TestStruct_FlexEndS32*)0)->mFlex, "flex"),
 };
@@ -349,8 +349,8 @@ DESCRIBE_C2STRUCT(TestFlexEndS32, {
 }) // ; optional
 
 template<>
-std::vector<std::vector<const C2FieldDescriptor>>
-//std::initializer_list<std::initializer_list<const C2FieldDescriptor>>
+std::vector<std::vector<C2FieldDescriptor>>
+//std::initializer_list<std::initializer_list<C2FieldDescriptor>>
 C2ParamTest_FlexParamFieldList<int32_t>::GetLists() {
     return {
         C2TestStruct_FlexS32::FIELD_LIST,
@@ -364,13 +364,13 @@ C2ParamTest_FlexParamFieldList<int32_t>::GetLists() {
 struct C2TestStruct_FlexS64 {
     int64_t mFlexSigned64[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = kParamIndexTestFlexS64, FLEX_SIZE = 8 };
     // typedef C2TestStruct_FlexS64 _type;
     // typedef int64_t FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexS64::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexS64::FIELD_LIST = {
     { FD::INT64, 0, "flex", 0, 8 }
 };
 
@@ -378,13 +378,13 @@ struct C2TestStruct_FlexEndS64 {
     int32_t signed32;
     int64_t mSigned64Flex[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = C2TestStruct_FlexEndS64, FLEX_SIZE = 8 };
     // typedef C2TestStruct_FlexEndS64 _type;
     // typedef int64_t FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexEndS64::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexEndS64::FIELD_LIST = {
     { FD::INT32, 1, "s32", 0, 4 },
     { FD::INT64, 0, "flex", 4, 8 },
 };
@@ -411,8 +411,8 @@ DESCRIBE_C2STRUCT(TestFlexEndS64, {
 }) // ; optional
 
 template<>
-std::vector<std::vector<const C2FieldDescriptor>>
-//std::initializer_list<std::initializer_list<const C2FieldDescriptor>>
+std::vector<std::vector<C2FieldDescriptor>>
+//std::initializer_list<std::initializer_list<C2FieldDescriptor>>
 C2ParamTest_FlexParamFieldList<int64_t>::GetLists() {
     return {
         C2TestStruct_FlexS64::FIELD_LIST,
@@ -425,13 +425,13 @@ C2ParamTest_FlexParamFieldList<int64_t>::GetLists() {
 struct C2TestStruct_FlexSize {
     C2SizeStruct mFlexSize[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = kParamIndexTestFlexSize, FLEX_SIZE = 8 };
     // typedef C2TestStruct_FlexSize _type;
     // typedef C2SizeStruct FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexSize::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexSize::FIELD_LIST = {
     { C2SizeStruct::TYPE, 0, "flex", 0, sizeof(C2SizeStruct) }
 };
 
@@ -439,13 +439,13 @@ struct C2TestStruct_FlexEndSize {
     int32_t signed32;
     C2SizeStruct mSizeFlex[];
 
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     // enum : uint32_t { CORE_INDEX = C2TestStruct_FlexEndSize, FLEX_SIZE = 8 };
     // typedef C2TestStruct_FlexEndSize _type;
     // typedef C2SizeStruct FlexType;
 };
 
-const std::initializer_list<const C2FieldDescriptor> C2TestStruct_FlexEndSize::FIELD_LIST = {
+const std::initializer_list<C2FieldDescriptor> C2TestStruct_FlexEndSize::FIELD_LIST = {
     { FD::INT32, 1, "s32", 0, 4 },
     { C2SizeStruct::TYPE, 0, "flex", 4, sizeof(C2SizeStruct) },
 };
@@ -495,8 +495,8 @@ struct C2TestBaseFlexEndSize2Struct {
 };
 
 template<>
-std::vector<std::vector<const C2FieldDescriptor>>
-//std::initializer_list<std::initializer_list<const C2FieldDescriptor>>
+std::vector<std::vector<C2FieldDescriptor>>
+//std::initializer_list<std::initializer_list<C2FieldDescriptor>>
 C2ParamTest_FlexParamFieldList<C2SizeStruct>::GetLists() {
     return {
         C2TestStruct_FlexSize::FIELD_LIST,
@@ -747,7 +747,7 @@ void test3() {
 struct C2NumbersStruct {
     int32_t mNumbers[];
     enum { CORE_INDEX = kParamIndexNumber };
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST;
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST;
     C2NumbersStruct() {}
 
     FLEX(C2NumbersStruct, mNumbers);
@@ -758,16 +758,16 @@ static_assert(sizeof(C2NumbersStruct) == 0, "yes");
 
 typedef C2GlobalParam<C2Info, C2NumbersStruct> C2NumbersInfo;
 
-const std::initializer_list<const C2FieldDescriptor> C2NumbersStruct::FIELD_LIST =
+const std::initializer_list<C2FieldDescriptor> C2NumbersStruct::FIELD_LIST =
 //    { { FD::INT32, 0, "widths" } };
     { C2FieldDescriptor(&((C2NumbersStruct*)(nullptr))->mNumbers, "number") };
 
 typedef C2PortParam<C2Tuning, C2NumberStruct> C2NumberConfig;
 
-std::list<const C2FieldDescriptor> myList = C2NumberConfig::FIELD_LIST;
+std::list<C2FieldDescriptor> myList = C2NumberConfig::FIELD_LIST;
 
     std::unique_ptr<C2ParamDescriptor> __test_describe(uint32_t paramType) {
-        std::list<const C2FieldDescriptor> fields = describeC2Params<C2NumberConfig>();
+        std::list<C2FieldDescriptor> fields = describeC2Params<C2NumberConfig>();
 
         auto widths = C2NumbersInfo::AllocShared(5);
         widths->flexCount();
@@ -2238,7 +2238,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         C2Int32Value int32Value(INT32_MIN);
         static_assert(std::is_same<decltype(int32Value.value), int32_t>::value, "should be int32_t");
         EXPECT_EQ(INT32_MIN, int32Value.value);
-        std::list<const C2FieldDescriptor> fields = int32Value.FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = int32Value.FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::INT32, fields.cbegin()->type());
         EXPECT_EQ(1u, fields.cbegin()->extent());
@@ -2249,7 +2249,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         C2Uint32Value uint32Value(UINT32_MAX);
         static_assert(std::is_same<decltype(uint32Value.value), uint32_t>::value, "should be uint32_t");
         EXPECT_EQ(UINT32_MAX, uint32Value.value);
-        std::list<const C2FieldDescriptor> fields = uint32Value.FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = uint32Value.FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::UINT32, fields.cbegin()->type());
         EXPECT_EQ(1u, fields.cbegin()->extent());
@@ -2260,7 +2260,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         C2Int64Value int64Value(INT64_MIN);
         static_assert(std::is_same<decltype(int64Value.value), int64_t>::value, "should be int64_t");
         EXPECT_EQ(INT64_MIN, int64Value.value);
-        std::list<const C2FieldDescriptor> fields = int64Value.FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = int64Value.FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::INT64, fields.cbegin()->type());
         EXPECT_EQ(1u, fields.cbegin()->extent());
@@ -2271,7 +2271,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         C2Uint64Value uint64Value(UINT64_MAX);
         static_assert(std::is_same<decltype(uint64Value.value), uint64_t>::value, "should be uint64_t");
         EXPECT_EQ(UINT64_MAX, uint64Value.value);
-        std::list<const C2FieldDescriptor> fields = uint64Value.FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = uint64Value.FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::UINT64, fields.cbegin()->type());
         EXPECT_EQ(1u, fields.cbegin()->extent());
@@ -2282,7 +2282,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         C2FloatValue floatValue(123.4f);
         static_assert(std::is_same<decltype(floatValue.value), float>::value, "should be float");
         EXPECT_EQ(123.4f, floatValue.value);
-        std::list<const C2FieldDescriptor> fields = floatValue.FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = floatValue.FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::FLOAT, fields.cbegin()->type());
         EXPECT_EQ(1u, fields.cbegin()->extent());
@@ -2296,7 +2296,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         static_assert(std::is_same<decltype(blobValue->m.value), uint8_t[]>::value, "should be uint8_t[]");
         EXPECT_EQ(0, memcmp(blobValue->m.value, "ABCD\0", 6));
         EXPECT_EQ(6u, blobValue->flexCount());
-        std::list<const C2FieldDescriptor> fields = blobValue->FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = blobValue->FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::BLOB, fields.cbegin()->type());
         EXPECT_EQ(0u, fields.cbegin()->extent());
@@ -2315,7 +2315,7 @@ TEST_F(C2ParamTest, FlexParamOpsTest) {
         static_assert(std::is_same<decltype(stringValue->m.value), char[]>::value, "should be char[]");
         EXPECT_EQ(0, memcmp(stringValue->m.value, "ABCD\0", 6));
         EXPECT_EQ(6u, stringValue->flexCount());
-        std::list<const C2FieldDescriptor> fields = stringValue->FIELD_LIST;
+        std::list<C2FieldDescriptor> fields = stringValue->FIELD_LIST;
         EXPECT_EQ(1u, fields.size());
         EXPECT_EQ(FD::STRING, fields.cbegin()->type());
         EXPECT_EQ(0u, fields.cbegin()->extent());
