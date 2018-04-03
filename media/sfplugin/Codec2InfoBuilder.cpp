@@ -136,8 +136,11 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
                 }
             }
             // TODO: get this from intf().
-            if (mediaType.find("video") != std::string::npos && !encoder) {
+            if (mediaType.find("video") != std::string::npos) {
                 caps->addColorFormat(0x7F420888);  // COLOR_FormatYUV420Flexible
+                if (encoder || mediaType.find("google") == std::string::npos) {
+                    caps->addColorFormat(0x7F000789);  // COLOR_FormatSurface
+                }
             }
         }
     }
