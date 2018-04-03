@@ -21,6 +21,7 @@
 
 #include <thread>
 
+#include <C2ParamInternal.h>
 #include <C2PlatformSupport.h>
 #include <C2V4l2Support.h>
 
@@ -360,7 +361,16 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
     sp<AMessage> inputFormat(new AMessage);
     sp<AMessage> outputFormat(new AMessage);
-    auto doConfig = [=] {
+    std::vector<std::shared_ptr<C2ParamDescriptor>> paramDescs;
+
+    auto doConfig = [=, paramDescsPtr = &paramDescs] {
+        c2_status_t c2err = comp->querySupportedParams(paramDescsPtr);
+        if (c2err != C2_OK) {
+            ALOGD("Failed to query supported params");
+            // TODO: return error once we complete implementation.
+            // return UNKNOWN_ERROR;
+        }
+
         AString mime;
         if (!msg->findString("mime", &mime)) {
             return BAD_VALUE;
@@ -387,7 +397,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
             C2PortMimeConfig::input::PARAM_TYPE,
             C2PortMimeConfig::output::PARAM_TYPE,
         };
-        c2_status_t c2err = comp->query(
+        c2err = comp->query(
                 {},
                 indices,
                 C2_DONT_BLOCK,
@@ -441,6 +451,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
         Mutexed<Formats>::Locked formats(mFormats);
         formats->inputFormat = inputFormat;
         formats->outputFormat = outputFormat;
+    }
+    std::shared_ptr<C2ParamReflector> reflector = mClient->getParamReflector();
+    if (reflector != nullptr) {
+        Mutexed<ReflectedParamUpdater>::Locked paramUpdater(mParamUpdater);
+        paramUpdater->clear();
+        paramUpdater->addParamDesc(reflector, paramDescs);
+    } else {
+        ALOGE("Failed to get param reflector");
+        // TODO: report error once we complete implementation.
     }
     mCallback->onComponentConfigured(inputFormat, outputFormat);
 }
@@ -832,9 +851,66 @@ void CCodec::signalResume() {
     }
 }
 
-void CCodec::signalSetParameters(const sp<AMessage> &msg) {
-    // TODO
-    (void) msg;
+void CCodec::signalSetParameters(const sp<AMessage> &params) {
+    sp<AMessage> msg = new AMessage(kWhatSetParameters, this);
+    msg->setMessage("params", params);
+    msg->post();
+}
+
+void CCodec::setParameters(const sp<AMessage> &params) {
+    class MyParam : public C2Param {
+    public:
+        inline MyParam(uint32_t size, Index index) : C2Param(size, index) {}
+    };
+
+    std::shared_ptr<Codec2Client::Component> comp;
+    auto checkState = [this, &comp] {
+        Mutexed<State>::Locked state(mState);
+        if (state->get() == RELEASED) {
+            return INVALID_OPERATION;
+        }
+        comp = state->comp;
+        return OK;
+    };
+    if (tryAndReportOnError(checkState) != OK) {
+        return;
+    }
+
+    // TODO: ACodec backward-compatibility
+
+    c2_status_t err = C2_OK;
+    std::vector<std::unique_ptr<C2Param>> vec;
+    {
+        Mutexed<ReflectedParamUpdater>::Locked paramUpdater(mParamUpdater);
+        std::vector<C2Param::Index> indices;
+        paramUpdater->getParamIndicesFromMessage(params, &indices);
+
+        paramUpdater.unlock();
+        if (indices.empty()) {
+            ALOGD("no recognized params in: %s", params->debugString().c_str());
+            return;
+        }
+        err = comp->query({}, indices, C2_MAY_BLOCK, &vec);
+        if (err != C2_OK) {
+            ALOGD("query failed with %d", err);
+            // This is non-fatal.
+            return;
+        }
+        paramUpdater.lock();
+
+        paramUpdater->updateParamsFromMessage(params, &vec);
+    }
+
+    std::vector<C2Param *> paramVector;
+    for (const std::unique_ptr<C2Param> &param : vec) {
+        paramVector.push_back(param.get());
+    }
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+    err = comp->config(paramVector, C2_MAY_BLOCK, &failures);
+    if (err != C2_OK) {
+        ALOGD("config failed with %d", err);
+        // This is non-fatal.
+    }
 }
 
 void CCodec::signalEndOfInputStream() {
@@ -869,6 +945,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
             configure(format);
+            setParameters(format);
             break;
         }
         case kWhatStart: {
@@ -902,6 +979,13 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             CHECK(msg->findObject("surface", &obj));
             sp<PersistentSurface> surface(static_cast<PersistentSurface *>(obj.get()));
             setInputSurface(surface);
+            break;
+        }
+        case kWhatSetParameters: {
+            setDeadline(now + 50ms, "setParameters");
+            sp<AMessage> params;
+            CHECK(msg->findMessage("params", &params));
+            setParameters(params);
             break;
         }
         case kWhatWorkDone: {
