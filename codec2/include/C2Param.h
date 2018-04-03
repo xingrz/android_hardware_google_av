@@ -853,7 +853,7 @@ struct C2FieldDescriptor {
     };
 
     typedef std::pair<C2String, C2Value::Primitive> NamedValueType;
-    typedef std::vector<const NamedValueType> NamedValuesType;
+    typedef std::vector<NamedValueType> NamedValuesType;
     //typedef std::pair<std::vector<C2String>, std::vector<C2Value::Primitive>> NamedValuesType;
 
     /**
@@ -866,7 +866,7 @@ struct C2FieldDescriptor {
     template<typename B>
     static NamedValuesType namedValuesFor(const B &);
 
-    inline C2FieldDescriptor(uint32_t type, uint32_t extent, C2StringLiteral name, size_t offset, size_t size)
+    inline C2FieldDescriptor(uint32_t type, uint32_t extent, C2String name, size_t offset, size_t size)
         : _mType((type_t)type), _mExtent(extent), _mName(name), _mFieldId(offset, size) { }
 
     template<typename T, class B=typename std::remove_extent<T>::type>
@@ -888,7 +888,7 @@ struct C2FieldDescriptor {
 
     /// \deprecated
     template<typename T, typename S, class B=typename std::remove_extent<T>::type>
-    constexpr inline C2FieldDescriptor(S*, T S::* field, const char *name)
+    inline C2FieldDescriptor(S*, T S::* field, const char *name)
         : _mType(this->GetType((B*)nullptr)),
           _mExtent(std::is_array<T>::value ? std::extent<T>::value : 1),
           _mName(name),
@@ -900,7 +900,7 @@ struct C2FieldDescriptor {
     /// T[] arrays, returns 1 for T[1] arrays as well as if the field is not an array.
     inline size_t extent() const { return _mExtent; }
     /// returns the name of the field
-    inline C2StringLiteral name() const { return _mName; }
+    inline C2String name() const { return _mName; }
 
     const NamedValuesType &namedValues() const { return _mNamedValues; }
 
@@ -915,7 +915,7 @@ private:
     uint32_t _mExtent; // the last member can be arbitrary length if it is T[] array,
                        // extending to the end of the parameter (this is marked with
                        // 0). T[0]-s are not fields.
-    C2StringLiteral _mName;
+    C2String _mName;
     NamedValuesType _mNamedValues;
 
     _C2FieldId _mFieldId;   // field identifier (offset and size)
@@ -983,7 +983,7 @@ public:
     inline size_t numFields() const { return _mFields.size(); }
 
     // Returns the list of direct fields (not counting any recursive fields).
-    typedef std::vector<const C2FieldDescriptor>::const_iterator field_iterator;
+    typedef std::vector<C2FieldDescriptor>::const_iterator field_iterator;
     inline field_iterator cbegin() const { return _mFields.cbegin(); }
     inline field_iterator cend() const { return _mFields.cend(); }
 
@@ -997,12 +997,12 @@ public:
 
     inline C2StructDescriptor(
             C2Param::CoreIndex type,
-            std::initializer_list<const C2FieldDescriptor> fields)
+            std::initializer_list<C2FieldDescriptor> fields)
         : _mType(type), _mFields(fields) { }
 
 private:
     const C2Param::CoreIndex _mType;
-    const std::vector<const C2FieldDescriptor> _mFields;
+    const std::vector<C2FieldDescriptor> _mFields;
 };
 
 /**
@@ -1099,7 +1099,7 @@ private:
 #define DEFINE_BASE_C2STRUCT(name) \
 public: \
     typedef C2##name##Struct _type; /**< type name shorthand */ \
-    const static std::initializer_list<const C2FieldDescriptor> FIELD_LIST; /**< structure fields */
+    const static std::initializer_list<C2FieldDescriptor> FIELD_LIST; /**< structure fields */
 
 /// Define a structure with matching CORE_INDEX.
 #define DEFINE_C2STRUCT(name) \
@@ -1125,12 +1125,12 @@ public: \
 /// Describe a structure of a templated structure.
 #define DESCRIBE_TEMPLATED_C2STRUCT(strukt, list) \
     template<> \
-    const std::initializer_list<const C2FieldDescriptor> strukt::FIELD_LIST = list;
+    const std::initializer_list<C2FieldDescriptor> strukt::FIELD_LIST = list;
 
 /// \deprecated
 /// Describe the fields of a structure using an initializer list.
 #define DESCRIBE_C2STRUCT(name, list) \
-    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::FIELD_LIST = list;
+    const std::initializer_list<C2FieldDescriptor> C2##name##Struct::FIELD_LIST = list;
 #else
 /// \if 0
 #define DESCRIBE_TEMPLATED_C2STRUCT(strukt, list)
@@ -1228,25 +1228,25 @@ public: \
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_C2STRUCT(name) \
     DEFINE_C2STRUCT(name) } C2_PACK; \
-    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
+    const std::initializer_list<C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
 
 /// Define a flexible structure with matching CORE_INDEX and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_FLEX_C2STRUCT(name, flexMember) \
     DEFINE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; \
-    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
+    const std::initializer_list<C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
 
 /// Define a base structure (with no CORE_INDEX) and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_BASE_C2STRUCT(name) \
     DEFINE_BASE_C2STRUCT(name) } C2_PACK; \
-    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
+    const std::initializer_list<C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
 
 /// Define a flexible base structure (with no CORE_INDEX) and start describing its fields.
 /// This must be at the end of the structure definition.
 #define DEFINE_AND_DESCRIBE_BASE_FLEX_C2STRUCT(name, flexMember) \
     DEFINE_BASE_FLEX_C2STRUCT(name, flexMember) } C2_PACK; \
-    const std::initializer_list<const C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
+    const std::initializer_list<C2FieldDescriptor> C2##name##Struct::FIELD_LIST = {
 
 #else
 /// \if 0
