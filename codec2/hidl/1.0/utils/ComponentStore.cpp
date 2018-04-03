@@ -213,7 +213,7 @@ Return<void> ComponentStore::getStructDescriptors(
         getStructDescriptors_cb _hidl_cb) {
     hidl_vec<StructDescriptor> descriptors(indices.size());
     size_t dstIx = 0;
-    Status res;
+    Status res = Status::OK;
     for (size_t srcIx = 0; srcIx < indices.size(); ++srcIx) {
         std::lock_guard<std::mutex> lock(mStructDescriptorsMutex);
         const auto item = mStructDescriptors.find(

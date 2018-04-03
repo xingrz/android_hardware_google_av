@@ -1001,6 +1001,13 @@ public:
         : _mType(type), _mFields(fields) { }
 
 private:
+    friend struct _C2ParamInspector;
+
+    inline C2StructDescriptor(
+            C2Param::CoreIndex type,
+            std::vector<C2FieldDescriptor> &&fields)
+        : _mType(type), _mFields(std::move(fields)) { }
+
     const C2Param::CoreIndex _mType;
     const std::vector<C2FieldDescriptor> _mFields;
 };
