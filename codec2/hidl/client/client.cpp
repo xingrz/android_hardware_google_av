@@ -781,8 +781,9 @@ c2_status_t Codec2Client::Component::release() {
 }
 
 c2_status_t Codec2Client::Component::setOutputSurface(
+        uint64_t blockPoolId,
         const sp<IGraphicBufferProducer>& surface) {
-    Return<Status> transStatus = base()->setOutputSurface(surface);
+    Return<Status> transStatus = base()->setOutputSurface(blockPoolId, surface);
     if (!transStatus.isOk()) {
         ALOGE("setOutputSurface -- transaction failed.");
         return C2_TRANSACTION_FAILED;
