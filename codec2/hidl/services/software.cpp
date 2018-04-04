@@ -18,8 +18,6 @@
 #define LOG_TAG "hardware.google.media.c2@1.0-service-software"
 
 #include <C2PlatformSupport.h>
-#include <C2V4l2Support.h>
-#include <cutils/properties.h>
 
 #include <codec2/hidl/1.0/ComponentStore.h>
 #include <hidl/HidlTransportSupport.h>
@@ -60,22 +58,6 @@ int main(int /* argc */, char** /* argv */) {
             }
         }
 
-        // To enable the v4l2 service, set this sysprop and add "v4l2" instance
-        // to the system manifest file.
-        if (property_get_bool("debug.stagefright.ccodec_v4l2", false)) {
-            store = new utils::ComponentStore(
-                    android::GetCodec2VDAComponentStore());
-            if (store == nullptr) {
-                ALOGE("Cannot create Codec2's IComponentStore V4L2 service.");
-            } else {
-                if (store->registerAsService("v4l2") != android::OK) {
-                    ALOGE("Cannot register Codec2's "
-                            "IComponentStore V4L2 service.");
-                } else {
-                    ALOGI("Codec2's IComponentStore V4L2 service created.");
-                }
-            }
-        }
     }
 
     android::hardware::joinRpcThreadpool();
