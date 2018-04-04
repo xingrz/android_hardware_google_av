@@ -1076,6 +1076,7 @@ public:
         IS_READ_ONLY  = 1u << 3, ///< parameter is publicly read-only
         IS_HIDDEN     = 1u << 4, ///< parameter shall not be visible to clients
         IS_INTERNAL   = 1u << 5, ///< parameter shall not be used by framework (other than testing)
+        IS_CONST      = 1u << 6 | IS_READ_ONLY, ///< parameter is publicly const (hence read-only)
     };
 
     inline C2ParamDescriptor(
@@ -1100,6 +1101,9 @@ private:
 
     friend struct _C2ParamInspector;
 };
+
+DEFINE_ENUM_OPERATORS(::C2ParamDescriptor::attrib_t)
+
 
 /// \ingroup internal
 /// Define a structure without CORE_INDEX.
