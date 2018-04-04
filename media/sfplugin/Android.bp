@@ -7,6 +7,7 @@ cc_library_shared {
         "CCodecBufferChannel.cpp",
         "Codec2Buffer.cpp",
         "Codec2InfoBuilder.cpp",
+        "ReflectedParamUpdater.cpp",
     ],
 
     cflags: [

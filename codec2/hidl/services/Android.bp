@@ -12,6 +12,7 @@ cc_binary {
     shared_libs: [
         "hardware.google.media.c2@1.0",
         "libavservices_minijail_vendor",
+        "libcutils",
         "libhidlbase",
         "libhidltransport",
         "libhwbinder",
@@ -19,6 +20,7 @@ cc_binary {
         "libcodec2_hidl_utils@1.0",
         "libstagefright_codec2_vndk",
         "libutils",
+        "libv4l2_c2componentstore",
     ],
 
     arch: {
@@ -47,7 +49,6 @@ cc_binary {
     shared_libs: [
         "hardware.google.media.c2@1.0",
         "libavservices_minijail_vendor",
-        "libcutils",
         "libhidlbase",
         "libhidltransport",
         "libhwbinder",
@@ -55,7 +56,6 @@ cc_binary {
         "libcodec2_hidl_utils@1.0",
         "libstagefright_codec2_vndk",
         "libutils",
-        "libv4l2_c2componentstore",
     ],
 
     arch: {
