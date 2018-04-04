@@ -1213,19 +1213,25 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         ALOGE("# of graphic blocks expected to be 1, but %zu", blocks.size());
         return UNKNOWN_ERROR;
     }
+    const C2ConstGraphicBlock &block = blocks.front();
 
-    native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(blocks.front().handle());
+    native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(block.handle());
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;
+    uint64_t usage;
+    uint32_t stride;
+    _UnwrapNativeCodec2GrallocMetadata(
+            block.handle(), &width, &height, &format, &usage, &stride);
+    ALOGV("attaching buffer (%u*%u): (%u*%u, fmt %#x, usage %#llx, stride %u)",
+            block.width(),
+            block.height(),
+            width, height, format, (long long)usage, stride);
+
     sp<GraphicBuffer> graphicBuffer(new GraphicBuffer(
             grallocHandle,
             GraphicBuffer::CLONE_HANDLE,
-            blocks.front().width(),
-            blocks.front().height(),
-            HAL_PIXEL_FORMAT_YCbCr_420_888,
-            // TODO
-            1,
-            (uint64_t)GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN,
-            // TODO
-            blocks.front().width()));
+            width, height, format, 1, usage, stride));
     native_handle_delete(grallocHandle);
 
     status_t result = output->surface->attachBuffer(graphicBuffer.get());
@@ -1234,7 +1240,14 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         return result;
     }
 
-    // TODO: read and set crop
+    ALOGV("crop: %u,%u .. %u,%u",
+          block.crop().left, block.crop().top,
+          block.crop().width, block.crop().height);
+    android_native_rect_t cropRect = {
+        (int32_t)block.crop().left, (int32_t)block.crop().top,
+        (int32_t)block.crop().right(), (int32_t)block.crop().bottom()
+    };
+    result = native_window_set_crop(output->surface.get(), &cropRect);
 
     result = native_window_set_buffers_timestamp(output->surface.get(), timestampNs);
     ALOGW_IF(result != OK, "failed to set buffer timestamp: %d", result);
