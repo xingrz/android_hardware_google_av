@@ -1240,7 +1240,14 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         return result;
     }
 
-    // TODO: read and set crop
+    ALOGV("crop: %u,%u .. %u,%u",
+          block.crop().left, block.crop().top,
+          block.crop().width, block.crop().height);
+    android_native_rect_t cropRect = {
+        (int32_t)block.crop().left, (int32_t)block.crop().top,
+        (int32_t)block.crop().right(), (int32_t)block.crop().bottom()
+    };
+    result = native_window_set_crop(output->surface.get(), &cropRect);
 
     result = native_window_set_buffers_timestamp(output->surface.get(), timestampNs);
     ALOGW_IF(result != OK, "failed to set buffer timestamp: %d", result);
