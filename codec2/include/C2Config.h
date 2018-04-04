@@ -259,4 +259,4 @@ typedef C2StreamParam<C2Tuning, C2VideoSizeStruct, kParamIndexVideoSizeTuning> C
 
 /// @}
 
-#endif
+#endif  // C2CONFIG_H_
