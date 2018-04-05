@@ -21,6 +21,7 @@
 #include <C2Work.h>
 
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <type_traits>
 
@@ -769,6 +770,193 @@ private:
      * Vector of individual setting result details.
      */
     std::vector<std::unique_ptr<C2SettingResult>> _mResults;
+};
+
+/**
+ * Utility class to enumerate fields of parameters.
+ */
+struct C2FieldUtils {
+    /**
+     * An extended field descriptor object with structural information (lineage back to the root of
+     * the param).
+     */
+    struct Info {
+        typedef C2FieldDescriptor::type_t type_t; ///< field type
+        typedef C2FieldDescriptor::NamedValuesType NamedValuesType; ///< named values list type
+
+        /// returns the name of the field
+        C2String name() const;
+
+        /// returns the type of this field
+        type_t type() const;
+
+        /**
+         * Returns the defined name-value pairings for this field. The returned reference is
+         * only valid during the validity of this object
+         */
+        const NamedValuesType &namedValues() const;
+
+        /**
+         * The index of this field. E.g. param.field or param.field[0] has an index of 0, and
+         * param.struct[2].field[3] has an index of 3.
+         */
+        size_t index() const;
+
+        /// returns the length of the field in case it is an array. Returns 0 for
+        /// T[] arrays if this info comes from a C2Param::Index object, and the currently used
+        /// extent if it comes from a C2Param object. Returns 1 for T[1] arrays as well as if the
+        /// field is not an array.
+        size_t extent() const;
+
+        /**
+         * The (structural) depth of this field. E.g. param.field or param.field[0] has a depth of
+         *  0, and param.struct.field or param.struct[0].field[0] has a depth of 1.
+         */
+        size_t depth() const;
+
+        /**
+         * Returns the offset of this field in the parameter in bytes.
+         */
+        size_t offset() const;
+
+        /**
+         * Returns the size of this field in bytes.
+         */
+        size_t size() const;
+
+        /**
+         * The offset of this field's array. E.g. for param.struct[2].field[3] this is the offset
+         * of its smallest sibling: param.struct[2].field[0].
+         */
+        size_t arrayOffset() const;
+
+        /**
+         * Returns the size of this field's array. This is equivalent to extent() * size()
+         */
+        size_t arraySize() const;
+
+        /**
+         * The offset of the base field. The base field is a cousin of the current field where
+         * all indices are 0. E.g. the the base field for param.struct[2].field[3] is
+         * param.struct[0].field[0]. Base fields are used to specify supported values for
+         * all cousin fields.
+         */
+        size_t baseFieldOffset() const;
+
+        /**
+         * Returns whether this field is an arithmetic (integral, counter or float) field.
+         */
+        bool isArithmetic() const;
+
+        /**
+         * Returns whether this field can have a flexible extent. extent() returns the current
+         * extent.
+         */
+        bool isFlexible() const;
+
+        /// returns whether this info is valid
+        inline bool isValid() const { return _mImpl != nullptr; }
+
+        /// returns the info for the parent of this field, or an invalid Info object if it has no
+        /// parents
+        Info parent() const;
+
+        /// returns whether this info is valid
+        inline operator bool() const { return isValid(); }
+
+        struct Impl;
+        Info(std::shared_ptr<Impl>);
+
+    private:
+        std::shared_ptr<Impl> _mImpl;
+    };
+
+    /**
+     * An (input) iterator object over fields using Info objects.
+     */
+    struct Iterator {
+        typedef Info const value_type;
+        typedef ptrdiff_t difference_type;
+        typedef Info const * pointer;
+        typedef Info const reference;
+        typedef std::input_iterator_tag iterator_category;
+
+        /// return Info at current position
+        virtual reference operator*() const;
+
+        /// move to the next field
+        virtual Iterator& operator++();
+
+        virtual bool operator==(const Iterator &) const;
+        inline bool operator!=(const Iterator &other) const { return !operator==(other); }
+
+        virtual ~Iterator() = default;
+
+        struct Impl;
+        Iterator(std::shared_ptr<Impl>);
+
+    protected:
+        std::shared_ptr<Impl> mImpl;
+    };
+
+    /**
+     * An (input) iterable object representing a list of fields.
+     */
+    struct List {
+        /// returns an iterator to the beginning of the list
+        virtual Iterator begin() const;
+
+        /// returns an iterator to the end of the list
+        virtual Iterator end() const;
+
+        virtual ~List() = default;
+
+        struct Impl;
+        List(std::shared_ptr<Impl>);
+
+    protected:
+        std::shared_ptr<Impl> mImpl;
+    };
+
+    /**
+     * Enumerates all (base) fields at index 0 of the parameter. The order of iteration is the
+     * following:
+     *   Fields of a structure are enumerated in field order. However, sub-fields of a structure
+     *   are enumerated directly after the structure field, and prior to sibling fields.
+     *
+     * In essence the order of enumeration is first by increasing offset, then by decreasing size.
+     *
+     * \param param parameter to enumerate its fields
+     * \param reflector parameter reflector used for enumeration
+     *
+     * \return an iterable object
+     */
+    static List enumerateFields(
+            const C2Param &param,
+            const std::shared_ptr<C2ParamReflector> &reflector);
+
+    /**
+     * Enumerates all cousin fields up to depth - level for a field. If level is 0, it enumerates
+     * only the field. For level 1, it enumerates all fields in its current array (which may be
+     * itself if extent is 1). The order of iteration is by increasing field offset.
+     */
+    static List enumerateCousins(
+            const Info &field,
+            uint32_t level);
+
+    /**
+     * Locates the field in a parameter and returns a list of 2 elements - the most-specific field
+     * array of the parameter that contains the entire field. If the field is not a valid field
+     * specifier for this parameter (e.g. it is outside the bounds of the parameter), it returns
+     * an empty list.
+     */
+    static std::vector<Info> locateField(
+            const C2Param &param, const _C2FieldId &field,
+            const std::shared_ptr<C2ParamReflector> &reflector);
+
+    static std::vector<Info> locateField(
+            const C2ParamField &pf, const std::shared_ptr<C2ParamReflector> &reflector);
+
 };
 
 #include <util/C2Debug-interface.h>
