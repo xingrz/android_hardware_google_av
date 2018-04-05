@@ -620,6 +620,7 @@ struct _C2FieldId {
 
 private:
     friend struct _C2ParamInspector;
+    friend struct C2FieldDescriptor;
 
     uint32_t _mOffset; // offset of field
     uint32_t _mSize;   // size of field
@@ -874,6 +875,8 @@ public:
     inline C2FieldDescriptor(uint32_t type, uint32_t extent, C2String name, size_t offset, size_t size)
         : _mType((type_t)type), _mExtent(extent), _mName(name), _mFieldId(offset, size) { }
 
+    inline C2FieldDescriptor(const C2FieldDescriptor &) = default;
+
     template<typename T, class B=typename std::remove_extent<T>::type>
     inline C2FieldDescriptor(const T* offset, const char *name)
         : _mType(this->GetType((B*)nullptr)),
@@ -916,6 +919,14 @@ public:
 #endif
 
 private:
+    /**
+     * Construct an offseted field descriptor.
+     */
+    inline C2FieldDescriptor(const C2FieldDescriptor &desc, size_t offset)
+        : _mType(desc._mType), _mExtent(desc._mExtent),
+          _mName(desc._mName), _mNamedValues(desc._mNamedValues),
+          _mFieldId(desc._mFieldId._mOffset + offset, desc._mFieldId._mSize) { }
+
     type_t _mType;
     uint32_t _mExtent; // the last member can be arbitrary length if it is T[] array,
                        // extending to the end of the parameter (this is marked with
