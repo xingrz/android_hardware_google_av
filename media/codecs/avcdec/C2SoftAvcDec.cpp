@@ -74,20 +74,6 @@ std::shared_ptr<C2ComponentInterface> BuildIntf(
             .build();
 }
 
-void CopyPlane(
-        uint8_t *dst, const C2PlaneInfo &plane,
-        const uint8_t *src, uint32_t width, uint32_t height) {
-    for (uint32_t row = 0; row < height; ++row) {
-        for (uint32_t col = 0; col < width; ++col) {
-            *dst = *src;
-            dst += plane.colInc;
-            ++src;
-        }
-        dst -= plane.colInc * width;
-        dst += plane.rowInc;
-    }
-}
-
 void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
     uint32_t flags = 0;
     if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM)) {
@@ -154,6 +140,12 @@ void C2SoftAvcDec::onRelease() {
 c2_status_t C2SoftAvcDec::onFlush_sm() {
     setFlushMode();
 
+    uint32_t bufferSize = mStride * mHeight * 3 / 2;
+    mOutBuffer = (uint8_t *)memalign(128, bufferSize);
+    if (NULL == mOutBuffer) {
+        ALOGE("Could not allocate output buffer of size %u", bufferSize);
+        return C2_NO_MEMORY;
+    }
     while (true) {
         ivd_video_decode_ip_t s_dec_ip;
         ivd_video_decode_op_t s_dec_op;
@@ -169,10 +161,8 @@ c2_status_t C2SoftAvcDec::onFlush_sm() {
         }
     }
 
-    if (mOutBuffer) {
-        free(mOutBuffer);
-        mOutBuffer = NULL;
-    }
+    free(mOutBuffer);
+    mOutBuffer = NULL;
     return C2_OK;
 }
 
@@ -248,16 +238,6 @@ status_t C2SoftAvcDec::setParams(size_t stride) {
                 s_ctl_op.u4_error_code);
 
         return UNKNOWN_ERROR;
-    }
-
-    if (mOutBuffer != NULL) {
-        free(mOutBuffer);
-    }
-    uint32_t bufferSize = mWidth * mHeight * 3 / 2;
-    mOutBuffer = (uint8_t *)memalign(128, bufferSize);
-    if (NULL == mOutBuffer) {
-        ALOGE("Could not allocate output buffer of size %u", bufferSize);
-        return C2_NO_MEMORY;
     }
     return OK;
 }
@@ -345,7 +325,7 @@ status_t C2SoftAvcDec::initDecoder() {
     mNumCores = GetCPUCoreCount();
     mCodecCtx = NULL;
 
-    mStride = mWidth;
+    mStride = ALIGN64(mWidth);
 
     /* Initialize the decoder */
     {
@@ -468,7 +448,7 @@ bool C2SoftAvcDec::setDecodeArgs(
         C2GraphicView *outBuffer,
         uint32_t workIndex,
         size_t inOffset) {
-    size_t width = mWidth;
+    size_t width = mStride;
     size_t height = mHeight;
     size_t sizeY = width * height;
     size_t sizeUV;
@@ -503,24 +483,9 @@ bool C2SoftAvcDec::setDecodeArgs(
                   outBuffer->width(), outBuffer->height(), width, height);
             return false;
         }
-        ALOGV("width = %u, stride[0] = %u, stride[1] = %u, stride[2] = %u",
-                outBuffer->width(),
-                outBuffer->layout().planes[0].rowInc,
-                outBuffer->layout().planes[1].rowInc,
-                outBuffer->layout().planes[2].rowInc);
-        const C2PlanarLayout &layout = outBuffer->layout();
         ps_dec_ip->s_out_buffer.pu1_bufs[0] = outBuffer->data()[0];
-        if (layout.planes[0].rowInc != (int32_t)mWidth || layout.planes[1].colInc != 1) {
-            ps_dec_ip->s_out_buffer.pu1_bufs[0] = mOutBuffer;
-        }
         ps_dec_ip->s_out_buffer.pu1_bufs[1] = outBuffer->data()[1];
-        if (layout.planes[1].rowInc != (int32_t)mWidth / 2 || layout.planes[1].colInc != 1) {
-            ps_dec_ip->s_out_buffer.pu1_bufs[1] = mOutBuffer + sizeY;
-        }
         ps_dec_ip->s_out_buffer.pu1_bufs[2] = outBuffer->data()[2];
-        if (layout.planes[2].rowInc != (int32_t)mWidth / 2 || layout.planes[2].colInc != 1) {
-            ps_dec_ip->s_out_buffer.pu1_bufs[2] = mOutBuffer + sizeY + sizeUV;
-        }
     } else {
         // mOutBuffer always has the right size.
         ps_dec_ip->s_out_buffer.pu1_bufs[0] = mOutBuffer;
@@ -541,9 +506,9 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
             return C2_CORRUPTED;
         }
     }
-    if (mWidth != mStride) {
+    if (mStride != ALIGN64(mWidth)) {
         /* Set the run-time (dynamic) parameters */
-        mStride = mWidth;
+        mStride = ALIGN64(mWidth);
         setParams(mStride);
     }
 
@@ -555,19 +520,21 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
         ALOGV("using allocator %u", pool->getAllocatorId());
 
         (void)pool->fetchGraphicBlock(
-                mWidth, mHeight, format, usage, &mAllocatedBlock);
+                mStride, mHeight, format, usage, &mAllocatedBlock);
         ALOGV("provided (%dx%d) required (%dx%d)",
-                mAllocatedBlock->width(), mAllocatedBlock->height(), mWidth, mHeight);
+                mAllocatedBlock->width(), mAllocatedBlock->height(), mStride, mHeight);
     }
     return C2_OK;
 }
 
 void C2SoftAvcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work) {
-    std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(mAllocatedBlock);
-    mAllocatedBlock.reset();
-    auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
+    std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(std::move(mAllocatedBlock),
+                                                           C2Rect(mWidth, mHeight));
+    mAllocatedBlock = nullptr;
+    auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
         uint32_t flags = 0;
-        if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
+        if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
+                (c2_cntr64_t(index) == work->input.ordinal.frameIndex)) {
             flags |= C2FrameData::FLAG_END_OF_STREAM;
             ALOGV("EOS");
         }
@@ -654,22 +621,6 @@ void C2SoftAvcDec::process(
             IV_API_CALL_STATUS_T status;
             status = ivdec_api_function(mCodecCtx, (void *)&s_dec_ip, (void *)&s_dec_op);
             ALOGV("status = %d, error_code = %d", status, (s_dec_op.u4_error_code & 0xFF));
-            if (s_dec_op.u4_output_present) {
-                const C2PlanarLayout &layout = output.layout();
-                if (layout.planes[0].rowInc != (int32_t)mWidth || layout.planes[1].colInc != 1) {
-                    CopyPlane(output.data()[0], layout.planes[0], mOutBuffer, mWidth, mHeight);
-                }
-                if (layout.planes[1].rowInc != (int32_t)mWidth / 2 || layout.planes[1].colInc != 1) {
-                    CopyPlane(
-                            output.data()[1], layout.planes[1],
-                            mOutBuffer + (mWidth * mHeight), mWidth / 2, mHeight / 2);
-                }
-                if (layout.planes[2].rowInc != (int32_t)mWidth / 2 || layout.planes[2].colInc != 1) {
-                    CopyPlane(
-                            output.data()[2], layout.planes[2],
-                            mOutBuffer + (mWidth * mHeight * 5 / 4), mWidth / 2, mHeight / 2);
-                }
-            }
         }
 
         bool unsupportedResolution =
@@ -720,7 +671,7 @@ void C2SoftAvcDec::process(
             }
             resetDecoder();
             resetPlugin();
-            mStride = mWidth;
+            mStride = ALIGN64(mWidth);
             setParams(mStride);
             continue;
         }
