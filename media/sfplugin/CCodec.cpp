@@ -248,6 +248,7 @@ CCodec::CCodec()
           mCallback->onError(err, actionCode);
       })) {
     CCodecWatchdog::getInstance()->registerCodec(this);
+    initializeStandardParams();
 }
 
 CCodec::~CCodec() {
@@ -857,12 +858,79 @@ void CCodec::signalSetParameters(const sp<AMessage> &params) {
     msg->post();
 }
 
-void CCodec::setParameters(const sp<AMessage> &params) {
-    class MyParam : public C2Param {
-    public:
-        inline MyParam(uint32_t size, Index index) : C2Param(size, index) {}
-    };
+void CCodec::initializeStandardParams() {
+    mStandardParams.emplace("bitrate",          "coded.bitrate.value");
+    mStandardParams.emplace("video-bitrate",    "coded.bitrate.value");
+    mStandardParams.emplace("bitrate-mode",     "coded.bitrate-mode.value");
+    mStandardParams.emplace("frame-rate",       "coded.frame-rate.value");
+    mStandardParams.emplace("max-input-size",   "coded.max-frame-size.value");
+    mStandardParams.emplace("rotation-degrees", "coded.vui.rotation.value");
 
+    mStandardParams.emplace("prepend-sps-pps-to-idr-frames", "coding.add-csd-to-sync-frames.value");
+    mStandardParams.emplace("i-frame-period",   "coding.gop.intra-period");
+    mStandardParams.emplace("intra-refresh-period", "coding.intra-refresh.period");
+    mStandardParams.emplace("quality",          "coding.quality.value");
+    mStandardParams.emplace("request-sync",     "coding.request-sync.value");
+
+    mStandardParams.emplace("operating-rate",   "ctrl.operating-rate.value");
+    mStandardParams.emplace("priority",         "ctrl.priority.value");
+
+    mStandardParams.emplace("channel-count",    "raw.channel-count.value");
+    mStandardParams.emplace("max-width",        "raw.max-size.width");
+    mStandardParams.emplace("max-height",       "raw.max-size.height");
+    mStandardParams.emplace("pcm-encoding",     "raw.pcm-encoding.value");
+    mStandardParams.emplace("color-format",     "raw.pixel-format.value");
+    mStandardParams.emplace("sample-rate",      "raw.sample-rate.value");
+    mStandardParams.emplace("width",            "raw.size.width");
+    mStandardParams.emplace("height",           "raw.size.height");
+
+    // mStandardParams.emplace("stride", "raw.??");
+    // mStandardParams.emplace("slice-height", "raw.??");
+}
+
+sp<AMessage> CCodec::filterParameters(const sp<AMessage> &params) const {
+    sp<AMessage> filtered = params->dup();
+
+    // TODO: some params may require recalculation or a type fix
+    // e.g. i-frame-interval here
+    {
+        int32_t frameRateInt;
+        if (filtered->findInt32("frame-rate", &frameRateInt)) {
+            filtered->removeEntryAt(filtered->findEntryByName("frame-rate"));
+            filtered->setFloat("frame-rate", frameRateInt);
+        }
+    }
+
+    {
+        float frameRate;
+        int32_t iFrameInterval;
+        if (filtered->findInt32("i-frame-interval", &iFrameInterval)
+                && filtered->findFloat("frame-rate", &frameRate)) {
+            filtered->setInt32("i-frame-period", iFrameInterval * frameRate + 0.5);
+        }
+    }
+
+    for (size_t ix = 0; ix < filtered->countEntries();) {
+        AMessage::Type type;
+        AString name = filtered->getEntryNameAt(ix, &type);
+        if (name.startsWith("vendor.")) {
+            // vendor params pass through as is
+            ++ix;
+            continue;
+        }
+        auto it = mStandardParams.find(name.c_str());
+        if (it == mStandardParams.end()) {
+            // non-standard parameters are filtered out
+            filtered->removeEntryAt(ix);
+            continue;
+        }
+        filtered->setEntryNameAt(ix++, it->second.c_str());
+    }
+    ALOGV("filtered %s to %s", params->debugString(4).c_str(), filtered->debugString(4).c_str());
+    return filtered;
+}
+
+void CCodec::setParameters(const sp<AMessage> &unfiltered) {
     std::shared_ptr<Codec2Client::Component> comp;
     auto checkState = [this, &comp] {
         Mutexed<State>::Locked state(mState);
@@ -876,7 +944,7 @@ void CCodec::setParameters(const sp<AMessage> &params) {
         return;
     }
 
-    // TODO: ACodec backward-compatibility
+    sp<AMessage> params = filterParameters(unfiltered);
 
     c2_status_t err = C2_OK;
     std::vector<std::unique_ptr<C2Param>> vec;
