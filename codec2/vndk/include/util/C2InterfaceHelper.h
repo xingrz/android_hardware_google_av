@@ -91,7 +91,7 @@ private:
     C2_INLINE void addStructDescriptors(
             std::vector<C2StructDescriptor> &structs, _C2Tuple<T, Params...> *) {
         structs.emplace_back((T*)nullptr);
-        addStructDescriptors((_C2Tuple<Params...> *)nullptr);
+        addStructDescriptors(structs, (_C2Tuple<Params...> *)nullptr);
     }
 
     mutable std::mutex _mMutex;
