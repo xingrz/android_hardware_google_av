@@ -512,3 +512,486 @@ C2SettingResultsBuilder::C2SettingResultsBuilder(c2_status_t status) : _mStatus(
 
 #pragma clang diagnostic pop
 
+/* ------------------------- C2FieldUtils ------------------------- */
+
+
+/* ------------------------- C2FieldUtils::Info ------------------------- */
+
+struct C2_HIDE C2FieldUtils::Info::Impl {
+    C2FieldDescriptor field;
+    std::shared_ptr<Impl> parent;
+    uint32_t index;
+    uint32_t depth;
+    uint32_t baseFieldOffset;
+    uint32_t arrayOffset;
+    uint32_t usedExtent;
+
+    Impl(const C2FieldDescriptor &field_, std::shared_ptr<Impl> parent_,
+            uint32_t index_, uint32_t depth_, uint32_t baseFieldOffset_,
+            uint32_t arrayOffset_, uint32_t usedExtent_)
+        : field(field_), parent(parent_), index(index_), depth(depth_),
+          baseFieldOffset(baseFieldOffset_), arrayOffset(arrayOffset_), usedExtent(usedExtent_) { }
+};
+
+C2String C2FieldUtils::Info::name() const {
+    return _mImpl->field.name();
+}
+
+C2FieldUtils::Info::type_t C2FieldUtils::Info::type() const {
+    return _mImpl->field.type();
+}
+
+size_t C2FieldUtils::Info::offset() const {
+    return _C2ParamInspector::GetOffset(_mImpl->field);
+}
+
+size_t C2FieldUtils::Info::size() const {
+    return _C2ParamInspector::GetSize(_mImpl->field);
+}
+
+const C2FieldUtils::Info::NamedValuesType &C2FieldUtils::Info::namedValues() const {
+    return _mImpl->field.namedValues();
+}
+
+size_t C2FieldUtils::Info::index() const {
+    return _mImpl->index;
+}
+
+size_t C2FieldUtils::Info::extent() const {
+    return _mImpl->usedExtent;
+}
+
+bool C2FieldUtils::Info::isArithmetic() const {
+    switch (_mImpl->field.type()) {
+    case C2FieldDescriptor::BLOB:
+    case C2FieldDescriptor::CNTR32:
+    case C2FieldDescriptor::CNTR64:
+    case C2FieldDescriptor::FLOAT:
+    case C2FieldDescriptor::INT32:
+    case C2FieldDescriptor::INT64:
+    case C2FieldDescriptor::STRING:
+    case C2FieldDescriptor::UINT32:
+    case C2FieldDescriptor::UINT64:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool C2FieldUtils::Info::isFlexible() const {
+    return _mImpl->field.extent() == 0;
+}
+
+size_t C2FieldUtils::Info::depth() const {
+    return _mImpl->depth;
+}
+
+size_t C2FieldUtils::Info::arrayOffset() const {
+    return _mImpl->arrayOffset;
+}
+
+size_t C2FieldUtils::Info::arraySize() const {
+    return extent() * size();
+}
+
+size_t C2FieldUtils::Info::baseFieldOffset() const {
+    return _mImpl->baseFieldOffset;
+};
+
+C2FieldUtils::Info C2FieldUtils::Info::parent() const {
+    return Info(_mImpl->parent);
+};
+
+C2FieldUtils::Info::Info(std::shared_ptr<C2FieldUtils::Info::Impl> impl)
+    : _mImpl(impl) { }
+
+/* ------------------------- C2FieldUtils::Iterator ------------------------- */
+
+struct C2_HIDE C2FieldUtils::Iterator::Impl : public _C2ParamInspector {
+    Impl() = default;
+
+    virtual ~Impl() = default;
+
+    virtual bool equals(const std::shared_ptr<Impl> &other) const {
+        return other != nullptr && mHead == other->mHead;
+    };
+
+    virtual value_type get() const {
+        return Info(mHead);
+    }
+
+    // note: this cannot be abstract as we instantiate this for List::end(). increment to end()
+    // instead.
+    virtual void increment() {
+        mHead.reset();
+    }
+
+protected:
+    Impl(std::shared_ptr<C2FieldUtils::Info::Impl> head)
+        : mHead(head) { }
+
+    std::shared_ptr<Info::Impl> mHead; ///< current field
+};
+
+C2FieldUtils::Iterator::Iterator(std::shared_ptr<Impl> impl)
+    : mImpl(impl) { }
+
+C2FieldUtils::Iterator::value_type C2FieldUtils::Iterator::operator*() const {
+    return mImpl->get();
+}
+
+C2FieldUtils::Iterator& C2FieldUtils::Iterator::operator++() {
+    mImpl->increment();
+    return *this;
+}
+
+bool C2FieldUtils::Iterator::operator==(const Iterator &other) const {
+    return mImpl->equals(other.mImpl);
+}
+
+/* ------------------------- C2FieldUtils::List ------------------------- */
+
+struct C2_HIDE C2FieldUtils::List::Impl {
+    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> begin() const = 0;
+
+    /// returns an iterator to the end of the list
+    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> end() const {
+        return std::make_shared<C2FieldUtils::Iterator::Impl>();
+    }
+
+    virtual ~Impl() = default;
+};
+
+C2FieldUtils::List::List(std::shared_ptr<Impl> impl)
+    : mImpl(impl) { }
+
+C2FieldUtils::Iterator C2FieldUtils::List::begin() const {
+    return C2FieldUtils::Iterator(mImpl->begin());
+}
+
+C2FieldUtils::Iterator C2FieldUtils::List::end() const {
+    return C2FieldUtils::Iterator(mImpl->end());
+}
+
+/* ------------------------- C2FieldUtils::enumerateFields ------------------------- */
+
+namespace {
+
+/**
+ * Iterator base class helper that allows descending into the field hierarchy.
+ */
+struct C2FieldUtilsFieldsIteratorHelper : public C2FieldUtils::Iterator::Impl {
+    virtual ~C2FieldUtilsFieldsIteratorHelper() override = default;
+
+    /// returns the base-field's offset of the parent field (or the param offset if no parent)
+    static inline uint32_t GetParentBaseFieldOffset(
+            const std::shared_ptr<C2FieldUtils::Info::Impl> parent) {
+        return parent == nullptr ? sizeof(C2Param) : parent->baseFieldOffset;
+    }
+
+    /// returns the offset of the parent field (or the param)
+    static inline uint32_t GetParentOffset(const std::shared_ptr<C2FieldUtils::Info::Impl> parent) {
+        return parent == nullptr ? sizeof(C2Param) : GetOffset(parent->field);
+    }
+
+protected:
+    C2FieldUtilsFieldsIteratorHelper(
+            std::shared_ptr<C2ParamReflector> reflector,
+            uint32_t paramSize,
+            std::shared_ptr<C2FieldUtils::Info::Impl> head = nullptr)
+        : C2FieldUtils::Iterator::Impl(head),
+          mParamSize(paramSize),
+          mReflector(reflector) { }
+
+    /// returns a leaf info object at a specific index for a child field
+    std::shared_ptr<C2FieldUtils::Info::Impl> makeLeaf(
+            const C2FieldDescriptor &field, uint32_t index) {
+        uint32_t parentOffset = GetParentOffset(mHead);
+        uint32_t arrayOffset = parentOffset + GetOffset(field);
+        uint32_t usedExtent = field.extent() ? :
+                (std::max(arrayOffset, mParamSize) - arrayOffset) / GetSize(field);
+
+        return std::make_shared<C2FieldUtils::Info::Impl>(
+                OffsetFieldDescriptor(field, parentOffset + index * GetSize(field)),
+                mHead /* parent */, index, mHead == nullptr ? 0 : mHead->depth + 1,
+                GetParentBaseFieldOffset(mHead) + GetOffset(field),
+                arrayOffset, usedExtent);
+    }
+
+    /// returns whether this struct index have been traversed to get to this field
+    bool visited(C2Param::CoreIndex index) const {
+        for (const std::shared_ptr<C2StructDescriptor> &sd : mHistory) {
+            if (sd->coreIndex() == index) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    uint32_t mParamSize;
+    std::shared_ptr<C2ParamReflector> mReflector;
+    std::vector<std::shared_ptr<C2StructDescriptor>> mHistory; // structure types visited
+};
+
+
+/**
+ * Iterator implementing enumerateFields() that visits each base field.
+ */
+struct C2FieldUtilsFieldsIterator : public C2FieldUtilsFieldsIteratorHelper {
+    /// enumerate base fields of a parameter
+    C2FieldUtilsFieldsIterator(const C2Param &param, std::shared_ptr<C2ParamReflector> reflector)
+        : C2FieldUtilsFieldsIteratorHelper(reflector, param.size()) {
+        descendInto(param.coreIndex());
+    }
+
+    /// enumerate base fields of a field
+    C2FieldUtilsFieldsIterator(std::shared_ptr<C2FieldUtilsFieldsIterator> impl)
+        : C2FieldUtilsFieldsIteratorHelper(impl->mReflector, impl->mParamSize, impl->mHead) {
+        mHistory = impl->mHistory;
+        if (mHead->field.type() & C2FieldDescriptor::STRUCT_FLAG) {
+            C2Param::CoreIndex index = { mHead->field.type() &~C2FieldDescriptor::STRUCT_FLAG };
+            if (!visited(index)) {
+                descendInto(index);
+            }
+        }
+    }
+
+    virtual ~C2FieldUtilsFieldsIterator() override = default;
+
+    /// Increments this iterator by visiting each base field.
+    virtual void increment() override {
+        // don't go past end
+        if (mHead == nullptr || _mFields.empty()) {
+            return;
+        }
+
+        // descend into structures
+        if (mHead->field.type() & C2FieldDescriptor::STRUCT_FLAG) {
+            C2Param::CoreIndex index = { mHead->field.type() &~C2FieldDescriptor::STRUCT_FLAG };
+            // do not recurse into the same structs
+            if (!visited(index) && descendInto(index)) {
+                return;
+            }
+        }
+
+        // ascend after the last field in the current struct
+        while (!mHistory.empty() && _mFields.back() == mHistory.back()->end()) {
+            mHead = mHead->parent;
+            mHistory.pop_back();
+            _mFields.pop_back();
+        }
+
+        // done if history is now empty
+        if (_mFields.empty()) {
+            // we could be traversing a sub-tree so clear head
+            mHead.reset();
+            return;
+        }
+
+        // move to the next field in the current struct
+        C2StructDescriptor::field_iterator next = _mFields.back();
+        mHead->field = OffsetFieldDescriptor(*next, GetParentOffset(mHead->parent));
+        mHead->index = 0; // reset index just in case for correctness
+        mHead->baseFieldOffset = GetParentBaseFieldOffset(mHead->parent) + GetOffset(*next);
+        mHead->arrayOffset = GetOffset(mHead->field);
+        mHead->usedExtent = mHead->field.extent() ? :
+                (std::max(mHead->arrayOffset, mParamSize) - mHead->arrayOffset)
+                        / GetSize(mHead->field);
+        ++_mFields.back();
+    }
+
+private:
+    /// If the current field is a known, valid (untraversed) structure, it modifies this iterator
+    /// to point to the first field of the structure and returns true. Otherwise, it does not
+    /// modify this iterator and returns false.
+    bool descendInto(C2Param::CoreIndex index) {
+        std::unique_ptr<C2StructDescriptor> descUnique = mReflector->describe(index);
+        // descend into known structs (as long as they have at least one field)
+        if (descUnique && descUnique->begin() != descUnique->end()) {
+            std::shared_ptr<C2StructDescriptor> desc(std::move(descUnique));
+            mHistory.emplace_back(desc);
+            C2StructDescriptor::field_iterator first = desc->begin();
+            mHead = makeLeaf(*first, 0 /* index */);
+            _mFields.emplace_back(++first);
+            return true;
+        }
+        return false;
+    }
+
+    /// next field pointers for each depth.
+    /// note: _mFields may be shorted than mHistory, if iterating at a depth
+    std::vector<C2StructDescriptor::field_iterator> _mFields;
+};
+
+/**
+ * Iterable implementing enumerateFields().
+ */
+struct C2FieldUtilsFieldIterable : public C2FieldUtils::List::Impl {
+    /// returns an iterator to the beginning of the list
+    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> begin() const override {
+        return std::make_shared<C2FieldUtilsFieldsIterator>(*_mParam, _mReflector);
+    };
+
+    C2FieldUtilsFieldIterable(const C2Param &param, std::shared_ptr<C2ParamReflector> reflector)
+        : _mParam(&param), _mReflector(reflector) { }
+
+private:
+    const C2Param *_mParam;
+    std::shared_ptr<C2ParamReflector> _mReflector;
+};
+
+}
+
+C2FieldUtils::List C2FieldUtils::enumerateFields(
+        const C2Param &param, const std::shared_ptr<C2ParamReflector> &reflector) {
+    return C2FieldUtils::List(std::make_shared<C2FieldUtilsFieldIterable>(param, reflector));
+}
+
+/* ------------------------- C2FieldUtils::locateField ------------------------- */
+
+namespace {
+
+/**
+ * Iterator implementing locateField().
+ */
+struct C2FieldUtilsFieldLocator : public C2FieldUtilsFieldsIteratorHelper {
+    C2FieldUtilsFieldLocator(
+            C2Param::CoreIndex index, const _C2FieldId &field, uint32_t paramSize,
+            std::shared_ptr<C2ParamReflector> reflector)
+        : C2FieldUtilsFieldsIteratorHelper(reflector, paramSize),
+          _mField(field) {
+        while (descendInto(index)) {
+            if ((mHead->field.type() & C2FieldDescriptor::STRUCT_FLAG) == 0) {
+                break;
+            }
+            index = C2Param::CoreIndex(mHead->field.type() &~ C2FieldDescriptor::STRUCT_FLAG);
+        }
+    }
+
+    void increment() {
+        mHead = _mTail;
+        _mTail = nullptr;
+    }
+
+private:
+    /// If the current field is a known, valid (untraversed) structure, it modifies this iterator
+    /// to point to the field at the beginning/end of the given field of the structure and returns
+    /// true. Otherwise, including if no such field exists in the structure, it does not modify this
+    /// iterator and returns false.
+    bool descendInto(C2Param::CoreIndex index) {
+        // check that the boundaries of the field to be located are still within the same parent
+        // field
+        if (mHead != _mTail) {
+            return false;
+        }
+
+        std::unique_ptr<C2StructDescriptor> descUnique = mReflector->describe(index);
+        // descend into known structs (as long as they have at least one field)
+        if (descUnique && descUnique->begin() != descUnique->end()) {
+            std::shared_ptr<C2StructDescriptor> desc(std::move(descUnique));
+            mHistory.emplace_back(desc);
+
+            uint32_t parentOffset = GetParentOffset(mHead);
+
+            // locate field using a dummy field descriptor
+            C2FieldDescriptor dummy = {
+                C2FieldDescriptor::BLOB, 1 /* extent */, "name",
+                GetOffset(_mField) - parentOffset, GetSize(_mField)
+            };
+
+            // locate first field where offset is greater than dummy offset (which is one past)
+            auto it = std::upper_bound(
+                    desc->cbegin(), desc->cend(), dummy,
+                    [](const C2FieldDescriptor &a, const C2FieldDescriptor &b) -> bool {
+                return _C2ParamInspector::GetOffset(a) < _C2ParamInspector::GetOffset(b);
+            });
+            if (it == desc->begin()) {
+                // field is prior to first field
+                return false;
+            }
+            --it;
+            const C2FieldDescriptor &field = *it;
+
+            // check that dummy end-offset is within this field
+            uint32_t structSize = std::max(mParamSize, parentOffset) - parentOffset;
+            if (GetEndOffset(dummy) > GetEndOffset(field, structSize)) {
+                return false;
+            }
+
+            uint32_t startIndex = (GetOffset(dummy) - GetOffset(field)) / GetSize(field);
+            uint32_t endIndex =
+                (GetEndOffset(dummy) - GetOffset(field) + GetSize(field) - 1) / GetSize(field);
+            if (endIndex > startIndex) {
+                // Field size could be zero, in which case end index is still on start index.
+                // However, for all other cases, endIndex was rounded up to the next index, so
+                // decrement it.
+                --endIndex;
+            }
+            std::shared_ptr<C2FieldUtils::Info::Impl> startLeaf =
+                makeLeaf(field, startIndex);
+            if (endIndex == startIndex) {
+                _mTail = startLeaf;
+                mHead = startLeaf;
+            } else {
+                _mTail = makeLeaf(field, endIndex);
+                mHead = startLeaf;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    _C2FieldId _mField;
+    std::shared_ptr<C2FieldUtils::Info::Impl> _mTail;
+};
+
+/**
+ * Iterable implementing locateField().
+ */
+struct C2FieldUtilsFieldLocation : public C2FieldUtils::List::Impl {
+    /// returns an iterator to the beginning of the list
+    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> begin() const override {
+        return std::make_shared<C2FieldUtilsFieldLocator>(
+                _mIndex, _mField, _mParamSize, _mReflector);
+    };
+
+    C2FieldUtilsFieldLocation(
+            const C2ParamField &pf, std::shared_ptr<C2ParamReflector> reflector)
+        : _mIndex(C2Param::CoreIndex(_C2ParamInspector::GetIndex(pf))),
+          _mField(_C2ParamInspector::GetField(pf)),
+          _mParamSize(0),
+          _mReflector(reflector) { }
+
+
+    C2FieldUtilsFieldLocation(
+            const C2Param &param, const _C2FieldId &field,
+            std::shared_ptr<C2ParamReflector> reflector)
+        : _mIndex(param.coreIndex()),
+          _mField(field),
+          _mParamSize(param.size()),
+          _mReflector(reflector) { }
+
+private:
+    C2Param::CoreIndex _mIndex;
+    _C2FieldId _mField;
+    uint32_t _mParamSize;
+    std::shared_ptr<C2ParamReflector> _mReflector;
+};
+
+}
+
+std::vector<C2FieldUtils::Info> C2FieldUtils::locateField(
+        const C2ParamField &pf, const std::shared_ptr<C2ParamReflector> &reflector) {
+    C2FieldUtils::List location = { std::make_shared<C2FieldUtilsFieldLocation>(pf, reflector) };
+    return std::vector<Info>(location.begin(), location.end());
+}
+
+std::vector<C2FieldUtils::Info> C2FieldUtils::locateField(
+        const C2Param &param, const _C2FieldId &field,
+        const std::shared_ptr<C2ParamReflector> &reflector) {
+    C2FieldUtils::List location = {
+        std::make_shared<C2FieldUtilsFieldLocation>(param, field, reflector)
+    };
+    return std::vector<Info>(location.begin(), location.end());
+}
+
