@@ -253,7 +253,9 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
             IGraphicBufferSource IGraphicBufferSource;
 
     // Output surface
-    c2_status_t setOutputSurface(const sp<IGraphicBufferProducer>& surface);
+    c2_status_t setOutputSurface(
+            uint64_t blockPoolId,
+            const sp<IGraphicBufferProducer>& surface);
 
     // Input surface
     c2_status_t connectToInputSurface(

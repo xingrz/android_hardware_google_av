@@ -33,6 +33,8 @@
 #include <hardware/gralloc.h>
 #include <nativebase/nativebase.h>
 
+#include "ReflectedParamUpdater.h"
+
 namespace android {
 
 class CCodecBufferChannel;
@@ -56,7 +58,7 @@ public:
     virtual void signalFlush() override;
     virtual void signalResume() override;
 
-    virtual void signalSetParameters(const sp<AMessage> &msg) override;
+    virtual void signalSetParameters(const sp<AMessage> &params) override;
     virtual void signalEndOfInputStream() override;
     virtual void signalRequestIDRFrame() override;
 
@@ -86,6 +88,13 @@ private:
     void createInputSurface();
     void setInputSurface(const sp<PersistentSurface> &surface);
     status_t setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface);
+    void setParameters(const sp<AMessage> &params);
+
+    // initializes the standard MediaCodec to Codec 2.0 params mapping
+    void initializeStandardParams();
+
+    // filters out vendor and standard parameters and returns them in a separate message
+    sp<AMessage> filterParameters(const sp<AMessage> &params) const;
 
     void setDeadline(const TimePoint &deadline, const char *name);
 
@@ -98,6 +107,8 @@ private:
         kWhatRelease,
         kWhatCreateInputSurface,
         kWhatSetInputSurface,
+        kWhatSetParameters,
+
         kWhatWorkDone,
     };
 
@@ -152,6 +163,9 @@ private:
     Mutexed<NamedTimePoint> mDeadline;
     Mutexed<Formats> mFormats;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
+    Mutexed<ReflectedParamUpdater> mParamUpdater;
+    // standard MediaCodec to Codec 2.0 params mapping
+    std::map<std::string, std::string> mStandardParams;
 
     DISALLOW_EVIL_CONSTRUCTORS(CCodec);
 };

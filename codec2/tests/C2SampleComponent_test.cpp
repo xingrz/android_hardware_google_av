@@ -174,7 +174,7 @@ public:
             default:
                 return std::unique_ptr<C2StructDescriptor>(new C2StructDescriptor{
                     instance->mDomainInfo.type(),
-                    decltype(instance->mDomainInfo)::FIELD_LIST,
+                    decltype(instance->mDomainInfo)::FieldList(),
                 });
             }
             return nullptr;
