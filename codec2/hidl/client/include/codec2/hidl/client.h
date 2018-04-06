@@ -23,6 +23,7 @@
 #include <C2Param.h>
 #include <C2.h>
 
+#include <hidl/HidlSupport.h>
 #include <utils/StrongPointer.h>
 
 #include <memory>
@@ -193,13 +194,13 @@ struct Codec2Client : public Codec2ConfigurableClient {
     Codec2Client(const sp<Base>& base);
 
 protected:
+    Base* base() const;
+
     mutable std::mutex mMutex;
     mutable bool mListed;
     mutable std::vector<C2Component::Traits> mTraitsList;
     mutable std::vector<std::unique_ptr<std::vector<std::string>>>
             mAliasesBuffer;
-
-    Base* base() const;
 };
 
 struct Codec2Client::Listener {
@@ -216,6 +217,9 @@ struct Codec2Client::Listener {
     virtual void onError(
             const std::weak_ptr<Component>& comp,
             uint32_t errorCode) = 0;
+
+    virtual void onDeath(
+            const std::weak_ptr<Component>& comp) = 0;
 
     virtual ~Listener();
 
@@ -282,6 +286,11 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
 protected:
     Base* base() const;
 
+    static c2_status_t setDeathListener(
+            const std::shared_ptr<Component>& component,
+            const std::shared_ptr<Listener>& listener);
+    sp<::android::hardware::hidl_death_recipient> mDeathRecipient;
+
     friend struct Codec2Client;
 };
 
@@ -308,10 +317,10 @@ public:
     InputSurface(const sp<Base>& base);
 
 protected:
-    sp<Base> mBase;
-    sp<IGraphicBufferProducer> mGraphicBufferProducer;
-
     Base* base() const;
+    sp<Base> mBase;
+
+    sp<IGraphicBufferProducer> mGraphicBufferProducer;
 
     friend struct Codec2Client;
     friend struct Component;
@@ -327,9 +336,8 @@ struct Codec2Client::InputSurfaceConnection {
     InputSurfaceConnection(const sp<Base>& base);
 
 protected:
-    sp<Base> mBase;
-
     Base* base() const;
+    sp<Base> mBase;
 
     friend struct Codec2Client::InputSurface;
 };
