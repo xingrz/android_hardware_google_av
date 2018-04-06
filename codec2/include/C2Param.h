@@ -866,6 +866,11 @@ struct C2FieldDescriptor {
     template<typename B>
     static NamedValuesType namedValuesFor(const B &);
 
+private:
+    template<typename B, bool enabled=std::is_arithmetic<B>::value || std::is_enum<B>::value>
+    struct C2_HIDE _NamedValuesGetter;
+
+public:
     inline C2FieldDescriptor(uint32_t type, uint32_t extent, C2String name, size_t offset, size_t size)
         : _mType((type_t)type), _mExtent(extent), _mName(name), _mFieldId(offset, size) { }
 
@@ -874,7 +879,7 @@ struct C2FieldDescriptor {
         : _mType(this->GetType((B*)nullptr)),
           _mExtent(std::is_array<T>::value ? std::extent<T>::value : 1),
           _mName(name),
-          _mNamedValues(namedValuesFor(*(B*)0)),
+          _mNamedValues(_NamedValuesGetter<B>::getNamedValues()),
           _mFieldId(offset) {}
 
 /*
@@ -951,6 +956,21 @@ private:
     }
 
     friend struct _C2ParamInspector;
+};
+
+// no named values for compound types
+template<typename B>
+struct C2FieldDescriptor::_NamedValuesGetter<B, false> {
+    inline static C2FieldDescriptor::NamedValuesType getNamedValues() {
+        return NamedValuesType();
+    }
+};
+
+template<typename B>
+struct C2FieldDescriptor::_NamedValuesGetter<B, true> {
+    inline static C2FieldDescriptor::NamedValuesType getNamedValues() {
+        return C2FieldDescriptor::namedValuesFor(*(B*)nullptr);
+    }
 };
 
 #define DEFINE_NO_NAMED_VALUES_FOR(type) \
