@@ -341,6 +341,17 @@ c2_status_t Codec2Client::createComponent(
                         "status = %d.", static_cast<int>(status));
                 return Void();
             }
+            // release input buffers potentially held by the component from queue
+            std::shared_ptr<Codec2Client::Component> componentStrong = component.lock();
+            if (componentStrong) {
+                std::vector<uint64_t> inputDone;
+                for (const std::unique_ptr<C2Work> &work : workItems) {
+                    if (work) {
+                        inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
+                    }
+                }
+                componentStrong->handleOnWorkDone(inputDone);
+            }
             if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
                 listener->onWorkDone(component, workItems);
             } else {
@@ -704,8 +715,42 @@ c2_status_t Codec2Client::Component::createBlockPool(
     return status;
 }
 
+void Codec2Client::Component::handleOnWorkDone(const std::vector<uint64_t> &inputDone) {
+    std::lock_guard<std::mutex> lock(mInputBuffersMutex);
+    for (uint64_t inputIndex : inputDone) {
+        auto it = mInputBuffers.find(inputIndex);
+        if (it == mInputBuffers.end()) {
+            ALOGI("unknown input index %llu in onWorkDone", (long long)inputIndex);
+        } else {
+            ALOGV("done with input index %llu with %zu buffers",
+                    (long long)inputIndex, it->second.size());
+            mInputBuffers.erase(it);
+        }
+    }
+}
+
 c2_status_t Codec2Client::Component::queue(
         std::list<std::unique_ptr<C2Work>>* const items) {
+    // remember input buffers queued to hold reference to them
+    {
+        std::lock_guard<std::mutex> lock(mInputBuffersMutex);
+        for (const std::unique_ptr<C2Work> &work : *items) {
+            if (!work) {
+                continue;
+            }
+
+            uint64_t inputIndex = work->input.ordinal.frameIndex.peeku();
+            auto res = mInputBuffers.emplace(inputIndex, work->input.buffers);
+            if (!res.second) {
+                ALOGI("duplicate input index %llu in queue", (long long)inputIndex);
+                // TODO: append? - for now we are replacing
+                res.first->second = work->input.buffers;
+            }
+            ALOGV("qeueing input index %llu with %zu buffers",
+                    (long long)inputIndex, work->input.buffers.size());
+        }
+    }
+
     WorkBundle workBundle;
     Status hidlStatus = objcpy(&workBundle, *items);
     if (hidlStatus != Status::OK) {

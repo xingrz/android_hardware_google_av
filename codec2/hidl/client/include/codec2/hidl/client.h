@@ -26,6 +26,7 @@
 #include <hidl/HidlSupport.h>
 #include <utils/StrongPointer.h>
 
+#include <map>
 #include <memory>
 #include <mutex>
 
@@ -280,10 +281,15 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
             C2PlatformAllocatorStore::id_t allocatorId,
             std::shared_ptr<C2BlockPool>* pool) const;
 
+    void handleOnWorkDone(const std::vector<uint64_t> &inputDone);
+
     // base cannot be null.
     Component(const sp<Base>& base);
 
 protected:
+    mutable std::mutex mInputBuffersMutex;
+    mutable std::map<uint64_t, std::vector<std::shared_ptr<C2Buffer>>> mInputBuffers;
+
     Base* base() const;
 
     static c2_status_t setDeathListener(
