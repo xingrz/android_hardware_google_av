@@ -158,8 +158,11 @@ private:
 
     Mutexed<State> mState;
     std::shared_ptr<CCodecBufferChannel> mChannel;
+
     std::shared_ptr<Codec2Client> mClient;
-    std::shared_ptr<Codec2Client::Listener> mListener;
+    std::shared_ptr<Codec2Client::Listener> mClientListener;
+    struct ClientListener;
+
     Mutexed<NamedTimePoint> mDeadline;
     Mutexed<Formats> mFormats;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;

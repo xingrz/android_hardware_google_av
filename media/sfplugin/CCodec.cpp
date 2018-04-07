@@ -124,41 +124,6 @@ private:
 
 Mutexed<sp<CCodecWatchdog>> CCodecWatchdog::sInstance;
 
-class CCodecListener : public Codec2Client::Listener {
-public:
-    explicit CCodecListener(const wp<CCodec> &codec) : mCodec(codec) {}
-
-    virtual void onWorkDone(
-            const std::weak_ptr<Codec2Client::Component>& component,
-            std::list<std::unique_ptr<C2Work>>& workItems) override {
-        (void)component;
-        sp<CCodec> codec(mCodec.promote());
-        if (!codec) {
-            return;
-        }
-        codec->onWorkDone(workItems);
-    }
-
-    virtual void onTripped(
-            const std::weak_ptr<Codec2Client::Component>& component,
-            const std::vector<std::shared_ptr<C2SettingResult>>& settingResult) override {
-        // TODO
-        (void)component;
-        (void)settingResult;
-    }
-
-    virtual void onError(
-            const std::weak_ptr<Codec2Client::Component>& component,
-            uint32_t errorCode) override {
-        // TODO
-        (void)component;
-        (void)errorCode;
-    }
-
-private:
-    wp<CCodec> mCodec;
-};
-
 class C2InputSurfaceWrapper : public InputSurfaceWrapper {
 public:
     explicit C2InputSurfaceWrapper(
@@ -243,6 +208,65 @@ private:
 
 }  // namespace
 
+// CCodec::ClientListener
+
+struct CCodec::ClientListener : public Codec2Client::Listener {
+
+    explicit ClientListener(const wp<CCodec> &codec) : mCodec(codec) {}
+
+    virtual void onWorkDone(
+            const std::weak_ptr<Codec2Client::Component>& component,
+            std::list<std::unique_ptr<C2Work>>& workItems) override {
+        (void)component;
+        sp<CCodec> codec(mCodec.promote());
+        if (!codec) {
+            return;
+        }
+        codec->onWorkDone(workItems);
+    }
+
+    virtual void onTripped(
+            const std::weak_ptr<Codec2Client::Component>& component,
+            const std::vector<std::shared_ptr<C2SettingResult>>& settingResult
+            ) override {
+        // TODO
+        (void)component;
+        (void)settingResult;
+    }
+
+    virtual void onError(
+            const std::weak_ptr<Codec2Client::Component>& component,
+            uint32_t errorCode) override {
+        // TODO
+        (void)component;
+        (void)errorCode;
+    }
+
+    virtual void onDeath(
+            const std::weak_ptr<Codec2Client::Component>& component) override {
+        { // Log the death of the component.
+            std::shared_ptr<Codec2Client::Component> comp = component.lock();
+            if (!comp) {
+                ALOGE("Codec2 component died.");
+            } else {
+                ALOGE("Codec2 component \"%s\" died.", comp->getName().c_str());
+            }
+        }
+
+        // Report to MediaCodec.
+        sp<CCodec> codec(mCodec.promote());
+        if (!codec || !codec->mCallback) {
+            return;
+        }
+        codec->mCallback->onError(DEAD_OBJECT, ACTION_CODE_FATAL);
+    }
+
+private:
+    wp<CCodec> mCodec;
+};
+
+// CCodec
+
 CCodec::CCodec()
     : mChannel(new CCodecBufferChannel([this] (status_t err, enum ActionCode actionCode) {
           mCallback->onError(err, actionCode);
@@ -294,14 +318,14 @@ void CCodec::allocate(const sp<MediaCodecInfo> &codecInfo) {
         return;
     }
     ALOGV("allocate(%s)", codecInfo->getCodecName());
-    mListener.reset(new CCodecListener(this));
+    mClientListener.reset(new ClientListener(this));
 
     AString componentName = codecInfo->getCodecName();
     std::shared_ptr<Codec2Client> client;
     std::shared_ptr<Codec2Client::Component> comp =
             Codec2Client::CreateComponentByName(
             componentName.c_str(),
-            mListener,
+            mClientListener,
             &client);
     if (!comp) {
         ALOGE("Failed Create component: %s", componentName.c_str());
