@@ -776,6 +776,8 @@ private:
  * Utility class to enumerate fields of parameters.
  */
 struct C2FieldUtils {
+    struct _Inspector;
+
     /**
      * An extended field descriptor object with structural information (lineage back to the root of
      * the param).
@@ -869,6 +871,7 @@ struct C2FieldUtils {
 
     private:
         std::shared_ptr<Impl> _mImpl;
+        friend struct _Inspector;
     };
 
     /**
@@ -942,7 +945,7 @@ struct C2FieldUtils {
      */
     static List enumerateCousins(
             const Info &field,
-            uint32_t level);
+            uint32_t level = ~0);
 
     /**
      * Locates the field in a parameter and returns a list of 2 elements - the most-specific field
