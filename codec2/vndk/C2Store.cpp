@@ -19,6 +19,7 @@
 #include <C2BufferPriv.h>
 #include <C2Component.h>
 #include <C2PlatformSupport.h>
+#include <util/C2InterfaceHelper.h>
 
 #define LOG_TAG "C2Store"
 #define LOG_NDEBUG 0
@@ -346,6 +347,7 @@ private:
     c2_status_t findComponent(C2String name, ComponentLoader **loader);
 
     std::map<C2String, ComponentLoader> mComponents; ///< list of components
+    std::shared_ptr<C2ReflectorHelper> mReflector;
 };
 
 c2_status_t C2PlatformComponentStore::ComponentModule::init(std::string libPath) {
@@ -460,7 +462,8 @@ std::shared_ptr<const C2Component::Traits> C2PlatformComponentStore::ComponentMo
     return mTraits;
 }
 
-C2PlatformComponentStore::C2PlatformComponentStore() {
+C2PlatformComponentStore::C2PlatformComponentStore()
+    : mReflector(std::make_shared<C2ReflectorHelper>()) {
     // TODO: move this also into a .so so it can be updated
     mComponents.emplace("c2.google.avc.decoder", "libstagefright_soft_c2avcdec.so");
     mComponents.emplace("c2.google.avc.encoder", "libstagefright_soft_c2avcenc.so");
@@ -595,8 +598,7 @@ C2String C2PlatformComponentStore::getName() const {
 }
 
 std::shared_ptr<C2ParamReflector> C2PlatformComponentStore::getParamReflector() const {
-    // TODO
-    return nullptr;
+    return mReflector;
 }
 
 std::shared_ptr<C2ComponentStore> GetCodec2PlatformComponentStore() {
