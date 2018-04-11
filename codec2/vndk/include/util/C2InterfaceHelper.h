@@ -224,7 +224,7 @@ public:
      * Typed field helper.
      */
     template<typename T>
-    struct C2_HIDE Field {
+    struct Field {
         /**
          * Constructor.
          *
@@ -676,6 +676,8 @@ protected:
      * \param ix the index of the parameter
      */
     size_t getDependencyIndex(C2Param::Index ix) const;
+
+    virtual ~C2InterfaceHelper() = default;
 
     /**
      * Sets subclass instance's address and size.
