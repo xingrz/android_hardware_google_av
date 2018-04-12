@@ -73,6 +73,8 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSampleRate,
     kParamIndexChannelCount,
 
+    kParamIndexAacStreamFormat,
+
     // video info
 
     kParamIndexStructStart = 0x1,
@@ -162,6 +164,16 @@ constexpr char C2_NAME_STREAM_SAMPLE_RATE_SETTING[] = "raw.sample-rate";
 // audio encoder channel count [IN]
 typedef C2StreamParam<C2Info, C2Uint32Value, kParamIndexChannelCount> C2StreamChannelCountInfo;
 constexpr char C2_NAME_STREAM_CHANNEL_COUNT_SETTING[] = "raw.channel-count";
+
+// aac encoder stream format [IN]
+C2ENUM(C2AacStreamFormatKind, uint32_t,
+    C2AacStreamFormatRaw,
+    C2AacStreamFormatAdts,
+    C2AacStreamFormatOther,
+)
+typedef C2StreamParam<C2Info, C2Uint32Value, kParamIndexAacStreamFormat> C2StreamAacFormatInfo;
+constexpr char C2_NAME_STREAM_AAC_FORMAT_SETTING[] = "coded.aac-stream-format";
+
 
 /*
    Component description fields:
