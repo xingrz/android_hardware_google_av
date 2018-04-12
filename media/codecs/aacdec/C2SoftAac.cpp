@@ -134,6 +134,7 @@ C2SoftAac::C2SoftAac(
         c2_node_id_t id,
         const std::shared_ptr<IntfImpl> &intfImpl)
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
+      mIntf(intfImpl),
       mAACDecoder(NULL),
       mStreamInfo(NULL),
       mSignalledError(false),
