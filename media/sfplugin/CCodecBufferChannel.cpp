@@ -66,6 +66,13 @@ public:
     }
 
     /**
+     * Return a copy of current format.
+     */
+    sp<AMessage> dupFormat() {
+        return mFormat != nullptr ? mFormat->dup() : nullptr;
+    }
+
+    /**
      * Returns true if the buffers are operating under array mode.
      */
     virtual bool isArrayMode() const { return false; }
@@ -368,7 +375,7 @@ public:
             }
         }
         if (c2Buffer == nullptr) {
-            ALOGD("No matching buffer found");
+            ALOGV("No matching buffer found");
             return nullptr;
         }
         std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
@@ -469,7 +476,7 @@ public:
             }
         }
         if (c2Buffer == nullptr) {
-            ALOGD("No matching buffer found");
+            ALOGV("No matching buffer found");
             return nullptr;
         }
         std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
@@ -795,11 +802,6 @@ public:
         if (err != OK) {
             return false;
         }
-        // TODO: proper format update
-        sp<ABuffer> csdBuffer = ABuffer::CreateAsCopy(csd->m.value, csd->flexCount());
-        mFormat = mFormat->dup();
-        mFormat->setBuffer("csd-0", csdBuffer);
-
         memcpy(c2Buffer->base(), csd->m.value, csd->flexCount());
         c2Buffer->setRange(0, csd->flexCount());
         c2Buffer->setFormat(mFormat);
@@ -843,12 +845,8 @@ public:
             const C2StreamCsdInfo::output *csd,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
-        // TODO: proper format update
-        sp<ABuffer> csdBuffer = ABuffer::CreateAsCopy(csd->m.value, csd->flexCount());
-        mFormat = mFormat->dup();
-        mFormat->setBuffer("csd-0", csdBuffer);
-
-        sp<Codec2Buffer> newBuffer = new LocalLinearBuffer(mFormat, csdBuffer);
+        sp<Codec2Buffer> newBuffer = new LocalLinearBuffer(
+                mFormat, ABuffer::CreateAsCopy(csd->m.value, csd->flexCount()));
         *index = mImpl.assignSlot(newBuffer);
         *clientBuffer = newBuffer;
         return true;
@@ -1280,17 +1278,22 @@ status_t CCodecBufferChannel::renderOutputBuffer(
 
 status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) {
     ALOGV("discardBuffer: %p", buffer.get());
+    bool released = false;
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-        (void)(*buffers)->releaseBuffer(buffer);
+        released = ((*buffers)->releaseBuffer(buffer) != nullptr);
     }
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        if((*buffers)->releaseBuffer(buffer)) {
+        if ((*buffers)->releaseBuffer(buffer)) {
+            released = true;
             buffers.unlock();
             feedInputBufferIfAvailable();
             buffers.lock();
         }
+    }
+    if (!released) {
+        ALOGD("MediaCodec discarded an unknown buffer");
     }
     return OK;
 }
@@ -1455,7 +1458,7 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
     }
 }
 
-void CCodecBufferChannel::onWorkDone(const std::unique_ptr<C2Work> &work) {
+void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
     if (work->input.buffers.size() == 1) {
         // TODO: Use BufferPool
         Mutexed<InputRefs>::Locked inputRefs(mInputRefs);
@@ -1505,10 +1508,47 @@ void CCodecBufferChannel::onWorkDone(const std::unique_ptr<C2Work> &work) {
     }
 
     const C2StreamCsdInfo::output *csdInfo = nullptr;
-    for (const std::unique_ptr<C2Param> &info : worklet->output.configUpdate) {
-        if (info->coreIndex() == C2StreamCsdInfo::output::CORE_INDEX) {
-            ALOGV("onWorkDone: csd found");
-            csdInfo = static_cast<const C2StreamCsdInfo::output *>(info.get());
+    if (!worklet->output.configUpdate.empty()) {
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        sp<AMessage> newFormat = (*buffers)->dupFormat();
+        bool changed = false;
+        for (const std::unique_ptr<C2Param> &info : worklet->output.configUpdate) {
+            switch (info->coreIndex().coreIndex()) {
+                case C2StreamCsdInfo::output::CORE_INDEX:
+                    ALOGV("onWorkDone: csd found");
+                    csdInfo = static_cast<const C2StreamCsdInfo::output *>(info.get());
+                    // TODO: proper format update
+                    newFormat->setBuffer(
+                            "csd-0",
+                            ABuffer::CreateAsCopy(csdInfo->m.value, csdInfo->flexCount()));
+                    changed = true;
+                    break;
+                case C2VideoSizeStreamInfo::output::CORE_INDEX:
+                    newFormat->setInt32(
+                            "width",
+                            ((C2VideoSizeStreamInfo::output *)info.get())->width);
+                    newFormat->setInt32(
+                            "height",
+                            ((C2VideoSizeStreamInfo::output *)info.get())->height);
+                    changed = true;
+                    break;
+                case C2StreamSampleRateInfo::output::CORE_INDEX:
+                    newFormat->setInt32(
+                            "sample-rate",
+                            ((C2StreamSampleRateInfo::output *)info.get())->value);
+                    changed = true;
+                    break;
+                case C2StreamChannelCountInfo::output::CORE_INDEX:
+                    newFormat->setInt32(
+                            "channel-count",
+                            ((C2StreamChannelCountInfo::output *)info.get())->value);
+                    changed = true;
+                    break;
+            }
+        }
+        if (changed) {
+            ALOGV("output format changed; newFormat = %s", newFormat->debugString().c_str());
+            (*buffers)->setFormat(newFormat);
         }
     }
 

@@ -1107,7 +1107,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                     (new AMessage(kWhatWorkDone, this))->post();
                 }
             }
-            mChannel->onWorkDone(work);
+            mChannel->onWorkDone(std::move(work));
             break;
         }
         default: {

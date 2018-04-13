@@ -101,7 +101,7 @@ public:
      *
      * @param workItems   finished work item.
      */
-    void onWorkDone(const std::unique_ptr<C2Work> &work);
+    void onWorkDone(std::unique_ptr<C2Work> work);
 
     // Internal classes
     class Buffers;
