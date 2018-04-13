@@ -514,6 +514,12 @@ C2SettingResultsBuilder::C2SettingResultsBuilder(c2_status_t status) : _mStatus(
 
 /* ------------------------- C2FieldUtils ------------------------- */
 
+struct C2_HIDE C2FieldUtils::_Inspector {
+    /// returns the implementation object
+    inline static std::shared_ptr<Info::Impl> GetImpl(const Info &info) {
+        return info._mImpl;
+    }
+};
 
 /* ------------------------- C2FieldUtils::Info ------------------------- */
 
@@ -526,6 +532,12 @@ struct C2_HIDE C2FieldUtils::Info::Impl {
     uint32_t arrayOffset;
     uint32_t usedExtent;
 
+    /// creates a copy of this object including copies of its parent chain
+    Impl clone() const;
+
+    /// creates a copy of a shared pointer to an object
+    static std::shared_ptr<Impl> Clone(const std::shared_ptr<Impl> &);
+
     Impl(const C2FieldDescriptor &field_, std::shared_ptr<Impl> parent_,
             uint32_t index_, uint32_t depth_, uint32_t baseFieldOffset_,
             uint32_t arrayOffset_, uint32_t usedExtent_)
@@ -533,32 +545,44 @@ struct C2_HIDE C2FieldUtils::Info::Impl {
           baseFieldOffset(baseFieldOffset_), arrayOffset(arrayOffset_), usedExtent(usedExtent_) { }
 };
 
-C2String C2FieldUtils::Info::name() const {
-    return _mImpl->field.name();
+std::shared_ptr<C2FieldUtils::Info::Impl> C2FieldUtils::Info::Impl::Clone(const std::shared_ptr<Impl> &info) {
+    if (info) {
+        return std::make_shared<Impl>(info->clone());
+    }
+    return nullptr;
 }
 
-C2FieldUtils::Info::type_t C2FieldUtils::Info::type() const {
-    return _mImpl->field.type();
+C2FieldUtils::Info::Impl C2FieldUtils::Info::Impl::clone() const {
+    Impl res = Impl(*this);
+    res.parent = Clone(res.parent);
+    return res;
 }
 
-size_t C2FieldUtils::Info::offset() const {
-    return _C2ParamInspector::GetOffset(_mImpl->field);
+C2FieldUtils::Info::Info(std::shared_ptr<Impl> impl)
+    : _mImpl(impl) { }
+
+size_t C2FieldUtils::Info::arrayOffset() const {
+    return _mImpl->arrayOffset;
 }
 
-size_t C2FieldUtils::Info::size() const {
-    return _C2ParamInspector::GetSize(_mImpl->field);
+size_t C2FieldUtils::Info::arraySize() const {
+    return extent() * size();
 }
 
-const C2FieldUtils::Info::NamedValuesType &C2FieldUtils::Info::namedValues() const {
-    return _mImpl->field.namedValues();
-}
+size_t C2FieldUtils::Info::baseFieldOffset() const {
+    return _mImpl->baseFieldOffset;
+};
 
-size_t C2FieldUtils::Info::index() const {
-    return _mImpl->index;
+size_t C2FieldUtils::Info::depth() const {
+    return _mImpl->depth;
 }
 
 size_t C2FieldUtils::Info::extent() const {
     return _mImpl->usedExtent;
+}
+
+size_t C2FieldUtils::Info::index() const {
+    return _mImpl->index;
 }
 
 bool C2FieldUtils::Info::isArithmetic() const {
@@ -582,28 +606,29 @@ bool C2FieldUtils::Info::isFlexible() const {
     return _mImpl->field.extent() == 0;
 }
 
-size_t C2FieldUtils::Info::depth() const {
-    return _mImpl->depth;
+C2String C2FieldUtils::Info::name() const {
+    return _mImpl->field.name();
 }
 
-size_t C2FieldUtils::Info::arrayOffset() const {
-    return _mImpl->arrayOffset;
+const C2FieldUtils::Info::NamedValuesType &C2FieldUtils::Info::namedValues() const {
+    return _mImpl->field.namedValues();
 }
 
-size_t C2FieldUtils::Info::arraySize() const {
-    return extent() * size();
+size_t C2FieldUtils::Info::offset() const {
+    return _C2ParamInspector::GetOffset(_mImpl->field);
 }
-
-size_t C2FieldUtils::Info::baseFieldOffset() const {
-    return _mImpl->baseFieldOffset;
-};
 
 C2FieldUtils::Info C2FieldUtils::Info::parent() const {
     return Info(_mImpl->parent);
 };
 
-C2FieldUtils::Info::Info(std::shared_ptr<C2FieldUtils::Info::Impl> impl)
-    : _mImpl(impl) { }
+size_t C2FieldUtils::Info::size() const {
+    return _C2ParamInspector::GetSize(_mImpl->field);
+}
+
+C2FieldUtils::Info::type_t C2FieldUtils::Info::type() const {
+    return _mImpl->field.type();
+}
 
 /* ------------------------- C2FieldUtils::Iterator ------------------------- */
 
@@ -612,17 +637,20 @@ struct C2_HIDE C2FieldUtils::Iterator::Impl : public _C2ParamInspector {
 
     virtual ~Impl() = default;
 
+    /// implements object equality
     virtual bool equals(const std::shared_ptr<Impl> &other) const {
         return other != nullptr && mHead == other->mHead;
     };
 
+    /// returns the info pointed to by this iterator
     virtual value_type get() const {
         return Info(mHead);
     }
 
-    // note: this cannot be abstract as we instantiate this for List::end(). increment to end()
-    // instead.
+    /// increments this iterator
     virtual void increment() {
+        // note: this cannot be abstract as we instantiate this for List::end(). increment to end()
+        // instead.
         mHead.reset();
     }
 
@@ -652,11 +680,11 @@ bool C2FieldUtils::Iterator::operator==(const Iterator &other) const {
 /* ------------------------- C2FieldUtils::List ------------------------- */
 
 struct C2_HIDE C2FieldUtils::List::Impl {
-    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> begin() const = 0;
+    virtual std::shared_ptr<Iterator::Impl> begin() const = 0;
 
     /// returns an iterator to the end of the list
-    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> end() const {
-        return std::make_shared<C2FieldUtils::Iterator::Impl>();
+    virtual std::shared_ptr<Iterator::Impl> end() const {
+        return std::make_shared<Iterator::Impl>();
     }
 
     virtual ~Impl() = default;
@@ -732,7 +760,6 @@ protected:
     std::shared_ptr<C2ParamReflector> mReflector;
     std::vector<std::shared_ptr<C2StructDescriptor>> mHistory; // structure types visited
 };
-
 
 /**
  * Iterator implementing enumerateFields() that visits each base field.
@@ -845,6 +872,96 @@ private:
 C2FieldUtils::List C2FieldUtils::enumerateFields(
         const C2Param &param, const std::shared_ptr<C2ParamReflector> &reflector) {
     return C2FieldUtils::List(std::make_shared<C2FieldUtilsFieldIterable>(param, reflector));
+}
+
+/* ------------------------- C2FieldUtils::enumerate siblings ------------------------- */
+
+namespace {
+
+struct C2FieldUtilsCousinsIterator : public C2FieldUtils::Iterator::Impl {
+    C2FieldUtilsCousinsIterator(
+                const std::shared_ptr<C2FieldUtils::Info::Impl> &info, size_t level)
+          // clone info chain as this iterator will change it
+        : C2FieldUtils::Iterator::Impl(C2FieldUtils::Info::Impl::Clone(info)) {
+        if (level == 0) {
+            return;
+        }
+
+        // store parent chain (up to level) for quick access
+        std::shared_ptr<C2FieldUtils::Info::Impl> node = mHead;
+        size_t ix = 0;
+        for (; ix < level && node; ++ix) {
+            node->index = 0;
+            _mPath.emplace_back(node);
+            node = node->parent;
+        }
+        setupPath(ix);
+    }
+
+    virtual ~C2FieldUtilsCousinsIterator() override = default;
+
+    /// Increments this iterator by visiting each index.
+    virtual void increment() override {
+        size_t ix = 0;
+        while (ix < _mPath.size()) {
+            if (++_mPath[ix]->index < _mPath[ix]->usedExtent) {
+                setupPath(ix + 1);
+                return;
+            }
+            _mPath[ix++]->index = 0;
+        }
+        mHead.reset();
+    }
+
+private:
+    /// adjusts field offsets along the path up to the specific level - 1.
+    /// This in-fact has to be done down the path from parent to child as child fields must
+    /// fall within parent fields.
+    void setupPath(size_t level) {
+        C2_CHECK_LE(level, _mPath.size());
+        uint32_t oldArrayOffset = level ? _mPath[level - 1]->arrayOffset : 0 /* unused */;
+        while (level) {
+            --level;
+            C2FieldUtils::Info::Impl &path = *_mPath[level];
+            uint32_t size = GetSize(path.field);
+            uint32_t offset = path.arrayOffset + size * path.index;
+            SetOffset(path.field, offset);
+            if (level) {
+                // reset child's array offset to fall within current index, but hold onto the
+                // original value of the arrayOffset so that we can adjust subsequent children.
+                // This is because the modulo is only defined within the current array.
+                uint32_t childArrayOffset =
+                    offset + (_mPath[level - 1]->arrayOffset - oldArrayOffset) % size;
+                oldArrayOffset = _mPath[level - 1]->arrayOffset;
+                _mPath[level - 1]->arrayOffset = childArrayOffset;
+            }
+        }
+    }
+
+    std::vector<std::shared_ptr<C2FieldUtils::Info::Impl>> _mPath;
+};
+
+/**
+ * Iterable implementing enumerateFields().
+ */
+struct C2FieldUtilsCousinsIterable : public C2FieldUtils::List::Impl {
+    /// returns an iterator to the beginning of the list
+    virtual std::shared_ptr<C2FieldUtils::Iterator::Impl> begin() const override {
+        return std::make_shared<C2FieldUtilsCousinsIterator>(_mHead, _mLevel);
+    };
+
+    C2FieldUtilsCousinsIterable(const C2FieldUtils::Info &field, uint32_t level)
+        : _mHead(C2FieldUtils::_Inspector::GetImpl(field)), _mLevel(level) { }
+
+private:
+    std::shared_ptr<C2FieldUtils::Info::Impl> _mHead;
+    size_t _mLevel;
+};
+
+}
+
+C2FieldUtils::List C2FieldUtils::enumerateCousins(const C2FieldUtils::Info &field, uint32_t level) {
+    return C2FieldUtils::List(std::make_shared<C2FieldUtilsCousinsIterable>(field, level));
 }
 
 /* ------------------------- C2FieldUtils::locateField ------------------------- */

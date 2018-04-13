@@ -21,6 +21,7 @@
 
 #include <thread>
 
+#include <C2Config.h>
 #include <C2ParamInternal.h>
 #include <C2PlatformSupport.h>
 #include <C2V4l2Support.h>
@@ -910,6 +911,8 @@ void CCodec::initializeStandardParams() {
     mStandardParams.emplace("width",            "raw.size.width");
     mStandardParams.emplace("height",           "raw.size.height");
 
+    mStandardParams.emplace("is-adts",          "coded.aac-stream-format.value");
+
     // mStandardParams.emplace("stride", "raw.??");
     // mStandardParams.emplace("slice-height", "raw.??");
 }
@@ -933,6 +936,15 @@ sp<AMessage> CCodec::filterParameters(const sp<AMessage> &params) const {
         if (filtered->findInt32("i-frame-interval", &iFrameInterval)
                 && filtered->findFloat("frame-rate", &frameRate)) {
             filtered->setInt32("i-frame-period", iFrameInterval * frameRate + 0.5);
+        }
+    }
+
+    {
+        int32_t isAdts;
+        if (filtered->findInt32("is-adts", &isAdts)) {
+            filtered->setInt32(
+                    "is-adts",
+                    isAdts ? C2AacStreamFormatAdts : C2AacStreamFormatRaw);
         }
     }
 
