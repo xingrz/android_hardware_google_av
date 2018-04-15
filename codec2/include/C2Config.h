@@ -292,6 +292,7 @@ struct C2VideoSizeStruct {
 
 // video size for video decoder [OUT]
 typedef C2StreamParam<C2Info, C2VideoSizeStruct, kParamIndexVideoSize> C2VideoSizeStreamInfo;
+constexpr char C2_NAME_STREAM_VIDEO_SIZE_INFO[] = "raw.size";
 
 // max video size for video decoder [IN]
 typedef C2PortParam<C2Setting, C2VideoSizeStruct, kParamIndexMaxVideoSizeHint> C2MaxVideoSizeHintPortSetting;
