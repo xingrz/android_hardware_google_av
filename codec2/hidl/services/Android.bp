@@ -12,6 +12,7 @@ cc_binary {
     shared_libs: [
         "hardware.google.media.c2@1.0",
         "libavservices_minijail_vendor",
+        "libbinder",
         "libcutils",
         "libhidlbase",
         "libhidltransport",
@@ -49,6 +50,7 @@ cc_binary {
     shared_libs: [
         "hardware.google.media.c2@1.0",
         "libavservices_minijail_vendor",
+        "libbinder",
         "libhidlbase",
         "libhidltransport",
         "libhwbinder",
