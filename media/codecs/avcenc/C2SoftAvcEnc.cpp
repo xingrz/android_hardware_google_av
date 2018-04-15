@@ -61,13 +61,13 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mOutputMediaType, "mediatype.output")
+                DefineParam(mOutputMediaType, C2_NAME_OUTPUT_PORT_MIME_SETTING)
                 .withConstValue(AllocSharedString<C2PortMimeConfig::output>(
                         MEDIA_MIMETYPE_VIDEO_AVC))
                 .build());
 
         addParameter(
-                DefineParam(mUsage, C2_NAME_OUTPUT_PORT_MIME_SETTING)
+                DefineParam(mUsage, C2_NAME_INPUT_STREAM_USAGE_SETTING)
                 .withConstValue(new C2StreamUsageTuning::input(
                         0u, (uint64_t)C2MemoryUsage::CPU_READ))
                 .build());
@@ -1296,7 +1296,7 @@ c2_status_t C2SoftAvcEnc::drain(
 class C2SoftAvcEncFactory : public C2ComponentFactory {
 public:
     C2SoftAvcEncFactory() : mHelper(std::static_pointer_cast<C2ReflectorHelper>(
-            GetCodec2PlatformComponentStore()->getParamReflector())) {
+        GetCodec2PlatformComponentStore()->getParamReflector())) {
     }
 
     virtual c2_status_t createComponent(

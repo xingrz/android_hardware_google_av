@@ -95,7 +95,8 @@ namespace android {
 
 class C2SoftAvcDec : public SimpleC2Component {
 public:
-    C2SoftAvcDec(const char *name, c2_node_id_t id);
+    class IntfImpl;
+    C2SoftAvcDec(const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl);
     virtual ~C2SoftAvcDec();
 
     // From SimpleC2Component
@@ -142,6 +143,8 @@ private:
     status_t resetDecoder();
     void resetPlugin();
     status_t deleteDecoder();
+
+    std::shared_ptr<IntfImpl> mIntf;
 
     // TODO:This is not the right place for this enum. These should
     // be part of c2-vndk so that they can be accessed by all video plugins
