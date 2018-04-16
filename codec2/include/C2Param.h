@@ -446,7 +446,7 @@ public:
     // otherwise, do not copy anything, and return false.
     inline bool updateFrom(const C2Param &other) {
         if (other._mSize <= _mSize && other._mIndex == _mIndex && _mSize > 0) {
-            memcpy(this, &other, _mSize);
+            memcpy(this, &other, other._mSize);
             return true;
         }
         return false;
