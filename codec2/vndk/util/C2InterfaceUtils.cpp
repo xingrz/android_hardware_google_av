@@ -152,6 +152,105 @@ template class C2SupportedRange<uint64_t>;
 //template class C2SupportedRange<c2_cntr64_t>;
 template class C2SupportedRange<float>;
 
+/* -------------------------- C2SupportedFlags -------------------------- */
+
+/**
+ * Ordered supported flag set for a field of a given type.
+ */
+// float flags are not supported, but define a few methods to support generic supported values code
+template<>
+bool C2SupportedFlags<float>::contains(float value) const {
+    return false;
+}
+
+template<>
+const std::vector<float> C2SupportedFlags<float>::flags() const {
+    return std::vector<float>();
+}
+
+template<>
+C2SupportedFlags<float> C2SupportedFlags<float>::limitedTo(const C2SupportedFlags<float> &limit) const {
+    std::vector<C2Value::Primitive> values;
+    return C2SupportedFlags(std::move(values));
+}
+
+template<>
+float C2SupportedFlags<float>::min() const {
+    return 0;
+}
+
+template<typename T>
+bool C2SupportedFlags<T>::contains(T value) const {
+    // value must contain the minimal mask
+    T minMask = min();
+    if (~value & minMask) {
+        return false;
+    }
+    value &= ~minMask;
+    // otherwise, remove flags from value and see if we arrive at 0
+    for (const C2Value::Primitive &v : _mValues) {
+        if (value == 0) {
+            break;
+        }
+        if ((~value & v.ref<ValueType>()) == 0) {
+            value &= ~v.ref<ValueType>();
+        }
+    }
+    return value == 0;
+}
+
+template<typename T>
+const std::vector<T> C2SupportedFlags<T>::flags() const {
+    std::vector<T> vals(c2_max(_mValues.size(), 1u) - 1);
+    if (!_mValues.empty()) {
+        std::transform(_mValues.cbegin() + 1, _mValues.cend(), vals.begin(),
+                       [](const C2Value::Primitive &p)->T {
+            return p.ref<ValueType>();
+        });
+    }
+    return vals;
+}
+
+template<typename T>
+C2SupportedFlags<T> C2SupportedFlags<T>::limitedTo(const C2SupportedFlags<T> &limit) const {
+    std::vector<C2Value::Primitive> values = _mValues; // make a copy
+    T minMask = min() | limit.min();
+    // minimum mask must be covered by both this and other
+    if (limit.contains(minMask) && contains(minMask)) {
+        values[0] = minMask;
+        // keep only flags that are covered by limit
+        std::remove_if(values.begin(), values.end(), [&limit, minMask](const C2Value::Primitive &v) -> bool {
+            T value = v.ref<ValueType>() | minMask;
+            return value == minMask || !limit.contains(value); });
+        // we also need to do it vice versa
+        for (const C2Value::Primitive &v : _mValues) {
+            T value = v.ref<ValueType>() | minMask;
+            if (value != minMask && contains(value)) {
+                values.emplace_back((ValueType)value);
+            }
+        }
+    }
+    return C2SupportedFlags(std::move(values));
+}
+
+template<typename T>
+T C2SupportedFlags<T>::min() const {
+    if (!_mValues.empty()) {
+        return _mValues.front().template ref<ValueType>();
+    } else {
+        return T(0);
+    }
+}
+
+template class C2SupportedFlags<uint8_t>;
+template class C2SupportedFlags<char>;
+template class C2SupportedFlags<int32_t>;
+template class C2SupportedFlags<uint32_t>;
+//template class C2SupportedFlags<c2_cntr32_t>;
+template class C2SupportedFlags<int64_t>;
+template class C2SupportedFlags<uint64_t>;
+//template class C2SupportedFlags<c2_cntr64_t>;
+
 /* -------------------------- C2SupportedValueSet -------------------------- */
 
 /**
@@ -172,6 +271,14 @@ C2SupportedValueSet<T> C2SupportedValueSet<T>::limitedTo(const C2SupportedValueS
 
 template<typename T>
 C2SupportedValueSet<T> C2SupportedValueSet<T>::limitedTo(const C2SupportedRange<T> &limit) const {
+    std::vector<C2Value::Primitive> values = _mValues; // make a copy
+    std::remove_if(values.begin(), values.end(), [&limit](const C2Value::Primitive &v) -> bool {
+        return !limit.contains(v.ref<ValueType>()); });
+    return C2SupportedValueSet(std::move(values));
+}
+
+template<typename T>
+C2SupportedValueSet<T> C2SupportedValueSet<T>::limitedTo(const C2SupportedFlags<T> &limit) const {
     std::vector<C2Value::Primitive> values = _mValues; // make a copy
     std::remove_if(values.begin(), values.end(), [&limit](const C2Value::Primitive &v) -> bool {
         return !limit.contains(v.ref<ValueType>()); });
@@ -204,7 +311,8 @@ struct C2FieldSupportedValuesHelper<T>::Impl {
     Impl(const C2FieldSupportedValues &values)
         : _mType(values.type),
           _mRange(values),
-          _mValues(values) { }
+          _mValues(values),
+          _mFlags(values) { }
 
     bool supports(T value) const;
 
@@ -213,6 +321,7 @@ private:
     C2FieldSupportedValues::type_t _mType;
     C2SupportedRange<ValueType> _mRange;
     C2SupportedValueSet<ValueType> _mValues;
+    C2SupportedValueSet<ValueType> _mFlags;
 
 //    friend std::ostream& operator<< <T>(std::ostream& os, const C2FieldSupportedValuesHelper<T>::Impl &i);
 //    friend std::ostream& operator<<(std::ostream& os, const Impl &i);
@@ -224,6 +333,7 @@ bool C2FieldSupportedValuesHelper<T>::Impl::supports(T value) const {
     switch (_mType) {
         case C2FieldSupportedValues::RANGE: return _mRange.contains(value);
         case C2FieldSupportedValues::VALUES: return _mValues.contains(value);
+        case C2FieldSupportedValues::FLAGS: return _mFlags.contains(value);
         default: return false;
     }
 }
@@ -259,7 +369,8 @@ struct C2ParamFieldValuesBuilder<T>::Impl {
           _mType(type_t::RANGE),
           _mDefined(false),
           _mRange(C2SupportedRange<T>::Any()),
-          _mValues(C2SupportedValueSet<T>::None()) { }
+          _mValues(C2SupportedValueSet<T>::None()),
+          _mFlags(C2SupportedFlags<T>::None()) { }
 
     /**
      * Get C2ParamFieldValues from this builder.
@@ -274,6 +385,8 @@ struct C2ParamFieldValuesBuilder<T>::Impl {
             return C2ParamFieldValues(_mParamField, (C2FieldSupportedValues)_mValues);
         case type_t::RANGE:
             return C2ParamFieldValues(_mParamField, (C2FieldSupportedValues)_mRange);
+        case type_t::FLAGS:
+            return C2ParamFieldValues(_mParamField, (C2FieldSupportedValues)_mFlags);
         default:
             // TRESPASS
             // should never get here
@@ -324,11 +437,57 @@ struct C2ParamFieldValuesBuilder<T>::Impl {
                 _mValues = limit.limitedTo(_mRange);
                 _mType = _mValues.isEmpty() ? type_t::EMPTY : type_t::VALUES;
                 break;
+            case type_t::FLAGS:
+                C2_LOG(VERBOSE) << "(" << C2FieldSupportedValuesHelper<T>(_mRange) << ").limitTo("
+                        << C2FieldSupportedValuesHelper<T>(limit) << ")";
+
+                _mValues = limit.limitedTo(_mFlags);
+                _mType = _mValues.isEmpty() ? type_t::EMPTY : type_t::VALUES;
+                break;
+            default:
+                C2_LOG(FATAL); // should not be here
+            }
+            // TODO: support flags
+        }
+        C2_LOG(VERBOSE) << " = " << _mType << ":" << C2FieldSupportedValuesHelper<T>(_mValues);
+    }
+
+    /** Restrict (and thus define) the supported values to a flag set. */
+    void limitTo(const C2SupportedFlags<T> &limit) {
+        if (!_mDefined) {
+            C2_LOG(VERBOSE) << "NA.limitTo(" << C2FieldSupportedValuesHelper<T>(limit) << ")";
+
+            // shortcut for first limit applied
+            _mDefined = true;
+            _mFlags = limit;
+            _mType = _mFlags.isEmpty() ? type_t::EMPTY : type_t::FLAGS;
+        } else {
+            switch (_mType) {
+            case type_t::EMPTY:
+            case type_t::VALUES:
+                C2_LOG(VERBOSE) << "(" << C2FieldSupportedValuesHelper<T>(_mValues) << ").limitTo("
+                        << C2FieldSupportedValuesHelper<T>(limit) << ")";
+
+                _mValues = _mValues.limitedTo(limit);
+                _mType = _mValues.isEmpty() ? type_t::EMPTY : type_t::VALUES;
+                C2_LOG(VERBOSE) << " = " << _mType << ":" << C2FieldSupportedValuesHelper<T>(_mValues);
+                break;
+            case type_t::FLAGS:
+                C2_LOG(VERBOSE) << "(" << C2FieldSupportedValuesHelper<T>(_mFlags) << ").limitTo("
+                        << C2FieldSupportedValuesHelper<T>(limit) << ")";
+
+                _mFlags = _mFlags.limitedTo(limit);
+                _mType = _mFlags.isEmpty() ? type_t::EMPTY : type_t::FLAGS;
+                C2_LOG(VERBOSE) << " = " << _mType << ":" << C2FieldSupportedValuesHelper<T>(_mFlags);
+                break;
+            case type_t::RANGE:
+                C2_LOG(FATAL) << "limiting ranges to flags is not supported";
+                _mType = type_t::EMPTY;
+                break;
             default:
                 C2_LOG(FATAL); // should not be here
             }
         }
-        C2_LOG(VERBOSE) << " = " << _mType << ":" << C2FieldSupportedValuesHelper<T>(_mValues);
     }
 
     void limitTo(const C2SupportedRange<T> &limit) {
@@ -349,6 +508,10 @@ struct C2ParamFieldValuesBuilder<T>::Impl {
                 _mValues = _mValues.limitedTo(limit);
                 _mType = _mValues.isEmpty() ? type_t::EMPTY : type_t::VALUES;
                 C2_LOG(VERBOSE) << " = " << _mType << ":" << C2FieldSupportedValuesHelper<T>(_mValues);
+                break;
+            case type_t::FLAGS:
+                C2_LOG(FATAL) << "limiting flags to ranges is not supported";
+                _mType = type_t::EMPTY;
                 break;
             case type_t::RANGE:
                 C2_LOG(VERBOSE) << "(" << C2FieldSupportedValuesHelper<T>(_mRange) << ").limitTo("
@@ -380,6 +543,7 @@ private:
     bool _mDefined;
     C2SupportedRange<T> _mRange;
     C2SupportedValueSet<T> _mValues;
+    C2SupportedFlags<T> _mFlags;
 
 };
 
@@ -412,6 +576,12 @@ C2ParamFieldValuesBuilder<T> &C2ParamFieldValuesBuilder<T>::equalTo(T value) {
 
 template<typename T>
 C2ParamFieldValuesBuilder<T> &C2ParamFieldValuesBuilder<T>::limitTo(const C2SupportedValueSet<T> &limit) {
+    _mImpl->limitTo(limit);
+    return *this;
+}
+
+template<typename T>
+C2ParamFieldValuesBuilder<T> &C2ParamFieldValuesBuilder<T>::limitTo(const C2SupportedFlags<T> &limit) {
     _mImpl->limitTo(limit);
     return *this;
 }
