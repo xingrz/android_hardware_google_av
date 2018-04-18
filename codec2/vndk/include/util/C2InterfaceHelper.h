@@ -633,9 +633,22 @@ public:
             c2_blocking_t mayBlock,
             std::vector<std::unique_ptr<C2Param>>* const heapParams) const;
 
+    /**
+     * Helper implementing config calls as well as other configuration updates.
+     *
+     * \param params
+     * \param mayBlock
+     * \param failures
+     * \param updateParams if true, the updated parameter values are copied back into the arguments
+     *                     passed in |params|
+     * \param changes      pointed to a vector to receive settings with their values changed. If not
+     *                     null, settings with their values changed are added to this.
+     * \return result from config
+     */
     c2_status_t config(
             const std::vector<C2Param*> &params, c2_blocking_t mayBlock,
             std::vector<std::unique_ptr<C2SettingResult>>* const failures,
+            bool updateParams = true,
             std::vector<std::shared_ptr<C2Param>> *changes = nullptr);
 
     c2_status_t querySupportedParams(
