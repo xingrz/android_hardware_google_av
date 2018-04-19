@@ -582,7 +582,7 @@ void C2InterfaceHelper::addParameter(std::shared_ptr<ParamHelper> param) {
 
 c2_status_t C2InterfaceHelper::config(
        const std::vector<C2Param*> &params, c2_blocking_t mayBlock,
-       std::vector<std::unique_ptr<C2SettingResult>>* const failures,
+       std::vector<std::unique_ptr<C2SettingResult>>* const failures, bool updateParams,
        std::vector<std::shared_ptr<C2Param>> *changes __unused /* TODO */) {
     bool paramWasInvalid = false; // TODO is this the same as bad value?
     bool paramNotFound = false;
@@ -677,6 +677,13 @@ c2_status_t C2InterfaceHelper::config(
                 case C2_BLOCKING:  paramBlocking = true; break;
                 case C2_CORRUPTED: paramCorrupted = true; break;
                 default: ;// TODO fatal
+            }
+
+            // copy back result for configured values (or invalidate if it does not fit or match)
+            if (updateParams && !last && paramIx == ix) {
+                if (!p->updateFrom(*param->value())) {
+                    p->invalidate();
+                }
             }
 
             // compare ptrs as params are copy on write
@@ -811,4 +818,3 @@ c2_status_t C2InterfaceHelper::querySupportedValues(
     }
     return C2_OK;
 }
-
