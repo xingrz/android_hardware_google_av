@@ -335,6 +335,138 @@ private:
 };
 
 /**
+ * Ordered supported flag set for a field of a given type.
+ */
+template<typename T>
+class C2SupportedFlags {
+    typedef typename _C2FieldValueHelper<T>::ValueType ValueType;
+
+public:
+    /**
+     * Constructs an empty flag set.
+     *
+     * \note This is a specializated supported flags representation that is only used for
+     * this object - it is equivalent to the EMPTY type in C2FieldSupportedValues.
+     */
+    static inline C2SupportedFlags<T> None() {
+        return C2SupportedFlags(std::initializer_list<C2Value::Primitive>());
+    }
+
+    /**
+     * Constructs a flags set of given flags.
+     *
+     * \param flags the ordered set of flags as an initializer list.
+     * \param min minimum set of flags to be set.
+     */
+    static inline C2SupportedFlags<T> Flags(const std::initializer_list<T> flags, T min = T(0)) {
+        return C2SupportedFlags(min, flags);
+    }
+
+    /**
+     * Constructs a flags set of given flags.
+     *
+     * \param flags the ordered set of flags.
+     * \param min minimum set of flags to be set.
+     */
+    static inline C2SupportedFlags<T> Flags(const std::vector<T> &flags, T min = T(0)) {
+        return C2SupportedFlags(min, flags);
+    }
+
+    /**
+     * Constructs a flag set from a generic C2FieldSupportedValues object. This will be an empty
+     * set if the supported values are not of FLAGS type.
+     *
+     * \param values the supported values object
+     */
+    C2SupportedFlags<T>(const C2FieldSupportedValues &values) {
+        if (values.type == C2FieldSupportedValues::FLAGS) {
+            _mValues.insert(_mValues.end(), values.values.begin(), values.values.end());
+        }
+    }
+
+    /**
+     * Returns whether this set is empty.
+     */
+    constexpr bool isEmpty() const {
+        return _mValues.empty();
+    }
+
+    /**
+     * Returns whether a value is part of this set.
+     *
+     * \param value the value to check.
+     */
+    bool contains(T value) const;
+
+    /**
+     * Returns a new flag set that is the intersection of this set and another.
+     *
+     * \param limit the other value set
+     */
+    C2SupportedFlags<T> limitedTo(const C2SupportedFlags<T> &limit) const;
+
+    /**
+     * Converts this object to a C2FieldSupportedValues object.
+     */
+    operator C2FieldSupportedValues() const {
+        return C2FieldSupportedValues(!isEmpty() /* flags */, _mValues);
+    }
+
+    /**
+     * Returns the ordered set of flags of this object.
+     */
+    const std::vector<T> flags() const;
+
+    /**
+     * Returns the minimum set of flags for this object.
+     */
+    T min() const;
+
+    /**
+     * Clears this supported value set.
+     */
+    inline void clear() {
+        _mValues.clear();
+    }
+
+private:
+    /**
+     * Constructs a flag set directly from an internal representation.
+     *
+     * \param values a vector containing the minimum flag set followed by the set of flags
+     */
+    C2SupportedFlags(std::vector<C2Value::Primitive> &&values)
+        : _mValues(values) {
+    }
+
+    /**
+     * Constructs a flag set from a set of flags and a minimum flag set.
+     *
+     * \param flags the set
+     */
+    C2SupportedFlags(T min, const std::vector<T> &flags) {
+        _mValues.emplace_back(min);
+        for (T elem : flags) {
+            _mValues.emplace_back(elem);
+        }
+    }
+
+    /**
+     * Constructs a flag set from a set of initializer list values and a minimum flag set
+     *
+     * \param flags the set
+     */
+    C2SupportedFlags(T min, const std::initializer_list<T> flags) {
+        _mValues.emplace_back(min);
+        for (T elem : flags) {
+            _mValues.emplace_back(elem);
+        }
+    }
+
+    std::vector<C2Value::Primitive> _mValues; ///< the minimum flag set followed by the set of flags
+};
+
+/**
  * Ordered supported value set for a field of a given type.
  */
 template<typename T>
@@ -409,6 +541,13 @@ public:
      * \param limit the other range
      */
     C2SupportedValueSet<T> limitedTo(const C2SupportedRange<T> &limit) const;
+
+    /**
+     * Returns a new value set that is the intersection of this set and a flag set.
+     *
+     * \param limit the other flag set
+     */
+    C2SupportedValueSet<T> limitedTo(const C2SupportedFlags<T> &limit) const;
 
     /**
      * Converts this object to a C2FieldSupportedValues object.
@@ -619,6 +758,22 @@ public:
         return limitTo(C2SupportedValueSet<T>::OneOf(values));
     }
 
+    /**
+     * Restrict (and thus define) the supported values to flags in |flags| with at least |min|
+     * set.
+     */
+    C2ParamFieldValuesBuilder<T> &flags(const std::vector<T> &flags, T min = T(0)) {
+        return limitTo(C2SupportedFlags<T>::Flags(flags, min));
+    }
+
+    /**
+     * Restrict (and thus define) the supported values to flags in |values| with at least |min|
+     * set.
+     */
+    C2ParamFieldValuesBuilder<T> &flags(const std::initializer_list<T> flags, T min = T(0)) {
+        return limitTo(C2SupportedFlags<T>::Flags(flags, min));
+    }
+
     virtual ~C2ParamFieldValuesBuilder();
 
     // support copy constructor/operator
@@ -630,6 +785,11 @@ private:
      * Restrict (and thus define) the supported values to a value set.
      */
     C2ParamFieldValuesBuilder<T> &limitTo(const C2SupportedValueSet<T> &limit);
+
+    /**
+     * Restrict (and thus define) the supported values to a value set.
+     */
+    C2ParamFieldValuesBuilder<T> &limitTo(const C2SupportedFlags<T> &limit);
 
     /**
      * Restrict (and thus define) the supported values to a range.
