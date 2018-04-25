@@ -18,7 +18,9 @@
 #define HARDWARE_GOOGLE_MEDIA_C2_V1_0_UTILS_COMPONENT_H
 
 #include <codec2/hidl/1.0/Configurable.h>
+#include <codec2/hidl/1.0/types.h>
 
+#include <android/hardware/media/bufferpool/1.0/IClientManager.h>
 #include <hardware/google/media/c2/1.0/IComponentListener.h>
 #include <hardware/google/media/c2/1.0/IComponentStore.h>
 #include <hardware/google/media/c2/1.0/IComponent.h>
@@ -27,9 +29,12 @@
 #include <hwbinder/IBinder.h>
 
 #include <C2Component.h>
+#include <C2Buffer.h>
 #include <C2.h>
 
+#include <list>
 #include <map>
+#include <memory>
 
 namespace hardware {
 namespace google {
@@ -66,7 +71,10 @@ struct Component : public Configurable<IComponent> {
     Component(
             const std::shared_ptr<C2Component>&,
             const sp<IComponentListener>& listener,
-            const sp<ComponentStore>& store);
+            const sp<ComponentStore>& store,
+            const sp<::android::hardware::media::bufferpool::V1_0::
+                IClientManager>& clientPoolManager);
+    c2_status_t status() const;
 
     typedef ::android::hardware::graphics::bufferqueue::V1_0::
             IGraphicBufferProducer HGraphicBufferProducer;
@@ -99,6 +107,14 @@ protected:
     std::shared_ptr<C2ComponentInterface> mInterface;
     sp<IComponentListener> mListener;
     sp<ComponentStore> mStore;
+    ::hardware::google::media::c2::V1_0::utils::DefaultBufferPoolSender
+            mBufferPoolSender;
+
+    std::mutex mBlockPoolsMutex;
+    // This list keeps C2BlockPool objects that are created by createBlockPool()
+    // alive. These C2BlockPools will be destroyed when the component is
+    // destroyed or when reset() or release() is called.
+    std::vector<std::shared_ptr<C2BlockPool>> mBlockPools;
 
     struct ComparePointer {
         constexpr bool operator()(
@@ -112,11 +128,15 @@ protected:
             ComparePointer> Roster;
     typedef Roster::const_iterator LocalId;
     LocalId mLocalId;
-
     void setLocalId(const LocalId& localId);
+
+    void initListener(const sp<Component>& self);
+
     virtual ~Component() override;
 
     friend struct ComponentStore;
+
+    struct Listener;
 };
 
 }  // namespace utils
