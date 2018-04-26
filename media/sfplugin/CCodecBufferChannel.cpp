@@ -689,6 +689,57 @@ private:
     std::vector<Entry> mMemoryVector;
 };
 
+class GraphicMetadataInputBuffers : public CCodecBufferChannel::InputBuffers {
+public:
+    GraphicMetadataInputBuffers() : mStore(GetCodec2PlatformAllocatorStore()) {}
+    ~GraphicMetadataInputBuffers() override = default;
+
+    bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
+        std::shared_ptr<C2Allocator> alloc;
+        c2_status_t err = mStore->fetchAllocator(mPool->getAllocatorId(), &alloc);
+        if (err != C2_OK) {
+            return false;
+        }
+        sp<GraphicMetadataBuffer> newBuffer = new GraphicMetadataBuffer(mFormat, alloc);
+        if (newBuffer == nullptr) {
+            return false;
+        }
+        *index = mImpl.assignSlot(newBuffer);
+        *buffer = newBuffer;
+        return true;
+    }
+
+    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) override {
+        return mImpl.releaseSlot(buffer);
+    }
+
+    void flush() override {
+        // This is no-op by default unless we're in array mode where we need to keep
+        // track of the flushed work.
+    }
+
+    std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
+        std::shared_ptr<C2Allocator> alloc;
+        c2_status_t err = mStore->fetchAllocator(mPool->getAllocatorId(), &alloc);
+        if (err != C2_OK) {
+            return nullptr;
+        }
+        std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        array->setFormat(mFormat);
+        array->initialize(
+                mImpl,
+                kMinBufferArraySize,
+                [format = mFormat, alloc]() -> sp<Codec2Buffer> {
+                    return new GraphicMetadataBuffer(format, alloc);
+                });
+        return std::move(array);
+    }
+
+private:
+    FlexBuffersImpl mImpl;
+    std::shared_ptr<C2AllocatorStore> mStore;
+};
+
 class GraphicInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
     GraphicInputBuffers() : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 16)) {}
@@ -1040,7 +1091,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mOnError(onError),
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
-      mOutputBufferQueue(new OutputBufferQueue()) {
+      mOutputBufferQueue(new OutputBufferQueue()),
+      mMetaMode(MODE_NONE) {
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
@@ -1376,6 +1428,8 @@ status_t CCodecBufferChannel::start(
         if (graphic) {
             if (mInputSurface) {
                 buffers->reset(new DummyInputBuffers);
+            } else if (mMetaMode == MODE_ANW) {
+                buffers->reset(new GraphicMetadataInputBuffers);
             } else {
                 buffers->reset(new GraphicInputBuffers);
             }
@@ -1641,6 +1695,10 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     output->maxBufferCount = kMaxGraphicBufferRefCount;
 
     return OK;
+}
+
+void CCodecBufferChannel::setMetaMode(MetaMode mode) {
+    mMetaMode = mode;
 }
 
 }  // namespace android

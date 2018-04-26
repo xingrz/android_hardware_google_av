@@ -408,6 +408,17 @@ void CCodec::configure(const sp<AMessage> &msg) {
             encoder = false;
         }
 
+        int32_t storeMeta;
+        if (encoder
+                && msg->findInt32("android._input-metadata-buffer-type", &storeMeta)
+                && storeMeta != kMetadataBufferTypeInvalid) {
+            if (storeMeta != kMetadataBufferTypeANWBuffer) {
+                ALOGD("Only ANW buffers are supported for legacy metadata mode");
+                return BAD_VALUE;
+            }
+            mChannel->setMetaMode(CCodecBufferChannel::MODE_ANW);
+        }
+
         // TODO: read from intf()
         if ((!encoder) != (comp->getName().find("encoder") == std::string::npos)) {
             return UNKNOWN_ERROR;
@@ -420,29 +431,38 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         std::vector<std::unique_ptr<C2Param>> params;
+        C2StreamUsageTuning::input usage(0u);
         std::initializer_list<C2Param::Index> indices {
             C2PortMimeConfig::input::PARAM_TYPE,
             C2PortMimeConfig::output::PARAM_TYPE,
         };
         c2err = comp->query(
-                {},
+                {&usage},
                 indices,
                 C2_DONT_BLOCK,
                 &params);
-        if (c2err != C2_OK) {
+        if (c2err != C2_OK && c2err != C2_BAD_INDEX) {
             ALOGE("Failed to query component interface: %d", c2err);
             return UNKNOWN_ERROR;
         }
         if (params.size() != indices.size()) {
-            ALOGE("Component returns wrong number of params");
+            ALOGE("Component returns wrong number of params: expected %zu actual %zu",
+                    indices.size(), params.size());
             return UNKNOWN_ERROR;
         }
         if (!params[0] || !params[1]) {
             ALOGE("Component returns null params");
             return UNKNOWN_ERROR;
         }
+        if (!*params[0] || !*params[1]) {
+            ALOGE("Component returns invalid params");
+            return UNKNOWN_ERROR;
+        }
         inputFormat->setString("mime", ((C2PortMimeConfig *)params[0].get())->m.value);
         outputFormat->setString("mime", ((C2PortMimeConfig *)params[1].get())->m.value);
+        if (usage && (usage.value & C2MemoryUsage::CPU_READ)) {
+            inputFormat->setInt32("using-sw-read-often", true);
+        }
 
         // XXX: hack
         bool audio = mime.startsWithIgnoreCase("audio/");

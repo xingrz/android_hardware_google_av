@@ -326,9 +326,11 @@ c2_status_t C2AllocationGralloc::map(
     (void) fence;
 
     if (mBuffer && mLocked) {
+        ALOGD("already mapped");
         return C2_DUPLICATE;
     }
     if (!layout || !addr) {
+        ALOGD("wrong param");
         return C2_BAD_VALUE;
     }
 
@@ -342,9 +344,11 @@ c2_status_t C2AllocationGralloc::map(
                     }
                 });
         if (err != C2_OK) {
+            ALOGD("importBuffer failed: %d", err);
             return err;
         }
         if (mBuffer == nullptr) {
+            ALOGD("importBuffer returned null buffer");
             return C2_CORRUPTED;
         }
         uint64_t igbp_id = 0;
@@ -373,6 +377,7 @@ c2_status_t C2AllocationGralloc::map(
                         }
                     });
             if (err != C2_OK) {
+                ALOGD("lockYCbCr failed: %d", err);
                 return err;
             }
             addr[C2PlanarLayout::PLANE_Y] = (uint8_t *)ycbcrLayout.y;
@@ -452,6 +457,7 @@ c2_status_t C2AllocationGralloc::map(
                         }
                     });
             if (err != C2_OK) {
+                ALOGD("lock failed: %d", err);
                 return err;
             }
             addr[C2PlanarLayout::PLANE_R] = (uint8_t *)pointer;
@@ -502,6 +508,7 @@ c2_status_t C2AllocationGralloc::map(
             break;
         }
         default: {
+            ALOGD("unsupported pixel format: %d", mInfo.mapperInfo.format);
             return C2_OMITTED;
         }
     }
