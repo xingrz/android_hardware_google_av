@@ -150,6 +150,16 @@ public:
         }
     }
 
+    status_t signalEndOfInputStream() override {
+        C2InputSurfaceEosTuning eos(true);
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        c2_status_t err = mSurface->getConfigurable()->config({&eos}, C2_MAY_BLOCK, &failures);
+        if (err != C2_OK) {
+            return UNKNOWN_ERROR;
+        }
+        return OK;
+    }
+
 private:
     std::shared_ptr<Codec2Client::InputSurface> mSurface;
     std::shared_ptr<Codec2Client::InputSurfaceConnection> mConnection;
@@ -199,6 +209,20 @@ public:
         source->onOmxIdle();
         source->onOmxLoaded();
         mNode.clear();
+    }
+
+    status_t signalEndOfInputStream() override {
+        binder::Status status = mSource->signalEndOfInputStream();
+        status_t err = OK;
+        if (status.isOk()) {
+            return OK;
+        } else if ((err = status.serviceSpecificErrorCode()) != OK) {
+            return err;
+        } else if ((err = status.transactionError()) != OK) {
+            return err;
+        } else {
+            return UNKNOWN_ERROR;
+        }
     }
 
 private:
@@ -1034,8 +1058,7 @@ void CCodec::setParameters(const sp<AMessage> &unfiltered) {
 }
 
 void CCodec::signalEndOfInputStream() {
-    // TODO
-    mCallback->onSignaledInputEOS(INVALID_OPERATION);
+    mCallback->onSignaledInputEOS(mChannel->signalEndOfInputStream());
 }
 
 void CCodec::signalRequestIDRFrame() {

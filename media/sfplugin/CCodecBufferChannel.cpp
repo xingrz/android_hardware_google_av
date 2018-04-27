@@ -1061,6 +1061,13 @@ status_t CCodecBufferChannel::setInputSurface(
     return OK;
 }
 
+status_t CCodecBufferChannel::signalEndOfInputStream() {
+    if (mInputSurface == nullptr) {
+        return INVALID_OPERATION;
+    }
+    return mInputSurface->signalEndOfInputStream();
+}
+
 status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer> &buffer) {
     int64_t timeUs;
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
