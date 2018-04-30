@@ -23,6 +23,7 @@
 #include <utils/Log.h>
 
 #include <C2Component.h>
+#include <C2Config.h>
 #include <util/C2InterfaceHelper.h>
 #include <C2Param.h>
 
