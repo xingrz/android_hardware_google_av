@@ -96,11 +96,12 @@ private:
     ConnectionId mConnectionId;
 
     // CachedBuffers
-    struct {
+    struct BufferCache {
         std::mutex mLock;
-        bool creating;
+        bool mCreating;
         std::condition_variable mCreateCv;
         std::map<BufferId, std::unique_ptr<ClientBuffer>> mBuffers;
+        BufferCache() : mCreating(false) {}
     } mCache;
 
     // FMQ - release notifier
@@ -322,8 +323,8 @@ ResultStatus BufferPoolClient::Impl::receive(
                 break;
             }
         } else {
-            if (!mCache.creating) {
-                mCache.creating = true;
+            if (!mCache.mCreating) {
+                mCache.mCreating = true;
                 lock.unlock();
                 native_handle_t* handle = NULL;
                 status = fetchBufferHandle(transactionId, bufferId, &handle);
@@ -346,7 +347,7 @@ ResultStatus BufferPoolClient::Impl::receive(
                         status = ResultStatus::NO_MEMORY;
                     }
                 }
-                mCache.creating = false;
+                mCache.mCreating = false;
                 lock.unlock();
                 mCache.mCreateCv.notify_all();
                 break;
