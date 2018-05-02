@@ -758,7 +758,14 @@ public:
         Primitive(uint32_t value)    : u32(value) { }
         Primitive(int32_t value)     : i32(value) { }
         Primitive(c2_cntr32_t value) : c32(value) { }
+        Primitive(uint8_t value)     : u32(value) { }
+        Primitive(char value)        : i32(value) { }
         Primitive(float value)       : fp(value)  { }
+
+        // allow construction from enum type
+        template<typename E, typename = typename std::enable_if<std::is_enum<E>::value>::type>
+        Primitive(E value)
+            : Primitive(static_cast<typename std::underlying_type<E>::type>(value)) { }
 
         Primitive() : u64(0) { }
 
@@ -781,7 +788,11 @@ public:
         FLOAT,
     };
 
-    template<typename T> static constexpr type_t typeFor();
+    template<typename T, bool = std::is_enum<T>::value>
+    inline static constexpr type_t typeFor() {
+        using U = typename std::underlying_type<T>::type;
+        return typeFor<U>();
+    }
 
     // constructors - implicit
     template<typename T>
@@ -813,13 +824,16 @@ template<> inline const c2_cntr32_t &C2Value::Primitive::ref<c2_cntr32_t>() cons
 template<> inline const c2_cntr64_t &C2Value::Primitive::ref<c2_cntr64_t>() const { return c64; }
 template<> inline const float &C2Value::Primitive::ref<float>() const { return fp; }
 
-template<> constexpr C2Value::type_t C2Value::typeFor<int32_t>() { return INT32; }
-template<> constexpr C2Value::type_t C2Value::typeFor<int64_t>() { return INT64; }
-template<> constexpr C2Value::type_t C2Value::typeFor<uint32_t>() { return UINT32; }
-template<> constexpr C2Value::type_t C2Value::typeFor<uint64_t>() { return UINT64; }
-template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr32_t>() { return CNTR32; }
-template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr64_t>() { return CNTR64; }
-template<> constexpr C2Value::type_t C2Value::typeFor<float>() { return FLOAT; }
+// provide types for enums and uint8_t, char even though we don't provide reading as them
+template<> constexpr C2Value::type_t C2Value::typeFor<char, false>() { return INT32; }
+template<> constexpr C2Value::type_t C2Value::typeFor<int32_t, false>() { return INT32; }
+template<> constexpr C2Value::type_t C2Value::typeFor<int64_t, false>() { return INT64; }
+template<> constexpr C2Value::type_t C2Value::typeFor<uint8_t, false>() { return UINT32; }
+template<> constexpr C2Value::type_t C2Value::typeFor<uint32_t, false>() { return UINT32; }
+template<> constexpr C2Value::type_t C2Value::typeFor<uint64_t, false>() { return UINT64; }
+template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr32_t, false>() { return CNTR32; }
+template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr64_t, false>() { return CNTR64; }
+template<> constexpr C2Value::type_t C2Value::typeFor<float, false>() { return FLOAT; }
 
 /**
  * field descriptor. A field is uniquely defined by an index into a parameter.
