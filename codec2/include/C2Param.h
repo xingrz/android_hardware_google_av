@@ -835,6 +835,9 @@ template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr32_t, false>() { re
 template<> constexpr C2Value::type_t C2Value::typeFor<c2_cntr64_t, false>() { return CNTR64; }
 template<> constexpr C2Value::type_t C2Value::typeFor<float, false>() { return FLOAT; }
 
+// forward declare easy enum template
+template<typename E> struct C2EasyEnum;
+
 /**
  * field descriptor. A field is uniquely defined by an index into a parameter.
  * (Note: Stream-id is not captured as a field.)
@@ -880,6 +883,12 @@ struct C2FieldDescriptor {
      */
     template<typename B>
     static NamedValuesType namedValuesFor(const B &);
+
+    /** specialization for easy enums */
+    template<typename E>
+    inline static NamedValuesType namedValuesFor(const C2EasyEnum<E> &) {
+        return namedValuesFor(*(E*)nullptr);
+    }
 
 private:
     template<typename B, bool enabled=std::is_arithmetic<B>::value || std::is_enum<B>::value>
