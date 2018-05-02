@@ -1993,6 +1993,7 @@ public:
         GRAPHIC,            ///< the buffer contains a single graphic block
         GRAPHIC_CHUNKS,     ///< the buffer contains one of more graphic blocks
     };
+    typedef type_t Type; // deprecated
 
     /**
      * Gets the type of this buffer (data).
