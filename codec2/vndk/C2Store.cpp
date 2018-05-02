@@ -23,6 +23,7 @@
 #include <C2BufferPriv.h>
 #include <C2BqBufferPriv.h>
 #include <C2Component.h>
+#include <C2Config.h>
 #include <C2PlatformSupport.h>
 #include <util/C2InterfaceHelper.h>
 
