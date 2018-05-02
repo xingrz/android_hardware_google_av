@@ -932,12 +932,12 @@ public:
           mGraphicBlocks(blocks) {
     }
 
-    Type type() const { return mType; }
+    type_t type() const { return mType; }
     const std::vector<C2ConstLinearBlock> &linearBlocks() const { return mLinearBlocks; }
     const std::vector<C2ConstGraphicBlock> &graphicBlocks() const { return mGraphicBlocks; }
 
 private:
-    Type mType;
+    type_t mType;
     std::vector<C2ConstLinearBlock> mLinearBlocks;
     std::vector<C2ConstGraphicBlock> mGraphicBlocks;
 };
@@ -945,7 +945,7 @@ private:
 C2BufferData::C2BufferData(const std::vector<C2ConstLinearBlock> &blocks) : mImpl(new Impl(blocks)) {}
 C2BufferData::C2BufferData(const std::vector<C2ConstGraphicBlock> &blocks) : mImpl(new Impl(blocks)) {}
 
-C2BufferData::Type C2BufferData::type() const { return mImpl->type(); }
+C2BufferData::type_t C2BufferData::type() const { return mImpl->type(); }
 
 const std::vector<C2ConstLinearBlock> C2BufferData::linearBlocks() const {
     return mImpl->linearBlocks();
