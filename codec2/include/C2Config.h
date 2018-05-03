@@ -60,6 +60,10 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexAacStreamFormat,
     kParamIndexMaxBufferSize,
 
+    // input surface
+    // TODO: does this belong here?
+    kParamIndexInputSurfaceEos,
+
     // video info
 
     kParamIndexStructStart = 0x1,
@@ -298,6 +302,10 @@ constexpr char C2_NAME_STREAM_VIDEO_SIZE_SETTING[] = "raw.size";
 // video encoder frame rate [IN]
 typedef C2StreamParam<C2Info, C2FloatValue, kParamIndexFrameRate> C2StreamFrameRateInfo;
 constexpr char C2_NAME_STREAM_FRAME_RATE_SETTING[] = "coded.frame-rate";
+
+// input surface EOS
+typedef C2GlobalParam<C2Tuning, C2Int32Value, kParamIndexInputSurfaceEos> C2InputSurfaceEosTuning;
+constexpr char C2_NAME_INPUT_SURFACE_EOS_TUNING[] = "input-surface.eos";
 
 /// @}
 

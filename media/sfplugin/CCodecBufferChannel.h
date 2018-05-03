@@ -83,6 +83,11 @@ public:
     status_t setInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface);
 
     /**
+     * Signal EOS to input surface.
+     */
+    status_t signalEndOfInputStream();
+
+    /**
      * Start queueing buffers to the component. This object should never queue
      * buffers before this call.
      */

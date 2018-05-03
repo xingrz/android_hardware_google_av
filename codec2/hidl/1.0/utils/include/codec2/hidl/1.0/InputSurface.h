@@ -167,10 +167,14 @@ struct InputSurface : public IInputSurface {
     virtual Return<void> getUniqueId(
             getUniqueId_cb _hidl_cb) override;
 
+    class ConfigurableImpl;
+
 protected:
     sp<ComponentStore> mStore;
     sp<HGraphicBufferProducer> mBase;
     sp<GraphicBufferSource> mSource;
+    std::shared_ptr<ConfigurableImpl> mHelper;
+    sp<CachedConfigurable> mConfigurable;
 
     InputSurface(
             const sp<ComponentStore>& store,
