@@ -157,6 +157,14 @@ public:
         return xd != nullptr && xd->magic == MAGIC;
     }
 
+    static void useIgbp(
+            const C2Handle *const o) {
+        if (isValid(o)) {
+            ExtraData *xd = const_cast<ExtraData *>(getExtraData(o));
+            xd->igbp_slot = ~0;
+        }
+    }
+
     static C2HandleGralloc* WrapNativeHandle(
             const native_handle_t *const handle,
             uint32_t width, uint32_t height, uint32_t format, uint64_t usage,
@@ -703,6 +711,10 @@ c2_status_t C2AllocatorGralloc::status() const {
 
 bool C2AllocatorGralloc::isValid(const C2Handle* const o) {
     return C2HandleGralloc::isValid(o);
+}
+
+void C2AllocatorGralloc::useIgbp(const C2Handle* const o) {
+    C2HandleGralloc::useIgbp(o);
 }
 
 } // namespace android
