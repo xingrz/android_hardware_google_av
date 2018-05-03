@@ -34,6 +34,8 @@
 #include <unordered_map>
 #include <algorithm>
 
+#include <media/stagefright/foundation/AUtils.h>
+
 namespace hardware {
 namespace google {
 namespace media {
@@ -1111,23 +1113,29 @@ c2_status_t objcpy(std::list<std::unique_ptr<C2Work>>* d, const WorkBundle& s) {
     return C2_OK;
 }
 
+constexpr size_t PARAMS_ALIGNMENT = 8;  // 64-bit alignment
+static_assert(PARAMS_ALIGNMENT % alignof(C2Param) == 0, "C2Param alignment mismatch");
+static_assert(PARAMS_ALIGNMENT % alignof(C2Info) == 0, "C2Param alignment mismatch");
+static_assert(PARAMS_ALIGNMENT % alignof(C2Tuning) == 0, "C2Param alignment mismatch");
+
 // Params -> std::vector<C2Param*>
 c2_status_t parseParamsBlob(std::vector<C2Param*> *params, const hidl_vec<uint8_t> &blob) {
     // assuming blob is const here
     size_t size = blob.size();
+    size_t ix = 0;
     const uint8_t *data = blob.data();
     C2Param *p = nullptr;
 
     do {
-        p = C2ParamUtils::ParseFirst(data, size);
+        p = C2ParamUtils::ParseFirst(data + ix, size - ix);
         if (p) {
             params->emplace_back(p);
-            size -= p->size();
-            data += p->size();
+            ix += p->size();
+            ix = align(ix, PARAMS_ALIGNMENT);
         }
     } while (p);
 
-    return size == 0 ? C2_OK : C2_BAD_VALUE;
+    return ix == size ? C2_OK : C2_BAD_VALUE;
 }
 
 namespace /* unnamed */ {
@@ -1146,6 +1154,7 @@ Status _createParamsBlob(hidl_vec<uint8_t> *blob, const T &params) {
     size_t size = 0;
     for (const auto &p : params) {
         size += p->size();
+        size = align(size, PARAMS_ALIGNMENT);
     }
     blob->resize(size);
     size_t ix = 0;
@@ -1157,6 +1166,7 @@ Status _createParamsBlob(hidl_vec<uint8_t> *blob, const T &params) {
                 reinterpret_cast<const uint8_t*>(&*p) + paramSize,
                 &(*blob)[ix]);
         ix += paramSize;
+        ix = align(ix, PARAMS_ALIGNMENT);
     }
     blob->resize(ix);
     return ix == size ? Status::OK : Status::CORRUPTED;
