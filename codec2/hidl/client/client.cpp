@@ -133,35 +133,42 @@ c2_status_t Codec2ConfigurableClient::query(
             [&status, &numStackIndices, &stackParams, heapParams](
                     Status s, const Params& p) {
                 status = static_cast<c2_status_t>(s);
-                if (status != C2_OK) {
+                if (status != C2_OK && status != C2_BAD_INDEX) {
                     ALOGE("query -- call failed. "
                             "Error code = %d", static_cast<int>(status));
                     return;
                 }
                 std::vector<C2Param*> paramPointers;
-                status = parseParamsBlob(&paramPointers, p);
-                if (status != C2_OK) {
+                c2_status_t parseStatus = parseParamsBlob(&paramPointers, p);
+                if (parseStatus != C2_OK) {
                     ALOGE("query -- error while parsing params. "
                             "Error code = %d", static_cast<int>(status));
+                    status = parseStatus;
                     return;
                 }
                 size_t i = 0;
-                for (C2Param* const& paramPointer : paramPointers) {
+                for (auto it = paramPointers.begin(); it != paramPointers.end(); ) {
+                    C2Param* paramPointer = *it;
                     if (numStackIndices > 0) {
                         --numStackIndices;
                         if (!paramPointer) {
                             ALOGW("query -- null stack param.");
-                            if (numStackIndices > 0) {
-                                ++i;
-                            }
+                            ++it;
                             continue;
                         }
-                        for (; !stackParams[i]; ++i) {
-                            if (i >= stackParams.size()) {
-                                ALOGE("query -- unexpected error.");
-                                status = C2_CORRUPTED;
-                                return;
-                            }
+                        for (; i < stackParams.size() && !stackParams[i]; ) {
+                            ++i;
+                        }
+                        if (i >= stackParams.size()) {
+                            ALOGE("query -- unexpected error.");
+                            status = C2_CORRUPTED;
+                            return;
+                        }
+                        if (stackParams[i]->index() != paramPointer->index()) {
+                            ALOGW("query -- param skipped. index = %d",
+                                    static_cast<int>(stackParams[i]->index()));
+                            stackParams[i++]->invalidate();
+                            continue;
                         }
                         if (!stackParams[i++]->updateFrom(*paramPointer)) {
                             ALOGW("query -- param update failed. index = %d",
@@ -170,6 +177,7 @@ c2_status_t Codec2ConfigurableClient::query(
                     } else {
                         if (!paramPointer) {
                             ALOGW("query -- null heap param.");
+                            ++it;
                             continue;
                         }
                         if (!heapParams) {
@@ -177,6 +185,7 @@ c2_status_t Codec2ConfigurableClient::query(
                         }
                         heapParams->emplace_back(C2Param::Copy(*paramPointer));
                     }
+                    ++it;
                 }
             });
     if (!transStatus.isOk()) {
