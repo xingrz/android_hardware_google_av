@@ -287,6 +287,12 @@ struct CCodec::ClientListener : public Codec2Client::Listener {
         codec->mCallback->onError(DEAD_OBJECT, ACTION_CODE_FATAL);
     }
 
+    virtual void onFramesRendered(
+            const std::vector<RenderedFrame>& renderedFrames) override {
+        // TODO
+        (void)renderedFrames;
+    }
+
 private:
     wp<CCodec> mCodec;
 };
