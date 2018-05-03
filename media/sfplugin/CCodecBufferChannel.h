@@ -103,6 +103,13 @@ public:
      */
     void onWorkDone(const std::unique_ptr<C2Work> &work);
 
+    enum MetaMode {
+        MODE_NONE,
+        MODE_ANW,
+    };
+
+    void setMetaMode(MetaMode mode);
+
     // Internal classes
     class Buffers;
     class InputBuffers;
@@ -195,6 +202,8 @@ private:
     Mutexed<InputRefs> mInputRefs;
 
     std::shared_ptr<InputSurfaceWrapper> mInputSurface;
+
+    MetaMode mMetaMode;
 
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != NULL || mDescrambler != NULL;
