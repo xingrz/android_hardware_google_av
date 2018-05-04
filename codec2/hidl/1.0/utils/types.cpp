@@ -1391,12 +1391,18 @@ Status _createParamsBlob(hidl_vec<uint8_t> *blob, const T &params) {
     // assuming the parameter values are const
     size_t size = 0;
     for (const auto &p : params) {
+        if (!p) {
+            continue;
+        }
         size += p->size();
         size = align(size, PARAMS_ALIGNMENT);
     }
     blob->resize(size);
     size_t ix = 0;
     for (const auto &p : params) {
+        if (!p) {
+            continue;
+        }
         // NEVER overwrite even if param values (e.g. size) changed
         size_t paramSize = std::min(p->size(), size - ix);
         std::copy(
