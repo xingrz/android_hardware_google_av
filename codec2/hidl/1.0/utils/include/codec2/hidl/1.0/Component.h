@@ -26,7 +26,6 @@
 #include <hardware/google/media/c2/1.0/IComponent.h>
 #include <hidl/MQDescriptor.h>
 #include <hidl/Status.h>
-#include <hwbinder/IBinder.h>
 
 #include <C2Component.h>
 #include <C2Buffer.h>
@@ -49,7 +48,6 @@ using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
 using ::android::hardware::Return;
 using ::android::hardware::Void;
-using ::android::hardware::IBinder;
 using ::android::sp;
 using ::android::wp;
 
@@ -86,8 +84,6 @@ struct Component : public Configurable<IComponent> {
     virtual Return<Status> setOutputSurface(
             uint64_t blockPoolId,
             const sp<HGraphicBufferProducer>& surface) override;
-    virtual Return<Status> connectToInputSurface(
-            const sp<IInputSurface>& surface) override;
     virtual Return<Status> connectToOmxInputSurface(
             const sp<HGraphicBufferProducer>& producer,
             const sp<::android::hardware::media::omx::V1_0::
@@ -96,6 +92,7 @@ struct Component : public Configurable<IComponent> {
     virtual Return<void> createBlockPool(
             uint32_t allocatorId,
             createBlockPool_cb _hidl_cb) override;
+    virtual Return<Status> destroyBlockPool(uint64_t blockPoolId) override;
     virtual Return<Status> start() override;
     virtual Return<Status> stop() override;
     virtual Return<Status> reset() override;
@@ -111,21 +108,21 @@ protected:
             mBufferPoolSender;
 
     std::mutex mBlockPoolsMutex;
-    // This list keeps C2BlockPool objects that are created by createBlockPool()
-    // alive. These C2BlockPools will be destroyed when the component is
-    // destroyed or when reset() or release() is called.
-    std::vector<std::shared_ptr<C2BlockPool>> mBlockPools;
+    // This map keeps C2BlockPool objects that are created by createBlockPool()
+    // alive. These C2BlockPool objects can be deleted by calling
+    // destroyBlockPool(), reset() or release(), or by destroying the component.
+    std::map<uint64_t, std::shared_ptr<C2BlockPool>> mBlockPools;
 
-    struct ComparePointer {
+    struct CompareRawPointer {
         constexpr bool operator()(
-                const wp<IBinder>& x, const wp<IBinder>& y) const {
-            return std::less<IBinder*>()(x.unsafe_get(), y.unsafe_get());
+                const wp<IComponent>& x, const wp<IComponent>& y) const {
+            return std::less<IComponent*>()(x.unsafe_get(), y.unsafe_get());
         }
     };
 
     // Component lifetime management
-    typedef std::map<wp<IBinder>, std::weak_ptr<C2Component>,
-            ComparePointer> Roster;
+    typedef std::map<wp<IComponent>, std::weak_ptr<C2Component>,
+            CompareRawPointer> Roster;
     typedef Roster::const_iterator LocalId;
     LocalId mLocalId;
     void setLocalId(const LocalId& localId);

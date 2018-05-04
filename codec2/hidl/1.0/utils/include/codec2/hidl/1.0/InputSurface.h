@@ -73,7 +73,7 @@ struct InputSurface : public IInputSurface {
 // New methods from IInputSurface
 
     virtual Return<void> connectToComponent(
-            const sp<IBase>& component,
+            const sp<IComponent>& component,
             connectToComponent_cb _hidl_cb) override;
 
     virtual Return<sp<IConfigurable>> getConfigurable() override;
