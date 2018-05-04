@@ -182,7 +182,7 @@ public:
             C2BlockPool::local_id_t blockPoolId,
             std::shared_ptr<const C2Component> component,
             std::shared_ptr<C2BlockPool> *pool) {
-        // TODO: use one iterator for mulitple blockpool type scalability.
+        // TODO: use one iterator for multiple blockpool type scalability.
         std::shared_ptr<C2BlockPool> ptr;
         auto it = mBlockPools.find(blockPoolId);
         if (it != mBlockPools.end()) {
@@ -218,9 +218,6 @@ c2_status_t GetCodec2BlockPool(
         C2BlockPool::local_id_t id, std::shared_ptr<const C2Component> component,
         std::shared_ptr<C2BlockPool> *pool) {
     pool->reset();
-    if (!component) {
-        return C2_BAD_VALUE;
-    }
     std::lock_guard<std::mutex> lock(sBlockPoolCacheMutex);
     std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
     std::shared_ptr<C2Allocator> allocator;
@@ -261,9 +258,6 @@ c2_status_t CreateCodec2BlockPool(
         std::shared_ptr<const C2Component> component,
         std::shared_ptr<C2BlockPool> *pool) {
     pool->reset();
-    if (!component) {
-        return C2_BAD_VALUE;
-    }
 
     std::lock_guard<std::mutex> lock(sBlockPoolCacheMutex);
     return sBlockPoolCache->createBlockPool(allocatorId, component, pool);

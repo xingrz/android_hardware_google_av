@@ -20,17 +20,17 @@
 
 #include <codec2/hidl/client.h>
 
-#include <codec2/hidl/1.0/types.h>
-
 #include <hardware/google/media/c2/1.0/IComponentListener.h>
 #include <hardware/google/media/c2/1.0/IConfigurable.h>
 #include <hardware/google/media/c2/1.0/IComponentInterface.h>
 #include <hardware/google/media/c2/1.0/IComponent.h>
 #include <hardware/google/media/c2/1.0/IComponentStore.h>
+#include <android/hardware/media/bufferpool/1.0/IClientManager.h>
 
 #include <C2PlatformSupport.h>
 #include <C2BufferPriv.h>
 #include <C2Debug.h>
+#include <bufferpool/ClientManager.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <hidl/HidlSupport.h>
 #include <cutils/properties.h>
@@ -49,6 +49,8 @@ using ::android::hardware::Void;
 
 using namespace ::hardware::google::media::c2::V1_0;
 using namespace ::hardware::google::media::c2::V1_0::utils;
+using namespace ::android::hardware::media::bufferpool::V1_0;
+using namespace ::android::hardware::media::bufferpool::V1_0::implementation;
 
 namespace /* unnamed */ {
 
@@ -329,6 +331,12 @@ Codec2Client::Base* Codec2Client::base() const {
 
 Codec2Client::Codec2Client(const sp<Codec2Client::Base>& base) :
     Codec2ConfigurableClient(base), mListed(false) {
+    Return<sp<IClientManager>> transResult = base->getPoolClientManager();
+    if (!transResult.isOk()) {
+        ALOGE("getPoolClientManager -- failed transaction.");
+    } else {
+        mHostPoolManager = static_cast<sp<IClientManager>>(transResult);
+    }
 }
 
 c2_status_t Codec2Client::createComponent(
@@ -412,7 +420,7 @@ c2_status_t Codec2Client::createComponent(
     Return<void> transStatus = base()->createComponent(
             name,
             hidlListener,
-            nullptr,
+            ClientManager::getInstance(),
             [&status, component, hidlListener](
                     Status s,
                     const sp<IComponent>& c) {
@@ -442,6 +450,8 @@ c2_status_t Codec2Client::createComponent(
         ALOGE("createComponent -- setDeathListener returned error: %d.",
                 static_cast<int>(status));
     }
+
+    (*component)->mBufferPoolSender.setReceiver(mHostPoolManager);
     return status;
 }
 
@@ -694,17 +704,21 @@ Codec2Client::Component::Base* Codec2Client::Component::base() const {
 }
 
 Codec2Client::Component::Component(const sp<Codec2Client::Component::Base>& base) :
-    Codec2Client::Configurable(base) {
+    Codec2Client::Configurable(base),
+    mBufferPoolSender(nullptr) {
+}
+
+Codec2Client::Component::~Component() {
 }
 
 c2_status_t Codec2Client::Component::createBlockPool(
         C2Allocator::id_t id,
-        C2BlockPool::local_id_t* localId,
+        C2BlockPool::local_id_t* blockPoolId,
         std::shared_ptr<Codec2Client::Configurable>* configurable) {
     c2_status_t status;
     Return<void> transStatus = base()->createBlockPool(
             static_cast<uint32_t>(id),
-            [&status, localId, configurable](
+            [&status, blockPoolId, configurable](
                     Status s,
                     uint64_t pId,
                     const sp<IConfigurable>& c) {
@@ -714,7 +728,7 @@ c2_status_t Codec2Client::Component::createBlockPool(
                             "Error code = %d", static_cast<int>(status));
                     return;
                 }
-                *localId = static_cast<C2BlockPool::local_id_t>(pId);
+                *blockPoolId = static_cast<C2BlockPool::local_id_t>(pId);
                 *configurable = std::make_shared<Codec2Client::Configurable>(c);
             });
     if (!transStatus.isOk()) {
@@ -761,7 +775,7 @@ c2_status_t Codec2Client::Component::queue(
     }
 
     WorkBundle workBundle;
-    Status hidlStatus = objcpy(&workBundle, *items);
+    Status hidlStatus = objcpy(&workBundle, *items, &mBufferPoolSender);
     if (hidlStatus != Status::OK) {
         ALOGE("queue -- bad input.");
         return C2_TRANSACTION_FAILED;
@@ -880,9 +894,10 @@ c2_status_t Codec2Client::Component::release() {
 }
 
 c2_status_t Codec2Client::Component::setOutputSurface(
-        uint64_t blockPoolId,
+        C2BlockPool::local_id_t blockPoolId,
         const sp<IGraphicBufferProducer>& surface) {
-    Return<Status> transStatus = base()->setOutputSurface(blockPoolId, surface);
+    Return<Status> transStatus = base()->setOutputSurface(
+            static_cast<uint64_t>(blockPoolId), surface);
     if (!transStatus.isOk()) {
         ALOGE("setOutputSurface -- transaction failed.");
         return C2_TRANSACTION_FAILED;
@@ -944,82 +959,6 @@ c2_status_t Codec2Client::Component::disconnectFromInputSurface() {
                 "Error code = %d", static_cast<int>(status));
     }
     return status;
-}
-
-c2_status_t Codec2Client::Component::getLocalBlockPool(
-        C2BlockPool::local_id_t id,
-        std::shared_ptr<C2BlockPool>* pool) const {
-    pool->reset();
-    if (!mBase) {
-        return C2_BAD_VALUE;
-    }
-    // TODO support pre-registered block pools
-    std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
-    std::shared_ptr<C2Allocator> allocator;
-    c2_status_t res = C2_NOT_FOUND;
-
-    switch (id) {
-    case C2BlockPool::BASIC_LINEAR:
-        res = allocatorStore->fetchAllocator(C2AllocatorStore::DEFAULT_LINEAR, &allocator);
-        if (res == C2_OK) {
-            *pool = std::make_shared<C2BasicLinearBlockPool>(allocator);
-        }
-        break;
-    case C2BlockPool::BASIC_GRAPHIC:
-        res = allocatorStore->fetchAllocator(C2AllocatorStore::DEFAULT_GRAPHIC, &allocator);
-        if (res == C2_OK) {
-            *pool = std::make_shared<C2BasicGraphicBlockPool>(allocator);
-        }
-        break;
-    default:
-        break;
-    }
-    if (res != C2_OK) {
-        ALOGE("getLocalBlockPool -- failed to get pool with id %d. "
-                "Error code = %d",
-                static_cast<int>(id),
-                res);
-    }
-    return res;
-}
-
-c2_status_t Codec2Client::Component::createLocalBlockPool(
-        C2PlatformAllocatorStore::id_t allocatorId,
-        std::shared_ptr<C2BlockPool>* pool) const {
-    pool->reset();
-    if (!mBase) {
-        return C2_BAD_VALUE;
-    }
-    // TODO: support caching block pool along with GetCodec2BlockPool.
-    static std::atomic_int sBlockPoolId(C2BlockPool::PLATFORM_START);
-    std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
-    std::shared_ptr<C2Allocator> allocator;
-    c2_status_t res = C2_NOT_FOUND;
-
-    switch (allocatorId) {
-    case C2PlatformAllocatorStore::ION:
-        res = allocatorStore->fetchAllocator(C2AllocatorStore::DEFAULT_LINEAR, &allocator);
-        if (res == C2_OK) {
-            *pool = std::make_shared<C2PooledBlockPool>(allocator, sBlockPoolId++);
-            if (!*pool) {
-                res = C2_NO_MEMORY;
-            }
-        }
-        break;
-    case C2PlatformAllocatorStore::GRALLOC:
-        // TODO: support gralloc
-        break;
-    default:
-        break;
-    }
-    if (res != C2_OK) {
-        ALOGE("createLocalBlockPool -- "
-                "failed to create pool with allocator id %d. "
-                "Error code = %d",
-                static_cast<int>(allocatorId),
-                res);
-    }
-    return res;
 }
 
 c2_status_t Codec2Client::Component::setDeathListener(

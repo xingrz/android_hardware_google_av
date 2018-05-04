@@ -1468,17 +1468,11 @@ status_t CCodecBufferChannel::start(
         ALOGV("graphic = %s", graphic ? "true" : "false");
         std::shared_ptr<C2BlockPool> pool;
         if (graphic) {
-            err = mComponent->getLocalBlockPool(
-                    C2BlockPool::BASIC_GRAPHIC,
-                    &pool);
+            err = CreateCodec2BlockPool(
+                    C2PlatformAllocatorStore::GRALLOC, nullptr, &pool);
         } else {
-            /* TODO: Use BufferPool-based BlockPool
-            err = mComponent->createLocalBlockPool(
-                    C2PlatformAllocatorStore::ION,
-                    &pool);*/
-            err = mComponent->getLocalBlockPool(
-                    C2BlockPool::BASIC_LINEAR,
-                    &pool);
+            err = CreateCodec2BlockPool(
+                    C2PlatformAllocatorStore::ION, nullptr, &pool);
         }
         if (err == C2_OK) {
             (*buffers)->setPool(pool);

@@ -44,6 +44,14 @@ namespace V1_0 {
 namespace utils {
 
 using namespace ::android;
+using ::android::hardware::Return;
+using ::android::hardware::media::bufferpool::BufferPoolData;
+using ::android::hardware::media::bufferpool::V1_0::BufferStatusMessage;
+using ::android::hardware::media::bufferpool::V1_0::ResultStatus;
+using ::android::hardware::media::bufferpool::V1_0::implementation::
+        ClientManager;
+using ::android::hardware::media::bufferpool::V1_0::implementation::
+        TransactionId;
 
 namespace /* unnamed */ {
 
@@ -511,16 +519,18 @@ c2_status_t objcpy(std::unique_ptr<C2StructDescriptor> *d, const StructDescripto
     return C2_OK;
 }
 
-// Finds or adds a hidl BaseBlock object from a given C2Handle* to a list and an
-// associated map.
-// Note: Native handles are not duplicated. The original handles must not be
-// closed before the transaction is complete.
 namespace /* unnamed */ {
 
-Status addBaseBlock(uint32_t* index, const C2Handle* handle,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
-    if (handle == nullptr) {
+// Find or add a hidl BaseBlock object from a given C2Handle* to a list and an
+// associated map.
+// Note: The handle is not cloned.
+Status _addBaseBlock(
+        uint32_t* index,
+        const C2Handle* handle,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
+    if (!handle) {
+        ALOGE("addBaseBlock called on a null C2Handle.");
         return Status::BAD_VALUE;
     }
     auto it = baseBlockIndices->find(handle);
@@ -528,16 +538,93 @@ Status addBaseBlock(uint32_t* index, const C2Handle* handle,
         *index = it->second;
     } else {
         *index = baseBlocks->size();
-        BaseBlock dBaseBlock;
-        // TODO: Use BufferPool.
+        baseBlockIndices->emplace(handle, *index);
+        baseBlocks->emplace_back();
+
+        BaseBlock &dBaseBlock = baseBlocks->back();
         dBaseBlock.type = BaseBlock::Type::NATIVE;
         // This does not clone the handle.
         dBaseBlock.nativeBlock =
                 reinterpret_cast<const native_handle_t*>(handle);
-        baseBlocks->push_back(dBaseBlock);
-        baseBlockIndices->emplace(handle, *index);
+
     }
     return Status::OK;
+}
+
+// Find or add a hidl BaseBlock object from a given BufferPoolData to a list and
+// an associated map.
+Status _addBaseBlock(
+        uint32_t* index,
+        const std::shared_ptr<BufferPoolData> bpData,
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
+    if (!bpData) {
+        ALOGE("addBaseBlock called on a null BufferPoolData.");
+        return Status::BAD_VALUE;
+    }
+    auto it = baseBlockIndices->find(bpData.get());
+    if (it != baseBlockIndices->end()) {
+        *index = it->second;
+    } else if (!bufferPoolSender) {
+        ALOGE("No access to the receiver's BufferPool.");
+        return Status::BAD_VALUE;
+    } else {
+        *index = baseBlocks->size();
+        baseBlockIndices->emplace(bpData.get(), *index);
+        baseBlocks->emplace_back();
+
+        BaseBlock &dBaseBlock = baseBlocks->back();
+        dBaseBlock.type = BaseBlock::Type::POOLED;
+        ResultStatus bpStatus = bufferPoolSender->send(
+                bpData,
+                &dBaseBlock.pooledBlock);
+
+        if (bpStatus != ResultStatus::OK) {
+            ALOGE("Failed to send buffer with BufferPool. Error: %d.",
+                    static_cast<int>(bpStatus));
+            return Status::BAD_VALUE;
+        }
+
+    }
+    return Status::OK;
+}
+
+Status addBaseBlock(
+        uint32_t* index,
+        const C2Handle* handle,
+        const std::shared_ptr<const _C2BlockPoolData>& blockPoolData,
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
+    if (!blockPoolData) {
+        // No BufferPoolData ==> NATIVE block.
+        return _addBaseBlock(
+                index, handle,
+                baseBlocks, baseBlockIndices);
+    }
+    switch (blockPoolData->getType()) {
+    case _C2BlockPoolData::TYPE_BUFFERPOOL: {
+            // BufferPoolData
+            std::shared_ptr<BufferPoolData> bpData;
+            if (!_C2BlockFactory::GetBufferPoolData(blockPoolData, &bpData)
+                    || !bpData) {
+                ALOGE("BufferPoolData unavailable in a block.");
+                return Status::BAD_VALUE;
+            }
+            return _addBaseBlock(
+                    index, bpData,
+                    bufferPoolSender, baseBlocks, baseBlockIndices);
+        }
+    case _C2BlockPoolData::TYPE_BUFFERQUEUE:
+        // Do the same thing as a NATIVE block.
+        return _addBaseBlock(
+                index, handle,
+                baseBlocks, baseBlockIndices);
+    default:
+        ALOGE("Unknown C2BlockPoolData type.");
+        return Status::BAD_VALUE;
+    }
 }
 
 // C2Fence -> hidl_handle
@@ -562,12 +649,13 @@ Status objcpy(hidl_handle* d, const C2Fence& s) {
 // Note: Native handles are not duplicated. The original handles must not be
 // closed before the transaction is complete.
 Status objcpy(Block* d, const C2ConstLinearBlock& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
-    // Find the BaseBlock index.
-    // TODO: Use BufferPool.
-    Status status = addBaseBlock(
-            &d->index, s.handle(), baseBlocks, baseBlockIndices);
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
+    std::shared_ptr<const _C2BlockPoolData> bpData =
+            _C2BlockFactory::GetLinearBlockPoolData(s);
+    Status status = addBaseBlock(&d->index, s.handle(), bpData,
+            bufferPoolSender, baseBlocks, baseBlockIndices);
     if (status != Status::OK) {
         return status;
     }
@@ -590,15 +678,13 @@ Status objcpy(Block* d, const C2ConstLinearBlock& s,
 // Note: Native handles are not duplicated. The original handles must not be
 // closed before the transaction is complete.
 Status objcpy(Block* d, const C2ConstGraphicBlock& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
-    // Find the BaseBlock index.
-    // TODO: Use BufferPool.
-    Status status = addBaseBlock(
-            &d->index, s.handle(), baseBlocks, baseBlockIndices);
-    if (status != Status::OK) {
-        return status;
-    }
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
+    std::shared_ptr<const _C2BlockPoolData> bpData =
+            _C2BlockFactory::GetGraphicBlockPoolData(s);
+    Status status = addBaseBlock(&d->index, s.handle(), bpData,
+            bufferPoolSender, baseBlocks, baseBlockIndices);
 
     // Create the metadata.
     C2Hidl_RectInfo dRectInfo;
@@ -620,8 +706,9 @@ Status objcpy(Block* d, const C2ConstGraphicBlock& s,
 // C2BufferData -> Buffer
 // This function only fills in d->blocks.
 Status objcpy(Buffer* d, const C2BufferData& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
     Status status;
     d->blocks.resize(
             s.linearBlocks().size() +
@@ -630,7 +717,8 @@ Status objcpy(Buffer* d, const C2BufferData& s,
     for (const C2ConstLinearBlock& linearBlock : s.linearBlocks()) {
         Block& dBlock = d->blocks[i++];
         status = objcpy(
-                &dBlock, linearBlock, baseBlocks, baseBlockIndices);
+                &dBlock, linearBlock,
+                bufferPoolSender, baseBlocks, baseBlockIndices);
         if (status != Status::OK) {
             return status;
         }
@@ -638,7 +726,8 @@ Status objcpy(Buffer* d, const C2BufferData& s,
     for (const C2ConstGraphicBlock& graphicBlock : s.graphicBlocks()) {
         Block& dBlock = d->blocks[i++];
         status = objcpy(
-                &dBlock, graphicBlock, baseBlocks, baseBlockIndices);
+                &dBlock, graphicBlock,
+                bufferPoolSender, baseBlocks, baseBlockIndices);
         if (status != Status::OK) {
             return status;
         }
@@ -648,22 +737,25 @@ Status objcpy(Buffer* d, const C2BufferData& s,
 
 // C2Buffer -> Buffer
 Status objcpy(Buffer* d, const C2Buffer& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
     Status status = createParamsBlob(&d->info, s.info());
     if (status != Status::OK) {
         return status;
     }
-    return objcpy(d, s.data(), baseBlocks, baseBlockIndices);
+    return objcpy(d, s.data(), bufferPoolSender, baseBlocks, baseBlockIndices);
 }
 
 // C2InfoBuffer -> InfoBuffer
 Status objcpy(InfoBuffer* d, const C2InfoBuffer& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
     // TODO: C2InfoBuffer is not implemented.
     (void)d;
     (void)s;
+    (void)bufferPoolSender;
     (void)baseBlocks;
     (void)baseBlockIndices;
     return Status::OK;
@@ -677,8 +769,9 @@ Status objcpy(InfoBuffer* d, const C2InfoBuffer& s,
 
 // C2FrameData -> FrameData
 Status objcpy(FrameData* d, const C2FrameData& s,
-        std::vector<BaseBlock>* baseBlocks,
-        std::map<const C2Handle*, uint32_t>* baseBlockIndices) {
+        BufferPoolSender* bufferPoolSender,
+        std::list<BaseBlock>* baseBlocks,
+        std::map<const void*, uint32_t>* baseBlockIndices) {
     d->flags = static_cast<hidl_bitfield<FrameData::Flags>>(s.flags);
     objcpy(&d->ordinal, s.ordinal);
 
@@ -692,7 +785,9 @@ Status objcpy(FrameData* d, const C2FrameData& s,
             ALOGE("Null C2Buffer");
             return Status::BAD_VALUE;
         }
-        status = objcpy(&dBuffer, *sBuffer, baseBlocks, baseBlockIndices);
+        status = objcpy(
+                &dBuffer, *sBuffer,
+                bufferPoolSender, baseBlocks, baseBlockIndices);
         if (status != Status::OK) {
             return status;
         }
@@ -711,7 +806,8 @@ Status objcpy(FrameData* d, const C2FrameData& s,
             ALOGE("Null C2InfoBuffer");
             return Status::BAD_VALUE;
         }
-        status = objcpy(&dInfoBuffer, *sInfoBuffer, baseBlocks, baseBlockIndices);
+        status = objcpy(&dInfoBuffer, *sInfoBuffer,
+                bufferPoolSender, baseBlocks, baseBlockIndices);
         if (status != Status::OK) {
             return status;
         }
@@ -722,13 +818,103 @@ Status objcpy(FrameData* d, const C2FrameData& s,
 
 } // unnamed namespace
 
+// DefaultBufferPoolSender's implementation
+
+DefaultBufferPoolSender::DefaultBufferPoolSender(
+        const sp<IClientManager>& receiverManager) :
+    mReceiverManager(receiverManager) {
+}
+
+void DefaultBufferPoolSender::setReceiver(const sp<IClientManager>& receiverManager) {
+    std::lock_guard<std::mutex> lock(mMutex);
+    if (mReceiverManager != receiverManager) {
+        mReceiverManager = receiverManager;
+        mSourceAccessor = nullptr;
+    }
+}
+
+ResultStatus DefaultBufferPoolSender::send(
+        const std::shared_ptr<BufferPoolData>& bpData,
+        BufferStatusMessage* bpMessage) {
+    if (!mReceiverManager) {
+        ALOGE("No access to receiver's BufferPool.");
+        return ResultStatus::NOT_FOUND;
+    }
+
+    ResultStatus rs;
+    std::lock_guard<std::mutex> lock(mMutex);
+    sp<IAccessor> sourceAccessor = bpData->mAccessor.promote();
+    if (!mSourceAccessor || mSourceAccessor != sourceAccessor) {
+        // Initialize the bufferpool connection.
+        mSourceAccessor = sourceAccessor;
+        if (!mSourceAccessor) {
+            return ResultStatus::CRITICAL_ERROR;
+        }
+        Return<void> transResult = mReceiverManager->registerSender(
+                mSourceAccessor,
+                [&rs, this](
+                        ResultStatus status,
+                        int64_t connectionId) {
+                    rs = status;
+                    mReceiverConnectionId = connectionId;
+                });
+        if (!transResult.isOk()) {
+            ALOGE("registerSender -- failed transaction.");
+            mReceiverManager = nullptr;
+            return ResultStatus::CRITICAL_ERROR;
+        }
+        if ((rs != ResultStatus::OK) && (rs != ResultStatus::ALREADY_EXISTS)) {
+            ALOGW("registerSender -- returned error: %d.",
+                    static_cast<int>(rs));
+        }
+    }
+    if (!mSenderManager) {
+        mSenderManager = ClientManager::getInstance();
+        if (!mSenderManager) {
+            ALOGE("Failed to retrieve local BufferPool ClientManager.");
+            return ResultStatus::CRITICAL_ERROR;
+        }
+    }
+
+    uint64_t transactionId;
+    int64_t timestampUs;
+    rs = mSenderManager->postSend(
+            mReceiverConnectionId, bpData, &transactionId, &timestampUs);
+    if (rs != ResultStatus::OK) {
+        ALOGE("ClientManager::postSend -- returned error: %d.",
+                static_cast<int>(rs));
+        return rs;
+    }
+    if (!bpMessage) {
+        ALOGE("Null output parameter for BufferStatusMessage.");
+        return ResultStatus::CRITICAL_ERROR;
+    }
+    bpMessage->connectionId = mReceiverConnectionId;
+    bpMessage->bufferId = bpData->mId;
+    bpMessage->transactionId = transactionId;
+    bpMessage->timestampUs = timestampUs;
+    return rs;
+}
+
 // std::list<std::unique_ptr<C2Work>> -> WorkBundle
-// TODO: Connect with Bufferpool
-Status objcpy(WorkBundle* d, const std::list<std::unique_ptr<C2Work>>& s) {
+Status objcpy(WorkBundle* d, const std::list<std::unique_ptr<C2Work>>& s,
+        BufferPoolSender* bufferPoolSender) {
     Status status = Status::OK;
 
-    std::vector<BaseBlock> baseBlocks;
-    std::map<const C2Handle*, uint32_t> baseBlockIndices;
+    // baseBlocks holds a list of BaseBlock objects that Blocks can refer to.
+    std::list<BaseBlock> baseBlocks;
+
+    // baseBlockIndices maps a raw pointer to native_handle_t or BufferPoolData
+    // inside baseBlocks to the corresponding index into baseBlocks. The keys
+    // (pointers) are used to identify blocks that have the same "base block" in
+    // s, a list of C2Work objects. Because baseBlocks will be copied into a
+    // hidl_vec eventually, the values of baseBlockIndices are zero-based
+    // integer indices instead of list iterators.
+    //
+    // Note that the pointers can be raw because baseBlockIndices has a shorter
+    // lifespan than all of base blocks.
+    std::map<const void*, uint32_t> baseBlockIndices;
+
     d->works.resize(s.size());
     size_t i = 0;
     for (const std::unique_ptr<C2Work>& sWork : s) {
@@ -738,7 +924,7 @@ Status objcpy(WorkBundle* d, const std::list<std::unique_ptr<C2Work>>& s) {
             continue;
         }
         status = objcpy(&dWork.input, sWork->input,
-                &baseBlocks, &baseBlockIndices);
+                bufferPoolSender, &baseBlocks, &baseBlockIndices);
         if (status != Status::OK) {
             return status;
         }
@@ -785,7 +971,7 @@ Status objcpy(WorkBundle* d, const std::list<std::unique_ptr<C2Work>>& s) {
             }
 
             status = objcpy(&dWorklet.output, sWorklet.output,
-                    &baseBlocks, &baseBlockIndices);
+                    bufferPoolSender, &baseBlocks, &baseBlockIndices);
             if (status != Status::OK) {
                 return status;
             }
@@ -794,12 +980,29 @@ Status objcpy(WorkBundle* d, const std::list<std::unique_ptr<C2Work>>& s) {
         dWork.result = static_cast<Status>(sWork->result);
     }
 
-    d->baseBlocks = baseBlocks;
+    // Copy std::list<BaseBlock> to hidl_vec<BaseBlock>.
+    {
+        d->baseBlocks.resize(baseBlocks.size());
+        size_t i = 0;
+        for (const BaseBlock& baseBlock : baseBlocks) {
+            d->baseBlocks[i++] = baseBlock;
+        }
+    }
 
     return Status::OK;
 }
 
 namespace /* unnamed */ {
+
+struct C2BaseBlock {
+    enum type_t {
+        LINEAR,
+        GRAPHIC,
+    };
+    type_t type;
+    std::shared_ptr<C2LinearBlock> linear;
+    std::shared_ptr<C2GraphicBlock> graphic;
+};
 
 // hidl_handle -> C2Fence
 // Note: File descriptors are not duplicated. The original file descriptor must
@@ -811,159 +1014,107 @@ c2_status_t objcpy(C2Fence* d, const hidl_handle& s) {
     return C2_OK;
 }
 
+// C2LinearBlock, vector<C2Param*>, C2Fence -> C2Buffer
+c2_status_t createLinearBuffer(
+        std::shared_ptr<C2Buffer>* buffer,
+        const std::shared_ptr<C2LinearBlock>& block,
+        const std::vector<C2Param*>& meta,
+        const C2Fence& fence) {
+    // Check the block meta. It should have exactly 1 C2Info:
+    // C2Hidl_RangeInfo.
+    if ((meta.size() != 1) || !meta[0]) {
+        ALOGE("Invalid block metadata for ion block.");
+        return C2_BAD_VALUE;
+    }
+    if (meta[0]->size() != sizeof(C2Hidl_RangeInfo)) {
+        ALOGE("Invalid block metadata for ion block: range.");
+        return C2_BAD_VALUE;
+    }
+    C2Hidl_RangeInfo *rangeInfo =
+            reinterpret_cast<C2Hidl_RangeInfo*>(meta[0]);
+
+    // Create C2Buffer from C2LinearBlock.
+    *buffer = C2Buffer::CreateLinearBuffer(block->share(
+            rangeInfo->offset, rangeInfo->length,
+            fence));
+    if (!(*buffer)) {
+        ALOGE("Cannot create a linear buffer.");
+        return C2_BAD_VALUE;
+    }
+    return C2_OK;
+}
+
+// C2GraphicBlock, vector<C2Param*>, C2Fence -> C2Buffer
+c2_status_t createGraphicBuffer(
+        std::shared_ptr<C2Buffer>* buffer,
+        const std::shared_ptr<C2GraphicBlock>& block,
+        const std::vector<C2Param*>& meta,
+        const C2Fence& fence) {
+    // Check the block meta. It should have exactly 1 C2Info:
+    // C2Hidl_RectInfo.
+    if ((meta.size() != 1) || !meta[0]) {
+        ALOGE("Invalid block metadata for graphic block.");
+        return C2_BAD_VALUE;
+    }
+    if (meta[0]->size() != sizeof(C2Hidl_RectInfo)) {
+        ALOGE("Invalid block metadata for graphic block: crop rect.");
+        return C2_BAD_VALUE;
+    }
+    C2Hidl_RectInfo *rectInfo =
+            reinterpret_cast<C2Hidl_RectInfo*>(meta[0]);
+
+    // Create C2Buffer from C2GraphicBlock.
+    *buffer = C2Buffer::CreateGraphicBuffer(block->share(
+            C2Rect(rectInfo->width, rectInfo->height).
+            at(rectInfo->left, rectInfo->top),
+            fence));
+    if (!(*buffer)) {
+        ALOGE("Cannot create a graphic buffer.");
+        return C2_BAD_VALUE;
+    }
+    return C2_OK;
+}
+
 // Buffer -> C2Buffer
 // Note: The native handles will be cloned.
 c2_status_t objcpy(std::shared_ptr<C2Buffer>* d, const Buffer& s,
-        const hidl_vec<BaseBlock>& baseBlocks) {
+        const std::vector<C2BaseBlock>& baseBlocks) {
     c2_status_t status;
-
-    // First, construct C2Buffer with blocks from s.blocks.
     *d = nullptr;
 
-    // TODO: Only buffers with 1 block are supported.
-    if (s.blocks.size() == 1) {
-        // Obtain the BaseBlock.
-        const Block &sBlock = s.blocks[0];
-        if (sBlock.index >= baseBlocks.size()) {
-            ALOGE("Index into baseBlocks is out of range.");
-            return C2_BAD_VALUE;
-        }
-        const BaseBlock &sBaseBlock = baseBlocks[sBlock.index];
+    // Currently, a C2Buffer must contain exactly 1 block.
+    if (s.blocks.size() != 1) {
+        ALOGE("Currently, a C2Buffer must contain exactly 1 block.");
+        return C2_BAD_VALUE;
+    }
 
-        // Parse meta.
-        std::vector<C2Param*> sBlockMeta;
-        status = parseParamsBlob(&sBlockMeta, sBlock.meta);
-        if (status != C2_OK) {
-            ALOGE("Invalid block params blob.");
-            return C2_BAD_VALUE;
-        }
+    const Block &sBlock = s.blocks[0];
+    if (sBlock.index >= baseBlocks.size()) {
+        ALOGE("Index into baseBlocks is out of range.");
+        return C2_BAD_VALUE;
+    }
+    const C2BaseBlock &baseBlock = baseBlocks[sBlock.index];
 
-        // Copy fence.
-        C2Fence dFence;
-        status = objcpy(&dFence, sBlock.fence);
+    // Parse meta.
+    std::vector<C2Param*> sBlockMeta;
+    status = parseParamsBlob(&sBlockMeta, sBlock.meta);
+    if (status != C2_OK) {
+        ALOGE("Invalid block params blob.");
+        return C2_BAD_VALUE;
+    }
 
-        // Construct a block.
-        switch (sBaseBlock.type) {
-        case BaseBlock::Type::NATIVE: {
-            const native_handle_t* sHandle =
-                    native_handle_clone(sBaseBlock.nativeBlock);
-            if (sHandle == nullptr) {
-                ALOGE("Null native handle in a block.");
-                return C2_BAD_VALUE;
-            }
-            const C2Handle *sC2Handle =
-                    reinterpret_cast<const C2Handle*>(sHandle);
+    // Copy fence.
+    C2Fence dFence;
+    status = objcpy(&dFence, sBlock.fence);
 
-            // Currently, there are only 2 types of C2Allocation: ion and
-            // gralloc.
-            if (C2AllocatorIon::isValid(sC2Handle)) {
-                // Check the block meta. It should have exactly 1 C2Info:
-                // C2Hidl_RangeInfo.
-                if ((sBlockMeta.size() != 1) || !sBlockMeta[0]) {
-                    ALOGE("Invalid block metadata for ion block.");
-                    return C2_BAD_VALUE;
-                }
-                if (sBlockMeta[0]->size() != sizeof(C2Hidl_RangeInfo)) {
-                    ALOGE("Invalid block metadata for ion block: range.");
-                    return C2_BAD_VALUE;
-                }
-                C2Hidl_RangeInfo *rangeInfo =
-                        reinterpret_cast<C2Hidl_RangeInfo*>(sBlockMeta[0]);
-
-                std::shared_ptr<C2Allocator> allocator;
-                c2_status_t status = GetCodec2PlatformAllocatorStore(
-                        )->fetchAllocator(
-                        C2PlatformAllocatorStore::ION,
-                        &allocator);
-                if (status != C2_OK) {
-                    ALOGE("Cannot fetch platform linear allocator.");
-                    return status;
-                }
-                std::shared_ptr<C2LinearAllocation> allocation;
-                status = allocator->priorLinearAllocation(
-                        sC2Handle, &allocation);
-                if (status != C2_OK) {
-                    ALOGE("Error constructing linear allocation.");
-                    return status;
-                } else if (!allocation) {
-                    ALOGE("Null linear allocation.");
-                    return C2_BAD_VALUE;
-                }
-                std::shared_ptr<C2LinearBlock> block =
-                        _C2BlockFactory::CreateLinearBlock(allocation);
-                if (!block) {
-                    ALOGE("Cannot create a block.");
-                    return C2_BAD_VALUE;
-                }
-                *d = C2Buffer::CreateLinearBuffer(block->share(
-                        rangeInfo->offset, rangeInfo->length, dFence));
-                if (!(*d)) {
-                    ALOGE("Cannot create a linear buffer.");
-                    return C2_BAD_VALUE;
-                }
-            } else if (C2AllocatorGralloc::isValid(sC2Handle)) {
-                // Check the block meta. It should have exactly 1 C2Info:
-                // C2Hidl_RectInfo.
-                if ((sBlockMeta.size() != 1) || !sBlockMeta[0]) {
-                    ALOGE("Invalid block metadata for graphic block.");
-                    return C2_BAD_VALUE;
-                }
-                if (sBlockMeta[0]->size() != sizeof(C2Hidl_RectInfo)) {
-                    ALOGE("Invalid block metadata for graphic block: crop rect.");
-                    return C2_BAD_VALUE;
-                }
-                C2Hidl_RectInfo *rectInfo =
-                        reinterpret_cast<C2Hidl_RectInfo*>(sBlockMeta[0]);
-
-                std::shared_ptr<C2Allocator> allocator;
-                c2_status_t status = GetCodec2PlatformAllocatorStore(
-                        )->fetchAllocator(
-                        C2PlatformAllocatorStore::GRALLOC,
-                        &allocator);
-                if (status != C2_OK) {
-                    ALOGE("Cannot fetch platform graphic allocator.");
-                    return status;
-                }
-
-                std::shared_ptr<C2GraphicAllocation> allocation;
-                status = allocator->priorGraphicAllocation(
-                        sC2Handle, &allocation);
-                if (status != C2_OK) {
-                    ALOGE("Error constructing graphic allocation.");
-                    return status;
-                } else if (!allocation) {
-                    ALOGE("Null graphic allocation.");
-                    return C2_BAD_VALUE;
-                }
-                std::shared_ptr<C2GraphicBlock> block =
-                        _C2BlockFactory::CreateGraphicBlock(allocation);
-                if (!block) {
-                    ALOGE("Cannot create a block.");
-                    return C2_BAD_VALUE;
-                }
-                *d = C2Buffer::CreateGraphicBuffer(block->share(
-                        C2Rect(rectInfo->width, rectInfo->height).at(rectInfo->left, rectInfo->top),
-                        dFence));
-                if (!(*d)) {
-                    ALOGE("Cannot create a graphic buffer.");
-                    return C2_BAD_VALUE;
-                }
-            } else {
-                ALOGE("Unknown handle type.");
-                return C2_BAD_VALUE;
-            }
-            break;
-        }
-        case BaseBlock::Type::POOLED: {
-            // TODO: Implement. Use BufferPool.
-            return C2_OMITTED;
-        }
-        default:
-            ALOGE("Invalid BaseBlock type.");
-            return C2_BAD_VALUE;
-        }
-    } else {
-        ALOGE("Currently a buffer must contain exactly 1 block.");
+    // Construct a block.
+    switch (baseBlock.type) {
+    case C2BaseBlock::LINEAR:
+        return createLinearBuffer(d, baseBlock.linear, sBlockMeta, dFence);
+    case C2BaseBlock::GRAPHIC:
+        return createGraphicBuffer(d, baseBlock.graphic, sBlockMeta, dFence);
+    default:
+        ALOGE("Invalid BaseBlock type.");
         return C2_BAD_VALUE;
     }
 
@@ -997,7 +1148,7 @@ c2_status_t objcpy(std::shared_ptr<C2Buffer>* d, const Buffer& s,
 
 // FrameData -> C2FrameData
 c2_status_t objcpy(C2FrameData* d, const FrameData& s,
-        const hidl_vec<BaseBlock>& baseBlocks) {
+        const std::vector<C2BaseBlock>& baseBlocks) {
     c2_status_t status;
     d->flags = static_cast<C2FrameData::flags_t>(s.flags);
     objcpy(&d->ordinal, s.ordinal);
@@ -1032,19 +1183,106 @@ c2_status_t objcpy(C2FrameData* d, const FrameData& s,
     return C2_OK;
 }
 
+// BaseBlock -> C2BaseBlock
+c2_status_t objcpy(C2BaseBlock* d, const BaseBlock& s) {
+    switch (s.type) {
+    case BaseBlock::Type::NATIVE: {
+            native_handle_t* sHandle =
+                    native_handle_clone(s.nativeBlock);
+            if (sHandle == nullptr) {
+                ALOGE("Null native handle in a block.");
+                return C2_BAD_VALUE;
+            }
+            const C2Handle *sC2Handle =
+                    reinterpret_cast<const C2Handle*>(sHandle);
+
+            d->linear = _C2BlockFactory::CreateLinearBlock(sC2Handle);
+            if (d->linear) {
+                d->type = C2BaseBlock::LINEAR;
+                return C2_OK;
+            }
+
+            d->graphic = _C2BlockFactory::CreateGraphicBlock(sC2Handle);
+            if (d->graphic) {
+                d->type = C2BaseBlock::GRAPHIC;
+                return C2_OK;
+            }
+
+            ALOGE("Unknown handle type in native BaseBlock.");
+            if (sHandle) {
+                native_handle_close(sHandle);
+                native_handle_delete(sHandle);
+            }
+            return C2_BAD_VALUE;
+        }
+    case BaseBlock::Type::POOLED: {
+            const BufferStatusMessage &bpMessage =
+                    s.pooledBlock;
+            sp<ClientManager> bp = ClientManager::getInstance();
+            std::shared_ptr<BufferPoolData> bpData;
+            ResultStatus bpStatus = bp->receive(
+                    bpMessage.connectionId,
+                    bpMessage.transactionId,
+                    bpMessage.bufferId,
+                    bpMessage.timestampUs,
+                    &bpData);
+            if (bpStatus != ResultStatus::OK) {
+                ALOGE("Failed to receive buffer from bufferpool -- "
+                        "resultStatus = %d",
+                        static_cast<int>(bpStatus));
+                return toC2Status(bpStatus);
+            } else if (!bpData) {
+                ALOGE("No data in bufferpool transaction.");
+                return C2_BAD_VALUE;
+            }
+
+            d->linear = _C2BlockFactory::CreateLinearBlock(bpData);
+            if (d->linear) {
+                d->type = C2BaseBlock::LINEAR;
+                return C2_OK;
+            }
+
+            d->graphic = _C2BlockFactory::CreateGraphicBlock(bpData);
+            if (d->graphic) {
+                d->type = C2BaseBlock::GRAPHIC;
+                return C2_OK;
+            }
+
+            ALOGE("Unknown handle type in pooled BaseBlock.");
+            if (bpData->mHandle) {
+                native_handle_close(bpData->mHandle);
+                native_handle_delete(bpData->mHandle);
+            }
+            return C2_BAD_VALUE;
+        }
+    default:
+        ALOGE("Corrupted BaseBlock type: %d", static_cast<int>(s.type));
+        return C2_BAD_VALUE;
+    }
+}
+
 } // unnamed namespace
 
 // WorkBundle -> std::list<std::unique_ptr<C2Work>>
-// TODO: Connect with Bufferpool
 c2_status_t objcpy(std::list<std::unique_ptr<C2Work>>* d, const WorkBundle& s) {
     c2_status_t status;
+
+    // Convert BaseBlocks to C2BaseBlocks.
+    std::vector<C2BaseBlock> dBaseBlocks(s.baseBlocks.size());
+    for (size_t i = 0; i < s.baseBlocks.size(); ++i) {
+        status = objcpy(&dBaseBlocks[i], s.baseBlocks[i]);
+        if (status != C2_OK) {
+            return status;
+        }
+    }
+
     d->clear();
     for (const Work& sWork : s.works) {
         d->emplace_back(std::make_unique<C2Work>());
         C2Work& dWork = *d->back();
 
         // input
-        status = objcpy(&dWork.input, sWork.input, s.baseBlocks);
+        status = objcpy(&dWork.input, sWork.input, dBaseBlocks);
         if (status != C2_OK) {
             ALOGE("Error constructing C2Work's input.");
             return C2_BAD_VALUE;
@@ -1095,7 +1333,7 @@ c2_status_t objcpy(std::list<std::unique_ptr<C2Work>>* d, const WorkBundle& s) {
                 dWorklet->failures.emplace_back(std::move(dFailure));
             }
             // output
-            status = objcpy(&dWorklet->output, sWorklet.output, s.baseBlocks);
+            status = objcpy(&dWorklet->output, sWorklet.output, dBaseBlocks);
             if (status != C2_OK) {
                 ALOGE("Failed to create output C2FrameData.");
                 return C2_BAD_VALUE;
@@ -1274,6 +1512,25 @@ c2_status_t updateParamsFromBlob(
         }
     }
     return C2_OK;
+}
+
+// Convert BufferPool ResultStatus to c2_status_t.
+c2_status_t toC2Status(ResultStatus rs) {
+    switch (rs) {
+    case ResultStatus::OK:
+        return C2_OK;
+    case ResultStatus::NO_MEMORY:
+        return C2_NO_MEMORY;
+    case ResultStatus::ALREADY_EXISTS:
+        return C2_DUPLICATE;
+    case ResultStatus::NOT_FOUND:
+        return C2_NOT_FOUND;
+    case ResultStatus::CRITICAL_ERROR:
+        return C2_CORRUPTED;
+    default:
+        ALOGW("Unrecognized BufferPool ResultStatus: %d", static_cast<int>(rs));
+        return C2_CORRUPTED;
+    }
 }
 
 }  // namespace utils
