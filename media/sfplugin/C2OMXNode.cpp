@@ -52,7 +52,7 @@ public:
 C2OMXNode::C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp)
     : mComp(comp), mFrameIndex(0), mWidth(0), mHeight(0) {
     // TODO: read from intf()
-    if (!strncmp(comp->getName().c_str(), "c2.google.", 10)) {
+    if (!strncmp(comp->getName().c_str(), "c2.android.", 11)) {
         mUsage = GRALLOC_USAGE_SW_READ_OFTEN;
     } else {
         mUsage = GRALLOC_USAGE_HW_VIDEO_ENCODER;
