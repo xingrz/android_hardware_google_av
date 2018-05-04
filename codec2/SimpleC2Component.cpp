@@ -20,6 +20,7 @@
 
 #include <inttypes.h>
 
+#include <C2Config.h>
 #include <C2PlatformSupport.h>
 #include <SimpleC2Component.h>
 
@@ -356,9 +357,8 @@ void SimpleC2Component::processQueue() {
                 return err;
             }
             if (outputFormat.value == C2FormatVideo) {
-                // TODO: PLATFORM_START is temporary.
-                err = GetCodec2BlockPool(
-                        C2BlockPool::PLATFORM_START,
+                err = CreateCodec2BlockPool(
+                        C2PlatformAllocatorStore::GRALLOC,
                         shared_from_this(), &mOutputBlockPool);
             } else {
                 err = CreateCodec2BlockPool(

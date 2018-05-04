@@ -17,27 +17,11 @@
 #ifndef C2CONFIG_H_
 #define C2CONFIG_H_
 
+#include <C2Enum.h>
 #include <C2ParamDef.h>
 
 /// \defgroup config Component configuration
 /// @{
-
-#ifndef DEFINE_C2_ENUM_VALUE_AUTO_HELPER
-#define DEFINE_C2_ENUM_VALUE_AUTO_HELPER(name, type, prefix, ...)
-#define DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(name, type, names, ...)
-#endif
-
-#define C2ENUM(name, type, ...) \
-enum name : type { __VA_ARGS__ }; \
-DEFINE_C2_ENUM_VALUE_AUTO_HELPER(name, type, NULL, __VA_ARGS__)
-
-#define C2ENUM_CUSTOM_PREFIX(name, type, prefix, ...) \
-enum name : type { __VA_ARGS__ }; \
-DEFINE_C2_ENUM_VALUE_AUTO_HELPER(name, type, prefix, __VA_ARGS__)
-
-#define C2ENUM_CUSTOM_NAMES(name, type, names, ...) \
-enum name : type { __VA_ARGS__ }; \
-DEFINE_C2_ENUM_VALUE_CUSTOM_HELPER(name, type, names, __VA_ARGS__)
 
 enum C2ParamIndexKind : C2Param::type_index_t {
     /// domain
@@ -75,6 +59,10 @@ enum C2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexAacStreamFormat,
     kParamIndexMaxBufferSize,
+
+    // input surface
+    // TODO: does this belong here?
+    kParamIndexInputSurfaceEos,
 
     // video info
 
@@ -314,6 +302,10 @@ constexpr char C2_NAME_STREAM_VIDEO_SIZE_SETTING[] = "raw.size";
 // video encoder frame rate [IN]
 typedef C2StreamParam<C2Info, C2FloatValue, kParamIndexFrameRate> C2StreamFrameRateInfo;
 constexpr char C2_NAME_STREAM_FRAME_RATE_SETTING[] = "coded.frame-rate";
+
+// input surface EOS
+typedef C2GlobalParam<C2Tuning, C2Int32Value, kParamIndexInputSurfaceEos> C2InputSurfaceEosTuning;
+constexpr char C2_NAME_INPUT_SURFACE_EOS_TUNING[] = "input-surface.eos";
 
 /// @}
 

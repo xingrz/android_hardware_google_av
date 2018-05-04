@@ -53,8 +53,8 @@ C2MemoryUsage C2AndroidMemoryUsage::FromGrallocUsage(uint64_t usage) {
 
 uint64_t C2AndroidMemoryUsage::asGrallocUsage() const {
     // gralloc does not support WRITE_PROTECTED
-    return (((expected & C2MemoryUsage::CPU_READ) ? GRALLOC_USAGE_SW_READ_MASK : 0) |
-            ((expected & C2MemoryUsage::CPU_WRITE) ? GRALLOC_USAGE_SW_WRITE_MASK : 0) |
+    return (((expected & C2MemoryUsage::CPU_READ) ? GRALLOC_USAGE_SW_READ_OFTEN : 0) |
+            ((expected & C2MemoryUsage::CPU_WRITE) ? GRALLOC_USAGE_SW_WRITE_OFTEN : 0) |
             ((expected & C2MemoryUsage::READ_PROTECTED) ? GRALLOC_USAGE_PROTECTED : 0) |
             (expected & PASSTHROUGH_USAGE_MASK));
 }
@@ -155,6 +155,14 @@ public:
         const ExtraData *xd = getExtraData(o);
         // we cannot validate width/height/format/usage without accessing gralloc driver
         return xd != nullptr && xd->magic == MAGIC;
+    }
+
+    static void useIgbp(
+            const C2Handle *const o) {
+        if (isValid(o)) {
+            ExtraData *xd = const_cast<ExtraData *>(getExtraData(o));
+            xd->igbp_slot = ~0;
+        }
     }
 
     static C2HandleGralloc* WrapNativeHandle(
@@ -318,9 +326,11 @@ c2_status_t C2AllocationGralloc::map(
     (void) fence;
 
     if (mBuffer && mLocked) {
+        ALOGD("already mapped");
         return C2_DUPLICATE;
     }
     if (!layout || !addr) {
+        ALOGD("wrong param");
         return C2_BAD_VALUE;
     }
 
@@ -334,9 +344,11 @@ c2_status_t C2AllocationGralloc::map(
                     }
                 });
         if (err != C2_OK) {
+            ALOGD("importBuffer failed: %d", err);
             return err;
         }
         if (mBuffer == nullptr) {
+            ALOGD("importBuffer returned null buffer");
             return C2_CORRUPTED;
         }
         uint64_t igbp_id = 0;
@@ -365,6 +377,7 @@ c2_status_t C2AllocationGralloc::map(
                         }
                     });
             if (err != C2_OK) {
+                ALOGD("lockYCbCr failed: %d", err);
                 return err;
             }
             addr[C2PlanarLayout::PLANE_Y] = (uint8_t *)ycbcrLayout.y;
@@ -444,6 +457,7 @@ c2_status_t C2AllocationGralloc::map(
                         }
                     });
             if (err != C2_OK) {
+                ALOGD("lock failed: %d", err);
                 return err;
             }
             addr[C2PlanarLayout::PLANE_R] = (uint8_t *)pointer;
@@ -494,6 +508,7 @@ c2_status_t C2AllocationGralloc::map(
             break;
         }
         default: {
+            ALOGD("unsupported pixel format: %d", mInfo.mapperInfo.format);
             return C2_OMITTED;
         }
     }
@@ -703,6 +718,10 @@ c2_status_t C2AllocatorGralloc::status() const {
 
 bool C2AllocatorGralloc::isValid(const C2Handle* const o) {
     return C2HandleGralloc::isValid(o);
+}
+
+void C2AllocatorGralloc::useIgbp(const C2Handle* const o) {
+    C2HandleGralloc::useIgbp(o);
 }
 
 } // namespace android

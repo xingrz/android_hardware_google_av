@@ -94,8 +94,6 @@ protected:
             mStructDescriptors;
     mutable std::mutex mStructDescriptorsMutex;
 
-    sp<IClientManager> mPoolManager;
-
     // Component lifetime management
     Component::Roster mComponentRoster;
     mutable std::mutex mComponentRosterMutex;

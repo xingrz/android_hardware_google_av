@@ -41,6 +41,7 @@ namespace utils {
 using namespace ::android;
 using ::android::hardware::toBinder;
 using ::android::GraphicBufferSource;
+using namespace ::android::hardware::media::bufferpool::V1_0::implementation;
 
 namespace /* unnamed */ {
 
@@ -138,8 +139,7 @@ c2_status_t ComponentStore::validateSupportedParams(
 Return<void> ComponentStore::createComponent(
         const hidl_string& name,
         const sp<IComponentListener>& listener,
-        // TODO: Return the pool if the component has it.
-        const sp<IClientManager>& /* pool */,
+        const sp<IClientManager>& pool,
         createComponent_cb _hidl_cb) {
 
     sp<Component> component;
@@ -148,17 +148,24 @@ Return<void> ComponentStore::createComponent(
             mStore->createComponent(name, &c2component));
 
     if (status == Status::OK) {
-        component = new Component(c2component, listener, this);
+        component = new Component(c2component, listener, this, pool);
         if (!component) {
             status = Status::CORRUPTED;
+        } else if (component->status() != C2_OK) {
+            status = static_cast<Status>(component->status());
         } else {
-            std::lock_guard<std::mutex> lock(mComponentRosterMutex);
-            auto emplaceResult =
-                    mComponentRoster.emplace(toBinder(component), c2component);
-            if (!emplaceResult.second) {
-                status = Status::CORRUPTED;
+            component->initListener(component);
+            if (component->status() != C2_OK) {
+                status = static_cast<Status>(component->status());
             } else {
-                component->setLocalId(emplaceResult.first);
+                std::lock_guard<std::mutex> lock(mComponentRosterMutex);
+                auto emplaceResult =
+                        mComponentRoster.emplace(toBinder(component), c2component);
+                if (!emplaceResult.second) {
+                    status = Status::CORRUPTED;
+                } else {
+                    component->setLocalId(emplaceResult.first);
+                }
             }
         }
     }
@@ -232,8 +239,7 @@ Return<void> ComponentStore::getStructDescriptors(
 }
 
 Return<sp<IClientManager>> ComponentStore::getPoolClientManager() {
-    // TODO implement
-    return sp<IClientManager> {};
+    return ClientManager::getInstance();
 }
 
 Return<Status> ComponentStore::copyBuffer(const Buffer& src, const Buffer& dst) {
