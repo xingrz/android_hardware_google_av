@@ -1500,7 +1500,7 @@ status_t CCodecBufferChannel::start(
         } else {
             buffers->reset(new LinearOutputBuffers);
         }
-        (*buffers)->setFormat(outputFormat);
+        (*buffers)->setFormat(outputFormat->dup());
     }
 
     mSync.start();
