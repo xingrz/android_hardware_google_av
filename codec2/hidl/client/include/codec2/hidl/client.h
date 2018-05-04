@@ -239,6 +239,15 @@ struct Codec2Client::Listener {
     virtual void onDeath(
             const std::weak_ptr<Component>& comp) = 0;
 
+    struct RenderedFrame {
+        uint64_t bufferQueueId;
+        int32_t slotId;
+        int64_t timestampNs;
+    };
+
+    virtual void onFramesRendered(
+            const std::vector<RenderedFrame>& renderedFrames) = 0;
+
     virtual ~Listener();
 
 };
@@ -251,6 +260,9 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
             C2Allocator::id_t id,
             C2BlockPool::local_id_t* blockPoolId,
             std::shared_ptr<Configurable>* configurable);
+
+    c2_status_t destroyBlockPool(
+            C2BlockPool::local_id_t localId);
 
     c2_status_t queue(
             std::list<std::unique_ptr<C2Work>>* const items);
@@ -278,10 +290,6 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
     c2_status_t setOutputSurface(
             C2BlockPool::local_id_t blockPoolId,
             const sp<IGraphicBufferProducer>& surface);
-
-    // Input surface
-    c2_status_t connectToInputSurface(
-            const std::shared_ptr<InputSurface>& surface);
 
     c2_status_t connectToOmxInputSurface(
             const sp<IGraphicBufferProducer>& producer,
