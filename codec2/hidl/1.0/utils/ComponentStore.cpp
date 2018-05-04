@@ -27,8 +27,6 @@
 #include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
 
-#include <hidl/HidlBinderSupport.h>
-
 #include <utils/Errors.h>
 
 namespace hardware {
@@ -39,7 +37,6 @@ namespace V1_0 {
 namespace utils {
 
 using namespace ::android;
-using ::android::hardware::toBinder;
 using ::android::GraphicBufferSource;
 using namespace ::android::hardware::media::bufferpool::V1_0::implementation;
 
@@ -159,13 +156,9 @@ Return<void> ComponentStore::createComponent(
                 status = static_cast<Status>(component->status());
             } else {
                 std::lock_guard<std::mutex> lock(mComponentRosterMutex);
-                auto emplaceResult =
-                        mComponentRoster.emplace(toBinder(component), c2component);
-                if (!emplaceResult.second) {
-                    status = Status::CORRUPTED;
-                } else {
-                    component->setLocalId(emplaceResult.first);
-                }
+                component->setLocalId(
+                        mComponentRoster.emplace(component, c2component)
+                        .first);
             }
         }
     }
@@ -256,9 +249,9 @@ void ComponentStore::reportComponentDeath(
 }
 
 std::shared_ptr<C2Component> ComponentStore::findC2Component(
-        const wp<IBinder>& binder) const {
+        const wp<IComponent>& component) const {
     std::lock_guard<std::mutex> lock(mComponentRosterMutex);
-    Component::LocalId it = mComponentRoster.find(binder);
+    Component::LocalId it = mComponentRoster.find(component);
     if (it == mComponentRoster.end()) {
         return std::shared_ptr<C2Component>();
     }
