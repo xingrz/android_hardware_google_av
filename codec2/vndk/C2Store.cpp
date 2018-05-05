@@ -28,12 +28,18 @@
 #include <util/C2InterfaceHelper.h>
 
 #include <dlfcn.h>
+#include <unistd.h> // getpagesize
 
 #include <map>
 #include <memory>
 #include <mutex>
 
 namespace android {
+
+/**
+ * Returns the preferred component store in this process to access its interface.
+ */
+std::shared_ptr<C2ComponentStore> GetPreferredCodec2ComponentStore();
 
 /**
  * The platform allocator store provides basic allocator-types for the framework based on ion and
@@ -45,9 +51,7 @@ namespace android {
  */
 class C2PlatformAllocatorStoreImpl : public C2PlatformAllocatorStore {
 public:
-    C2PlatformAllocatorStoreImpl(
-        /* ionmapper */
-    );
+    C2PlatformAllocatorStoreImpl();
 
     virtual c2_status_t fetchAllocator(
             id_t id, std::shared_ptr<C2Allocator> *const allocator) override;
@@ -61,12 +65,22 @@ public:
         return "android.allocator-store";
     }
 
+    void setComponentStore(std::shared_ptr<C2ComponentStore> store);
+
+    ~C2PlatformAllocatorStoreImpl() override = default;
+
 private:
     /// returns a shared-singleton ion allocator
     std::shared_ptr<C2Allocator> fetchIonAllocator();
 
     /// returns a shared-singleton gralloc allocator
     std::shared_ptr<C2Allocator> fetchGrallocAllocator();
+
+    /// component store to use
+    std::mutex _mComponentStoreSetLock; // protects the entire updating _mComponentStore and its
+                                        // dependencies
+    std::mutex _mComponentStoreReadLock; // must protect only read/write of _mComponentStore
+    std::shared_ptr<C2ComponentStore> _mComponentStore;
 };
 
 C2PlatformAllocatorStoreImpl::C2PlatformAllocatorStoreImpl() {
@@ -96,14 +110,96 @@ c2_status_t C2PlatformAllocatorStoreImpl::fetchAllocator(
     return C2_OK;
 }
 
+namespace {
+
+std::mutex gIonAllocatorMutex;
+std::weak_ptr<C2AllocatorIon> gIonAllocator;
+
+void UseComponentStoreForIonAllocator(
+        const std::shared_ptr<C2AllocatorIon> allocator,
+        std::shared_ptr<C2ComponentStore> store) {
+    C2AllocatorIon::UsageMapperFn mapper;
+    uint64_t minUsage = 0;
+    uint64_t maxUsage = C2MemoryUsage(C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE).expected;
+    size_t blockSize = getpagesize();
+
+    // query min and max usage as well as block size via supported values
+    C2StoreIonUsageInfo usageInfo;
+    std::vector<C2FieldSupportedValuesQuery> query = {
+        C2FieldSupportedValuesQuery::Possible(C2ParamField::Make(usageInfo, usageInfo.usage)),
+        C2FieldSupportedValuesQuery::Possible(C2ParamField::Make(usageInfo, usageInfo.capacity)),
+    };
+    c2_status_t res = store->querySupportedValues_sm(query);
+    if (res == C2_OK) {
+        if (query[0].status == C2_OK) {
+            const C2FieldSupportedValues &fsv = query[0].values;
+            if (fsv.type == C2FieldSupportedValues::FLAGS && !fsv.values.empty()) {
+                minUsage = fsv.values[0].u64;
+                maxUsage = 0;
+                for (C2Value::Primitive v : fsv.values) {
+                    maxUsage |= v.u64;
+                }
+            }
+        }
+        if (query[1].status == C2_OK) {
+            const C2FieldSupportedValues &fsv = query[1].values;
+            if (fsv.type == C2FieldSupportedValues::RANGE && fsv.range.step.u32 > 0) {
+                blockSize = fsv.range.step.u32;
+            }
+        }
+
+        mapper = [store](C2MemoryUsage usage, size_t capacity,
+                         size_t *align, unsigned *heapMask, unsigned *flags) -> c2_status_t {
+            if (capacity > UINT32_MAX) {
+                return C2_BAD_VALUE;
+            }
+            C2StoreIonUsageInfo usageInfo = { usage.expected, capacity };
+            std::vector<std::unique_ptr<C2SettingResult>> failures; // TODO: remove
+            c2_status_t res = store->config_sm({&usageInfo}, &failures);
+            if (res == C2_OK) {
+                *align = usageInfo.minAlignment;
+                *heapMask = usageInfo.heapMask;
+                *flags = usageInfo.allocFlags;
+            }
+            return res;
+        };
+    }
+
+    allocator->setUsageMapper(mapper, minUsage, maxUsage, blockSize);
+}
+
+}
+
+void C2PlatformAllocatorStoreImpl::setComponentStore(std::shared_ptr<C2ComponentStore> store) {
+    // technically this set lock is not needed, but is here for safety in case we add more
+    // getter orders
+    std::lock_guard<std::mutex> lock(_mComponentStoreSetLock);
+    {
+        std::lock_guard<std::mutex> lock(_mComponentStoreReadLock);
+        _mComponentStore = store;
+    }
+    std::shared_ptr<C2AllocatorIon> allocator;
+    {
+        std::lock_guard<std::mutex> lock(gIonAllocatorMutex);
+        allocator = gIonAllocator.lock();
+    }
+    if (allocator) {
+        UseComponentStoreForIonAllocator(allocator, store);
+    }
+}
+
 std::shared_ptr<C2Allocator> C2PlatformAllocatorStoreImpl::fetchIonAllocator() {
-    static std::mutex mutex;
-    static std::weak_ptr<C2Allocator> ionAllocator;
-    std::lock_guard<std::mutex> lock(mutex);
-    std::shared_ptr<C2Allocator> allocator = ionAllocator.lock();
+    std::lock_guard<std::mutex> lock(gIonAllocatorMutex);
+    std::shared_ptr<C2AllocatorIon> allocator = gIonAllocator.lock();
     if (allocator == nullptr) {
+        std::shared_ptr<C2ComponentStore> componentStore;
+        {
+            std::lock_guard<std::mutex> lock(_mComponentStoreReadLock);
+            componentStore = _mComponentStore;
+        }
         allocator = std::make_shared<C2AllocatorIon>(C2PlatformAllocatorStore::ION);
-        ionAllocator = allocator;
+        UseComponentStoreForIonAllocator(allocator, componentStore);
+        gIonAllocator = allocator;
     }
     return allocator;
 }
@@ -120,8 +216,49 @@ std::shared_ptr<C2Allocator> C2PlatformAllocatorStoreImpl::fetchGrallocAllocator
     return allocator;
 }
 
+namespace {
+    std::mutex gPreferredComponentStoreMutex;
+    std::shared_ptr<C2ComponentStore> gPreferredComponentStore;
+
+    std::mutex gPlatformAllocatorStoreMutex;
+    std::weak_ptr<C2PlatformAllocatorStoreImpl> gPlatformAllocatorStore;
+}
+
 std::shared_ptr<C2AllocatorStore> GetCodec2PlatformAllocatorStore() {
-    return std::make_shared<C2PlatformAllocatorStoreImpl>();
+    std::lock_guard<std::mutex> lock(gPlatformAllocatorStoreMutex);
+    std::shared_ptr<C2PlatformAllocatorStoreImpl> store = gPlatformAllocatorStore.lock();
+    if (store == nullptr) {
+        store = std::make_shared<C2PlatformAllocatorStoreImpl>();
+        store->setComponentStore(GetPreferredCodec2ComponentStore());
+        gPlatformAllocatorStore = store;
+    }
+    return store;
+}
+
+void SetPreferredCodec2ComponentStore(std::shared_ptr<C2ComponentStore> componentStore) {
+    static std::mutex mutex;
+    std::lock_guard<std::mutex> lock(mutex); // don't interleve set-s
+
+    // update preferred store
+    {
+        std::lock_guard<std::mutex> lock(gPreferredComponentStoreMutex);
+        gPreferredComponentStore = componentStore;
+    }
+
+    // update platform allocator's store as well if it is alive
+    std::shared_ptr<C2PlatformAllocatorStoreImpl> allocatorStore;
+    {
+        std::lock_guard<std::mutex> lock(gPlatformAllocatorStoreMutex);
+        allocatorStore = gPlatformAllocatorStore.lock();
+    }
+    if (allocatorStore) {
+        allocatorStore->setComponentStore(componentStore);
+    }
+}
+
+std::shared_ptr<C2ComponentStore> GetPreferredCodec2ComponentStore() {
+    std::lock_guard<std::mutex> lock(gPreferredComponentStoreMutex);
+    return gPreferredComponentStore ? gPreferredComponentStore : GetCodec2PlatformComponentStore();
 }
 
 namespace {
@@ -404,6 +541,37 @@ private:
         std::string mLibPath; ///< library path (or name)
     };
 
+    struct Interface : public C2InterfaceHelper {
+        std::shared_ptr<C2StoreIonUsageInfo> mIonUsageInfo;
+
+        Interface(std::shared_ptr<C2ReflectorHelper> reflector)
+            : C2InterfaceHelper(reflector) {
+            setDerivedInstance(this);
+
+            struct Setter {
+                static C2R setIonUsage(bool /* mayBlock */, C2P<C2StoreIonUsageInfo> &me) {
+                    me.set().heapMask = ~0;
+                    me.set().allocFlags = 0;
+                    me.set().minAlignment = 0;
+                    return C2R::Ok();
+                }
+            };
+
+            addParameter(
+                DefineParam(mIonUsageInfo, "ion-usage")
+                .withDefault(new C2StoreIonUsageInfo())
+                .withFields({
+                    C2F(mIonUsageInfo, usage).flags({C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE}),
+                    C2F(mIonUsageInfo, capacity).inRange(0, UINT32_MAX, 1024),
+                    C2F(mIonUsageInfo, heapMask).any(),
+                    C2F(mIonUsageInfo, allocFlags).flags({}),
+                    C2F(mIonUsageInfo, minAlignment).equalTo(0)
+                })
+                .withSetter(Setter::setIonUsage)
+                .build());
+        }
+    };
+
     /**
      * Retrieves the component loader for a component.
      *
@@ -425,6 +593,7 @@ private:
 
     std::map<C2String, ComponentLoader> mComponents; ///< list of components
     std::shared_ptr<C2ReflectorHelper> mReflector;
+    Interface mInterface;
 };
 
 c2_status_t C2PlatformComponentStore::ComponentModule::init(std::string libPath) {
@@ -540,7 +709,8 @@ std::shared_ptr<const C2Component::Traits> C2PlatformComponentStore::ComponentMo
 }
 
 C2PlatformComponentStore::C2PlatformComponentStore()
-    : mReflector(std::make_shared<C2ReflectorHelper>()) {
+    : mReflector(std::make_shared<C2ReflectorHelper>()),
+      mInterface(mReflector) {
     // TODO: move this also into a .so so it can be updated
     mComponents.emplace("c2.android.avc.decoder", "libstagefright_soft_c2avcdec.so");
     mComponents.emplace("c2.android.avc.encoder", "libstagefright_soft_c2avcenc.so");
@@ -582,17 +752,13 @@ c2_status_t C2PlatformComponentStore::query_sm(
         const std::vector<C2Param*> &stackParams,
         const std::vector<C2Param::Index> &heapParamIndices,
         std::vector<std::unique_ptr<C2Param>> *const heapParams) const {
-    // there are no supported configs
-    (void)heapParams;
-    return stackParams.empty() && heapParamIndices.empty() ? C2_OK : C2_BAD_INDEX;
+    return mInterface.query(stackParams, heapParamIndices, C2_MAY_BLOCK, heapParams);
 }
 
 c2_status_t C2PlatformComponentStore::config_sm(
         const std::vector<C2Param*> &params,
         std::vector<std::unique_ptr<C2SettingResult>> *const failures) {
-    // there are no supported configs
-    (void)failures;
-    return params.empty() ? C2_OK : C2_BAD_INDEX;
+    return mInterface.config(params, C2_MAY_BLOCK, failures);
 }
 
 std::vector<std::shared_ptr<const C2Component::Traits>> C2PlatformComponentStore::listComponents() {
@@ -659,15 +825,12 @@ c2_status_t C2PlatformComponentStore::createInterface(
 
 c2_status_t C2PlatformComponentStore::querySupportedParams_nb(
         std::vector<std::shared_ptr<C2ParamDescriptor>> *const params) const {
-    // there are no supported config params
-    (void)params;
-    return C2_OK;
+    return mInterface.querySupportedParams(params);
 }
 
 c2_status_t C2PlatformComponentStore::querySupportedValues_sm(
         std::vector<C2FieldSupportedValuesQuery> &fields) const {
-    // there are no supported config params
-    return fields.empty() ? C2_OK : C2_BAD_INDEX;
+    return mInterface.querySupportedValues(fields, C2_MAY_BLOCK);
 }
 
 C2String C2PlatformComponentStore::getName() const {
