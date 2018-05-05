@@ -1110,12 +1110,17 @@ c2_status_t objcpy(std::shared_ptr<C2Buffer>* d, const Buffer& s,
     // Construct a block.
     switch (baseBlock.type) {
     case C2BaseBlock::LINEAR:
-        return createLinearBuffer(d, baseBlock.linear, sBlockMeta, dFence);
+        status = createLinearBuffer(d, baseBlock.linear, sBlockMeta, dFence);
+        break;
     case C2BaseBlock::GRAPHIC:
-        return createGraphicBuffer(d, baseBlock.graphic, sBlockMeta, dFence);
+        status = createGraphicBuffer(d, baseBlock.graphic, sBlockMeta, dFence);
+        break;
     default:
         ALOGE("Invalid BaseBlock type.");
         return C2_BAD_VALUE;
+    }
+    if (status != C2_OK) {
+        return status;
     }
 
     // Parse info
