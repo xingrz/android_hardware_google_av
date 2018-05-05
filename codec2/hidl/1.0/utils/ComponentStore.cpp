@@ -27,6 +27,10 @@
 #include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
 
+#include <hidl/HidlBinderSupport.h>
+
+#include <C2PlatformSupport.h>
+
 #include <utils/Errors.h>
 
 namespace hardware {
@@ -99,6 +103,10 @@ protected:
 ComponentStore::ComponentStore(const std::shared_ptr<C2ComponentStore>& store) :
     Configurable(new CachedConfigurable(std::make_unique<StoreIntf>(store))),
     mStore(store) {
+
+    std::shared_ptr<C2ComponentStore> platformStore = android::GetCodec2PlatformComponentStore();
+    SetPreferredCodec2ComponentStore(store);
+
     // Retrieve struct descriptors
     mParamReflector = mStore->getParamReflector();
 

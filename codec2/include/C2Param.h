@@ -662,6 +662,9 @@ struct C2ParamField {
      *
      * \todo fix what this is for T[] (for now size becomes T[1])
      *
+     * \note this does not work for 64-bit members as it triggers a
+     * 'taking address of packed member' warning.
+     *
      * \param param pointer to parameter
      * \param offset member pointer
      */
@@ -669,6 +672,11 @@ struct C2ParamField {
     inline C2ParamField(S* param, T* offset)
         : _mIndex(param->index()),
           _mFieldId((T*)((uintptr_t)offset - (uintptr_t)param)) {}
+
+    template<typename S, typename T>
+    inline static C2ParamField Make(S& param, T& offset) {
+        return C2ParamField(param.index(), (uintptr_t)&offset - (uintptr_t)&param, sizeof(T));
+    }
 
     /**
      * Create a field identifier using a configuration parameter (variable),
