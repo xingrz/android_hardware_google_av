@@ -127,7 +127,7 @@ private:
     std::shared_ptr<C2StreamAacFormatInfo::input> mAacFormat;
 };
 
-constexpr char COMPONENT_NAME[] = "c2.google.aac.decoder";
+constexpr char COMPONENT_NAME[] = "c2.android.aac.decoder";
 
 C2SoftAac::C2SoftAac(
         const char *name,

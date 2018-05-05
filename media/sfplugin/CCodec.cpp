@@ -287,6 +287,12 @@ struct CCodec::ClientListener : public Codec2Client::Listener {
         codec->mCallback->onError(DEAD_OBJECT, ACTION_CODE_FATAL);
     }
 
+    virtual void onFramesRendered(
+            const std::vector<RenderedFrame>& renderedFrames) override {
+        // TODO
+        (void)renderedFrames;
+    }
+
 private:
     wp<CCodec> mCodec;
 };
@@ -491,24 +497,23 @@ void CCodec::configure(const sp<AMessage> &msg) {
         // XXX: hack
         bool audio = mime.startsWithIgnoreCase("audio/");
         if (!audio) {
-            int32_t tmp;
-            if (msg->findInt32("width", &tmp)) {
-                inputFormat->setInt32("width", tmp);
-                outputFormat->setInt32("width", tmp);
-            }
-            if (msg->findInt32("height", &tmp)) {
-                inputFormat->setInt32("height", tmp);
-                outputFormat->setInt32("height", tmp);
+            int32_t width, height;
+            if (msg->findInt32("width", &width) && msg->findInt32("height", &height)) {
+                inputFormat->setInt32("width", width);
+                inputFormat->setInt32("height", height);
+                inputFormat->setRect("crop", 0, 0, width - 1, height - 1);
+                outputFormat->setInt32("width", width);
+                outputFormat->setInt32("height", height);
+                outputFormat->setRect("crop", 0, 0, width - 1, height - 1);
             }
         } else {
-            if (encoder) {
-                inputFormat->setInt32("channel-count", 1);
-                inputFormat->setInt32("sample-rate", 44100);
-                outputFormat->setInt32("channel-count", 1);
-                outputFormat->setInt32("sample-rate", 44100);
-            } else {
-                outputFormat->setInt32("channel-count", 2);
-                outputFormat->setInt32("sample-rate", 44100);
+            int32_t channelCount, sampleRate;
+            if (msg->findInt32("channel-count", &channelCount)
+                    && msg->findInt32("sample-rate", &sampleRate)) {
+                inputFormat->setInt32("channel-count", channelCount);
+                inputFormat->setInt32("sample-rate", sampleRate);
+                outputFormat->setInt32("channel-count", channelCount);
+                outputFormat->setInt32("sample-rate", sampleRate);
             }
         }
 

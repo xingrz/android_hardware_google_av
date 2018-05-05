@@ -1110,12 +1110,17 @@ c2_status_t objcpy(std::shared_ptr<C2Buffer>* d, const Buffer& s,
     // Construct a block.
     switch (baseBlock.type) {
     case C2BaseBlock::LINEAR:
-        return createLinearBuffer(d, baseBlock.linear, sBlockMeta, dFence);
+        status = createLinearBuffer(d, baseBlock.linear, sBlockMeta, dFence);
+        break;
     case C2BaseBlock::GRAPHIC:
-        return createGraphicBuffer(d, baseBlock.graphic, sBlockMeta, dFence);
+        status = createGraphicBuffer(d, baseBlock.graphic, sBlockMeta, dFence);
+        break;
     default:
         ALOGE("Invalid BaseBlock type.");
         return C2_BAD_VALUE;
+    }
+    if (status != C2_OK) {
+        return status;
     }
 
     // Parse info
@@ -1220,11 +1225,13 @@ c2_status_t objcpy(C2BaseBlock* d, const BaseBlock& s) {
                     s.pooledBlock;
             sp<ClientManager> bp = ClientManager::getInstance();
             std::shared_ptr<BufferPoolData> bpData;
+            native_handle_t *cHandle;
             ResultStatus bpStatus = bp->receive(
                     bpMessage.connectionId,
                     bpMessage.transactionId,
                     bpMessage.bufferId,
                     bpMessage.timestampUs,
+                    &cHandle,
                     &bpData);
             if (bpStatus != ResultStatus::OK) {
                 ALOGE("Failed to receive buffer from bufferpool -- "
@@ -1236,23 +1243,19 @@ c2_status_t objcpy(C2BaseBlock* d, const BaseBlock& s) {
                 return C2_BAD_VALUE;
             }
 
-            d->linear = _C2BlockFactory::CreateLinearBlock(bpData);
+            d->linear = _C2BlockFactory::CreateLinearBlock(cHandle, bpData);
             if (d->linear) {
                 d->type = C2BaseBlock::LINEAR;
                 return C2_OK;
             }
 
-            d->graphic = _C2BlockFactory::CreateGraphicBlock(bpData);
+            d->graphic = _C2BlockFactory::CreateGraphicBlock(cHandle, bpData);
             if (d->graphic) {
                 d->type = C2BaseBlock::GRAPHIC;
                 return C2_OK;
             }
 
             ALOGE("Unknown handle type in pooled BaseBlock.");
-            if (bpData->mHandle) {
-                native_handle_close(bpData->mHandle);
-                native_handle_delete(bpData->mHandle);
-            }
             return C2_BAD_VALUE;
         }
     default:
@@ -1391,12 +1394,18 @@ Status _createParamsBlob(hidl_vec<uint8_t> *blob, const T &params) {
     // assuming the parameter values are const
     size_t size = 0;
     for (const auto &p : params) {
+        if (!p) {
+            continue;
+        }
         size += p->size();
         size = align(size, PARAMS_ALIGNMENT);
     }
     blob->resize(size);
     size_t ix = 0;
     for (const auto &p : params) {
+        if (!p) {
+            continue;
+        }
         // NEVER overwrite even if param values (e.g. size) changed
         size_t paramSize = std::min(p->size(), size - ix);
         std::copy(

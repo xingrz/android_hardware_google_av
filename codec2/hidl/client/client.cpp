@@ -359,15 +359,15 @@ c2_status_t Codec2Client::createComponent(
                 return Void();
             }
             // release input buffers potentially held by the component from queue
-            std::shared_ptr<Codec2Client::Component> componentStrong = component.lock();
-            if (componentStrong) {
+            std::shared_ptr<Codec2Client::Component> strongComponent = component.lock();
+            if (strongComponent) {
                 std::vector<uint64_t> inputDone;
                 for (const std::unique_ptr<C2Work> &work : workItems) {
                     if (work) {
                         inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
                     }
                 }
-                componentStrong->handleOnWorkDone(inputDone);
+                strongComponent->handleOnWorkDone(inputDone);
             }
             if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
                 listener->onWorkDone(component, workItems);
@@ -412,6 +412,27 @@ c2_status_t Codec2Client::createComponent(
             }
             return Void();
         }
+
+        virtual Return<void> onFramesRendered(
+                const hidl_vec<RenderedFrame>& renderedFrames) override {
+            if (std::shared_ptr<Listener> listener = base.lock()) {
+                std::vector<Codec2Client::Listener::RenderedFrame>
+                        rfs(renderedFrames.size());
+                for (size_t i = 0; i < rfs.size(); ++i) {
+                    rfs[i].bufferQueueId = static_cast<uint64_t>(
+                            renderedFrames[i].bufferQueueId);
+                    rfs[i].slotId = static_cast<int32_t>(
+                            renderedFrames[i].slotId);
+                    rfs[i].timestampNs = static_cast<int64_t>(
+                            renderedFrames[i].timestampNs);
+                }
+                listener->onFramesRendered(rfs);
+            } else {
+                ALOGW("onFramesRendered -- listener died.");
+            }
+            return Void();
+        }
+
     };
 
     c2_status_t status;
@@ -738,6 +759,17 @@ c2_status_t Codec2Client::Component::createBlockPool(
     return status;
 }
 
+c2_status_t Codec2Client::Component::destroyBlockPool(
+        C2BlockPool::local_id_t localId) {
+    Return<Status> transResult = base()->destroyBlockPool(
+            static_cast<uint64_t>(localId));
+    if (!transResult.isOk()) {
+        ALOGE("destroyBlockPool -- transaction failed.");
+        return C2_TRANSACTION_FAILED;
+    }
+    return static_cast<c2_status_t>(static_cast<Status>(transResult));
+}
+
 void Codec2Client::Component::handleOnWorkDone(const std::vector<uint64_t> &inputDone) {
     std::lock_guard<std::mutex> lock(mInputBuffersMutex);
     for (uint64_t inputIndex : inputDone) {
@@ -906,23 +938,6 @@ c2_status_t Codec2Client::Component::setOutputSurface(
             static_cast<c2_status_t>(static_cast<Status>(transStatus));
     if (status != C2_OK) {
         ALOGE("setOutputSurface -- call failed. "
-                "Error code = %d", static_cast<int>(status));
-    }
-    return status;
-}
-
-c2_status_t Codec2Client::Component::connectToInputSurface(
-        const std::shared_ptr<InputSurface>& surface) {
-    Return<Status> transStatus = base()->connectToInputSurface(
-            surface->base());
-    if (!transStatus.isOk()) {
-        ALOGE("connectToInputSurface -- transaction failed.");
-        return C2_TRANSACTION_FAILED;
-    }
-    c2_status_t status =
-            static_cast<c2_status_t>(static_cast<Status>(transStatus));
-    if (status != C2_OK) {
-        ALOGE("connectToInputSurface -- call failed. "
                 "Error code = %d", static_cast<int>(status));
     }
     return status;

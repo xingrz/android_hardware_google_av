@@ -37,8 +37,6 @@ using namespace ::android;
 
 namespace /* unnamed */ {
 
-constexpr size_t kMaxNumBlockPools = 32;
-
 // Implementation of ConfigurableC2Intf based on C2ComponentInterface
 struct CompIntf : public ConfigurableC2Intf {
     CompIntf(const std::shared_ptr<C2ComponentInterface>& intf) :
@@ -111,7 +109,10 @@ struct Component::Listener : public C2Component::Listener {
         ALOGV("onError");
         sp<IComponentListener> listener = mListener.promote();
         if (listener) {
-            listener->onError(Status::OK, errorCode);
+            Return<void> transStatus = listener->onError(Status::OK, errorCode);
+            if (!transStatus.isOk()) {
+                ALOGE("onError -- transaction failed.");
+            }
         }
     }
 
@@ -134,7 +135,10 @@ struct Component::Listener : public C2Component::Listener {
                 }
             }
             settingResults.resize(ix);
-            listener->onTripped(settingResults);
+            Return<void> transStatus = listener->onTripped(settingResults);
+            if (!transStatus.isOk()) {
+                ALOGE("onTripped -- transaction failed.");
+            }
         }
     }
 
@@ -153,7 +157,10 @@ struct Component::Listener : public C2Component::Listener {
                 ALOGE("onWorkDone() received corrupted work items.");
                 return;
             }
-            listener->onWorkDone(workBundle);
+            Return<void> transStatus = listener->onWorkDone(workBundle);
+            if (!transStatus.isOk()) {
+                ALOGE("onWorkDone -- transaction failed.");
+            }
 
             // Finish buffer transfers: nothing else to do
         }
@@ -178,7 +185,6 @@ Component::Component(
     mListener(listener),
     mStore(store),
     mBufferPoolSender(clientPoolManager) {
-    mBlockPools.reserve(kMaxNumBlockPools);
     // Retrieve supported parameters from store
     // TODO: We could cache this per component/interface type
     mInit = init(store.get());
@@ -232,7 +238,7 @@ Return<Status> Component::setOutputSurface(
         const sp<HGraphicBufferProducer>& surface) {
     std::shared_ptr<C2BlockPool> pool;
     GetCodec2BlockPool(blockPoolId, mComponent, &pool);
-    if (pool && pool->getAllocatorId() == C2PlatformAllocatorStore::GRALLOC) {
+    if (pool && pool->getAllocatorId() == C2PlatformAllocatorStore::BUFFERQUEUE) {
         std::shared_ptr<C2BufferQueueBlockPool> bqPool =
                 std::static_pointer_cast<C2BufferQueueBlockPool>(pool);
         if (bqPool) {
@@ -240,13 +246,6 @@ Return<Status> Component::setOutputSurface(
         }
     }
     return Status::OK;
-}
-
-Return<Status> Component::connectToInputSurface(
-        const sp<IInputSurface>& surface) {
-    // TODO implement
-    (void)surface;
-    return Status::OMITTED;
 }
 
 Return<Status> Component::connectToOmxInputSurface(
@@ -277,14 +276,8 @@ Return<void> Component::createBlockPool(
     }
     if (blockPool) {
         mBlockPoolsMutex.lock();
-        if (mBlockPools.size() < kMaxNumBlockPools) {
-            mBlockPools.push_back(blockPool);
-            mBlockPoolsMutex.unlock();
-        } else {
-            mBlockPoolsMutex.unlock();
-            blockPool = nullptr;
-            status = C2_NO_MEMORY;
-        }
+        mBlockPools.emplace(blockPool->getLocalId(), blockPool);
+        mBlockPoolsMutex.unlock();
     } else if (status == C2_OK) {
         status = C2_CORRUPTED;
     }
@@ -293,6 +286,12 @@ Return<void> Component::createBlockPool(
             blockPool ? blockPool->getLocalId() : 0,
             nullptr /* configurable */);
     return Void();
+}
+
+Return<Status> Component::destroyBlockPool(uint64_t blockPoolId) {
+    std::lock_guard<std::mutex> lock(mBlockPoolsMutex);
+    return mBlockPools.erase(blockPoolId) == 1 ?
+            Status::OK : Status::CORRUPTED;
 }
 
 Return<Status> Component::start() {
