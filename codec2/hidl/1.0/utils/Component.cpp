@@ -238,7 +238,7 @@ Return<Status> Component::setOutputSurface(
         const sp<HGraphicBufferProducer>& surface) {
     std::shared_ptr<C2BlockPool> pool;
     GetCodec2BlockPool(blockPoolId, mComponent, &pool);
-    if (pool && pool->getAllocatorId() == C2PlatformAllocatorStore::GRALLOC) {
+    if (pool && pool->getAllocatorId() == C2PlatformAllocatorStore::BUFFERQUEUE) {
         std::shared_ptr<C2BufferQueueBlockPool> bqPool =
                 std::static_pointer_cast<C2BufferQueueBlockPool>(pool);
         if (bqPool) {

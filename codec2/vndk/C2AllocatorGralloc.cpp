@@ -157,14 +157,6 @@ public:
         return xd != nullptr && xd->magic == MAGIC;
     }
 
-    static void useIgbp(
-            const C2Handle *const o) {
-        if (isValid(o)) {
-            ExtraData *xd = const_cast<ExtraData *>(getExtraData(o));
-            xd->igbp_slot = ~0;
-        }
-    }
-
     static C2HandleGralloc* WrapNativeHandle(
             const native_handle_t *const handle,
             uint32_t width, uint32_t height, uint32_t format, uint64_t usage,
@@ -547,7 +539,7 @@ bool C2AllocationGralloc::equals(const std::shared_ptr<const C2GraphicAllocation
 /* ===================================== GRALLOC ALLOCATOR ==================================== */
 class C2AllocatorGralloc::Impl {
 public:
-    Impl(id_t id);
+    Impl(id_t id, bool bufferQueue);
 
     id_t getId() const {
         return mTraits->id;
@@ -576,6 +568,7 @@ private:
     c2_status_t mInit;
     sp<IAllocator> mAllocator;
     sp<IMapper> mMapper;
+    const bool mBufferQueue;
 };
 
 void _UnwrapNativeCodec2GrallocMetadata(
@@ -585,7 +578,8 @@ void _UnwrapNativeCodec2GrallocMetadata(
     (void)C2HandleGralloc::Import(handle, width, height, format, usage, stride, igbp_id, igbp_slot);
 }
 
-C2AllocatorGralloc::Impl::Impl(id_t id) : mInit(C2_OK) {
+C2AllocatorGralloc::Impl::Impl(id_t id, bool bufferQueue)
+    : mInit(C2_OK), mBufferQueue(bufferQueue) {
     // TODO: get this from allocator
     C2MemoryUsage minUsage = { 0, 0 }, maxUsage = { ~(uint64_t)0, ~(uint64_t)0 };
     Traits traits = { "android.allocator.gralloc", id, C2Allocator::GRAPHIC, minUsage, maxUsage };
@@ -656,7 +650,8 @@ c2_status_t C2AllocatorGralloc::Impl::newGraphicAllocation(
             C2HandleGralloc::WrapNativeHandle(
                     buffer.getNativeHandle(),
                     info.mapperInfo.width, info.mapperInfo.height,
-                    (uint32_t)info.mapperInfo.format, info.mapperInfo.usage, info.stride),
+                    (uint32_t)info.mapperInfo.format, info.mapperInfo.usage, info.stride,
+                    0, mBufferQueue ? ~0 : 0),
             mTraits->id));
     return C2_OK;
 }
@@ -684,7 +679,8 @@ c2_status_t C2AllocatorGralloc::Impl::priorGraphicAllocation(
     return C2_OK;
 }
 
-C2AllocatorGralloc::C2AllocatorGralloc(id_t id) : mImpl(new Impl(id)) {}
+C2AllocatorGralloc::C2AllocatorGralloc(id_t id, bool bufferQueue)
+        : mImpl(new Impl(id, bufferQueue)) {}
 
 C2AllocatorGralloc::~C2AllocatorGralloc() { delete mImpl; }
 
@@ -718,10 +714,6 @@ c2_status_t C2AllocatorGralloc::status() const {
 
 bool C2AllocatorGralloc::isValid(const C2Handle* const o) {
     return C2HandleGralloc::isValid(o);
-}
-
-void C2AllocatorGralloc::useIgbp(const C2Handle* const o) {
-    C2HandleGralloc::useIgbp(o);
 }
 
 } // namespace android

@@ -358,7 +358,7 @@ void SimpleC2Component::processQueue() {
             }
             if (outputFormat.value == C2FormatVideo) {
                 err = CreateCodec2BlockPool(
-                        C2PlatformAllocatorStore::GRALLOC,
+                        C2PlatformAllocatorStore::BUFFERQUEUE,
                         shared_from_this(), &mOutputBlockPool);
             } else {
                 err = CreateCodec2BlockPool(
