@@ -76,6 +76,9 @@ private:
     /// returns a shared-singleton gralloc allocator
     std::shared_ptr<C2Allocator> fetchGrallocAllocator();
 
+    /// returns a shared-singleton bufferqueue supporting gralloc allocator
+    std::shared_ptr<C2Allocator> fetchBufferQueueAllocator();
+
     /// component store to use
     std::mutex _mComponentStoreSetLock; // protects the entire updating _mComponentStore and its
                                         // dependencies
@@ -99,6 +102,10 @@ c2_status_t C2PlatformAllocatorStoreImpl::fetchAllocator(
     case C2PlatformAllocatorStore::GRALLOC:
     case C2AllocatorStore::DEFAULT_GRAPHIC:
         *allocator = fetchGrallocAllocator();
+        break;
+
+    case C2PlatformAllocatorStore::BUFFERQUEUE:
+        *allocator = fetchBufferQueueAllocator();
         break;
 
     default:
@@ -216,6 +223,19 @@ std::shared_ptr<C2Allocator> C2PlatformAllocatorStoreImpl::fetchGrallocAllocator
     return allocator;
 }
 
+std::shared_ptr<C2Allocator> C2PlatformAllocatorStoreImpl::fetchBufferQueueAllocator() {
+    static std::mutex mutex;
+    static std::weak_ptr<C2Allocator> grallocAllocator;
+    std::lock_guard<std::mutex> lock(mutex);
+    std::shared_ptr<C2Allocator> allocator = grallocAllocator.lock();
+    if (allocator == nullptr) {
+        allocator = std::make_shared<C2AllocatorGralloc>(
+                C2PlatformAllocatorStore::BUFFERQUEUE, true);
+        grallocAllocator = allocator;
+    }
+    return allocator;
+}
+
 namespace {
     std::mutex gPreferredComponentStoreMutex;
     std::shared_ptr<C2ComponentStore> gPreferredComponentStore;
@@ -290,9 +310,9 @@ public:
                     mComponents[poolId] = component;
                 }
                 break;
-            case C2PlatformAllocatorStore::GRALLOC:
+            case C2PlatformAllocatorStore::BUFFERQUEUE:
                 res = allocatorStore->fetchAllocator(
-                        C2AllocatorStore::DEFAULT_GRAPHIC, &allocator);
+                        C2PlatformAllocatorStore::BUFFERQUEUE, &allocator);
                 if (res == C2_OK) {
                     std::shared_ptr<C2BlockPool> ptr =
                             std::make_shared<C2BufferQueueBlockPool>(
@@ -382,7 +402,7 @@ c2_status_t GetCodec2BlockPool(
     // TODO: remove this. this is temporary
     case C2BlockPool::PLATFORM_START:
         res = sBlockPoolCache->_createBlockPool(
-                C2PlatformAllocatorStore::GRALLOC, component, id, pool);
+                C2PlatformAllocatorStore::BUFFERQUEUE, component, id, pool);
         break;
     default:
         break;

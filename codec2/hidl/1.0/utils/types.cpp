@@ -1225,11 +1225,13 @@ c2_status_t objcpy(C2BaseBlock* d, const BaseBlock& s) {
                     s.pooledBlock;
             sp<ClientManager> bp = ClientManager::getInstance();
             std::shared_ptr<BufferPoolData> bpData;
+            native_handle_t *cHandle;
             ResultStatus bpStatus = bp->receive(
                     bpMessage.connectionId,
                     bpMessage.transactionId,
                     bpMessage.bufferId,
                     bpMessage.timestampUs,
+                    &cHandle,
                     &bpData);
             if (bpStatus != ResultStatus::OK) {
                 ALOGE("Failed to receive buffer from bufferpool -- "
@@ -1241,23 +1243,19 @@ c2_status_t objcpy(C2BaseBlock* d, const BaseBlock& s) {
                 return C2_BAD_VALUE;
             }
 
-            d->linear = _C2BlockFactory::CreateLinearBlock(bpData);
+            d->linear = _C2BlockFactory::CreateLinearBlock(cHandle, bpData);
             if (d->linear) {
                 d->type = C2BaseBlock::LINEAR;
                 return C2_OK;
             }
 
-            d->graphic = _C2BlockFactory::CreateGraphicBlock(bpData);
+            d->graphic = _C2BlockFactory::CreateGraphicBlock(cHandle, bpData);
             if (d->graphic) {
                 d->type = C2BaseBlock::GRAPHIC;
                 return C2_OK;
             }
 
             ALOGE("Unknown handle type in pooled BaseBlock.");
-            if (bpData->mHandle) {
-                native_handle_close(bpData->mHandle);
-                native_handle_delete(bpData->mHandle);
-            }
             return C2_BAD_VALUE;
         }
     default:

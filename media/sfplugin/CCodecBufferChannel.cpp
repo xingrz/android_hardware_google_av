@@ -1468,8 +1468,9 @@ status_t CCodecBufferChannel::start(
         ALOGV("graphic = %s", graphic ? "true" : "false");
         std::shared_ptr<C2BlockPool> pool;
         if (graphic) {
+            // TODO: create proper blockpool.
             err = CreateCodec2BlockPool(
-                    C2PlatformAllocatorStore::GRALLOC, nullptr, &pool);
+                    C2PlatformAllocatorStore::BUFFERQUEUE, nullptr, &pool);
         } else {
             err = CreateCodec2BlockPool(
                     C2PlatformAllocatorStore::ION, nullptr, &pool);
