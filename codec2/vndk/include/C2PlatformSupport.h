@@ -104,6 +104,14 @@ c2_status_t CreateCodec2BlockPool(
  */
 std::shared_ptr<C2ComponentStore> GetCodec2PlatformComponentStore();
 
+/**
+ * Sets the preferred component store in this process for the sole purpose of accessing its
+ * interface. If this is not called, the default IComponentStore HAL (if exists) is the preferred
+ * store for this purpose. If the default IComponentStore HAL is not present, the platform
+ * component store is used.
+ */
+void SetPreferredCodec2ComponentStore(std::shared_ptr<C2ComponentStore> store);
+
 } // namespace android
 
 #endif // STAGEFRIGHT_CODEC2_PLATFORM_SUPPORT_H_
