@@ -5,10 +5,6 @@ cc_library_shared {
     defaults: ["libstagefright_codec2-impl-defaults"],
     vendor_available: true,
 
-    tags: [
-        "optional",
-    ],
-
     srcs: [
         "SimpleC2Component.cpp",
         "SimpleC2Interface.cpp",
