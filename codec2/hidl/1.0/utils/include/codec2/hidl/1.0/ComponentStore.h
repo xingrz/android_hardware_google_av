@@ -45,6 +45,7 @@ namespace utils {
 using ::android::hardware::media::bufferpool::V1_0::IClientManager;
 
 using ::android::hardware::hidl_array;
+using ::android::hardware::hidl_handle;
 using ::android::hardware::hidl_memory;
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
@@ -83,6 +84,11 @@ struct ComponentStore : public Configurable<IComponentStore> {
     Return<Status> copyBuffer(
             const Buffer& src,
             const Buffer& dst) override;
+
+    // Debug dump
+    Return<void> debug(
+            const hidl_handle& handle,
+            const hidl_vec<hidl_string>& args) override;
 
 protected:
 
