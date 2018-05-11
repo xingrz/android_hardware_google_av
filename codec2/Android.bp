@@ -2,10 +2,6 @@ cc_library_shared {
     name: "libstagefright_codec2",
     vendor_available: true,
 
-    tags: [
-        "optional",
-    ],
-
     srcs: ["C2.cpp"],
 
     cflags: [
@@ -48,10 +44,6 @@ cc_library_shared {
 cc_library_shared {
     name: "libstagefright_simple_c2component",
     vendor_available: true,
-
-    tags: [
-        "optional",
-    ],
 
     srcs: [
         "SimpleC2Component.cpp",
