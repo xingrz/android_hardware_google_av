@@ -638,6 +638,11 @@ struct C2ProfileLevelStruct {
     C2Config::profile_t profile;  ///< coding profile
     C2Config::level_t   level;    ///< coding level
 
+    C2ProfileLevelStruct(
+            C2Config::profile_t profile_ = C2Config::PROFILE_UNUSED,
+            C2Config::level_t level_ = C2Config::LEVEL_UNUSED)
+        : profile(profile_), level(level_) { }
+
     DEFINE_AND_DESCRIBE_C2STRUCT(ProfileLevel)
     C2FIELD(profile, "profile")
     C2FIELD(level,   "level")
