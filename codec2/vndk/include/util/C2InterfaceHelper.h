@@ -255,6 +255,10 @@ public:
          */
         C2ParamFieldValuesBuilder<T> mustBe();
 
+        operator C2ParamField() const {
+            return _mField;
+        }
+
         // TODO
         C2R validatePossible(const T &value __unused) const {
             /// TODO
