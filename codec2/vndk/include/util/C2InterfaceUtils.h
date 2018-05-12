@@ -883,6 +883,7 @@ private:
 struct C2SettingResultsBuilder {
     C2SettingResultsBuilder(const C2SettingResultsBuilder&) = delete;
     C2SettingResultsBuilder(C2SettingResultsBuilder&&) = default;
+    C2SettingResultsBuilder &operator=(C2SettingResultsBuilder&&) = default;
 
     /** \returns (default) successful result with no details. */
     inline static C2SettingResultsBuilder Ok() {
