@@ -25,6 +25,7 @@
 #include <C2PlatformSupport.h>
 #include <C2BlockInternal.h>
 #include <C2Config.h>
+#include <C2Debug.h>
 
 #include <android/hardware/cas/native/1.0/IDescrambler.h>
 #include <binder/MemoryDealer.h>
@@ -1466,8 +1467,13 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         if (!higbp) {
             higbp = new TWGraphicBufferProducer<HGraphicBufferProducer>(igbp);
         }
-        // TODO: use id of block pool which is crated from component
-        mComponent->setOutputSurface(C2BlockPool::PLATFORM_START, higbp);
+        Mutexed<BlockPools>::Locked pools(mBlockPools);
+        // set output surface for managed pools (other than ion or gralloc-backed pool)
+        if (pools->outputPoolId >= C2BlockPool::PLATFORM_START
+                && pools->outputAllocatorId != C2PlatformAllocatorStore::GRALLOC
+                && pools->outputAllocatorId != C2PlatformAllocatorStore::ION) {
+            mComponent->setOutputSurface(pools->outputPoolId, higbp);
+        }
     }
 
     std::vector<C2ConstGraphicBlock> blocks = c2Buffer->data().graphicBlocks();
@@ -1627,12 +1633,70 @@ status_t CCodecBufferChannel::start(
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
     }
+
+    // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
-    if (inputFormat != nullptr) {
-        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+    std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
 
+    if (inputFormat != nullptr) {
         bool graphic = (iStreamFormat.value == C2FormatVideo);
+        std::shared_ptr<C2BlockPool> pool;
+        {
+            Mutexed<BlockPools>::Locked pools(mBlockPools);
+
+            // set default allocator ID.
+            pools->inputAllocatorId = (graphic) ? C2PlatformAllocatorStore::BUFFERQUEUE
+                                                : C2PlatformAllocatorStore::ION;
+
+            // query C2PortAllocatorsTuning::input from component. If an allocator ID is obtained
+            // from component, create the input block pool with given ID. Otherwise, use default IDs.
+            std::vector<std::unique_ptr<C2Param>> params;
+            err = mComponent->query({ },
+                                    { C2PortAllocatorsTuning::input::PARAM_TYPE },
+                                    C2_DONT_BLOCK,
+                                    &params);
+            if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
+                ALOGD("Query input allocators returned %zu params => %s (%u)",
+                        params.size(), asString(err), err);
+            } else if (err == C2_OK && params.size() == 1) {
+                C2PortAllocatorsTuning::input *inputAllocators =
+                    C2PortAllocatorsTuning::input::From(params[0].get());
+                if (inputAllocators && inputAllocators->flexCount() > 0) {
+                    std::shared_ptr<C2Allocator> allocator;
+                    // verify allocator IDs and resolve default allocator
+                    allocatorStore->fetchAllocator(inputAllocators->m.values[0], &allocator);
+                    if (allocator) {
+                        pools->inputAllocatorId = allocator->getId();
+                    } else {
+                        ALOGD("component requested invalid input allocator ID %u",
+                                inputAllocators->m.values[0]);
+                    }
+                }
+            }
+
+            // TODO: use C2Component wrapper to associate this pool with ourselves
+            err = CreateCodec2BlockPool(pools->inputAllocatorId, nullptr, &pool);
+            ALOGD("Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
+                    pools->inputAllocatorId,
+                    (unsigned long long)(pool ? pool->getLocalId() : 111000111),
+                    asString(err), err);
+            if (err != C2_OK) {
+                C2BlockPool::local_id_t inputPoolId =
+                    graphic ? C2BlockPool::BASIC_GRAPHIC : C2BlockPool::BASIC_LINEAR;
+                err = GetCodec2BlockPool(inputPoolId, nullptr, &pool);
+                ALOGD("Using basic input block pool with poolID %llu => got %llu - %s (%d)",
+                        (unsigned long long)inputPoolId,
+                        (unsigned long long)(pool ? pool->getLocalId() : 111000111),
+                        asString(err), err);
+                if (err != C2_OK) {
+                    return NO_MEMORY;
+                }
+            }
+            pools->inputPool = pool;
+        }
+
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         if (graphic) {
             if (mInputSurface) {
                 buffers->reset(new DummyInputBuffers);
@@ -1663,16 +1727,6 @@ status_t CCodecBufferChannel::start(
         }
         (*buffers)->setFormat(inputFormat);
 
-        ALOGV("graphic = %s", graphic ? "true" : "false");
-        std::shared_ptr<C2BlockPool> pool;
-        if (graphic) {
-            // TODO: create proper blockpool.
-            err = CreateCodec2BlockPool(
-                    C2PlatformAllocatorStore::BUFFERQUEUE, nullptr, &pool);
-        } else {
-            err = CreateCodec2BlockPool(
-                    C2PlatformAllocatorStore::ION, nullptr, &pool);
-        }
         if (err == C2_OK) {
             (*buffers)->setPool(pool);
         } else {
@@ -1687,9 +1741,67 @@ status_t CCodecBufferChannel::start(
             hasOutputSurface = (output->surface != nullptr);
         }
 
+        bool graphic = (oStreamFormat.value == C2FormatVideo);
+        C2BlockPool::local_id_t outputPoolId_;
+        {
+            Mutexed<BlockPools>::Locked pools(mBlockPools);
+
+            // set default allocator ID.
+            pools->outputAllocatorId = (graphic) ? C2PlatformAllocatorStore::BUFFERQUEUE
+                                                 : C2PlatformAllocatorStore::ION;
+
+            // query C2PortAllocatorsTuning::output from component, or use default allocator if
+            // unsuccessful.
+            std::vector<std::unique_ptr<C2Param>> params;
+            err = mComponent->query({ },
+                                    { C2PortAllocatorsTuning::output::PARAM_TYPE },
+                                    C2_DONT_BLOCK,
+                                    &params);
+            if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
+                ALOGD("Query input allocators returned %zu params => %s (%u)",
+                        params.size(), asString(err), err);
+            } else if (err == C2_OK && params.size() == 1) {
+                C2PortAllocatorsTuning::output *outputAllocators =
+                    C2PortAllocatorsTuning::output::From(params[0].get());
+                if (outputAllocators && outputAllocators->flexCount() > 0) {
+                    std::shared_ptr<C2Allocator> allocator;
+                    // verify allocator IDs and resolve default allocator
+                    allocatorStore->fetchAllocator(outputAllocators->m.values[0], &allocator);
+                    if (allocator) {
+                        pools->outputAllocatorId = allocator->getId();
+                    } else {
+                        ALOGD("component requested invalid output allocator ID %u",
+                                outputAllocators->m.values[0]);
+                    }
+                }
+            }
+
+            err = mComponent->createBlockPool(
+                    pools->outputAllocatorId, &pools->outputPoolId, &pools->outputPoolIntf);
+            ALOGI("Created output block pool with allocatorID %u => poolID %llu - %s",
+                    pools->outputAllocatorId,
+                    (unsigned long long)pools->outputPoolId,
+                    asString(err));
+            if (err != C2_OK) {
+                // use basic pool instead
+                pools->outputPoolId =
+                    graphic ? C2BlockPool::BASIC_GRAPHIC : C2BlockPool::BASIC_LINEAR;
+            }
+
+            // Configure output block pool ID as parameter C2PortBlockPoolsTuning::output to
+            // component.
+            std::unique_ptr<C2PortBlockPoolsTuning::output> poolIdsTuning =
+                    C2PortBlockPoolsTuning::output::AllocUnique({ pools->outputPoolId });
+
+            std::vector<std::unique_ptr<C2SettingResult>> failures;
+            err = mComponent->config({ poolIdsTuning.get() }, C2_MAY_BLOCK, &failures);
+            ALOGD("Configured output block pool ids %llu => %s",
+                    (unsigned long long)poolIdsTuning->m.values[0], asString(err));
+            outputPoolId_ = pools->outputPoolId;
+        }
+
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
 
-        bool graphic = (oStreamFormat.value == C2FormatVideo);
         if (graphic) {
             if (hasOutputSurface) {
                 buffers->reset(new GraphicOutputBuffers);
@@ -1700,6 +1812,20 @@ status_t CCodecBufferChannel::start(
             buffers->reset(new LinearOutputBuffers);
         }
         (*buffers)->setFormat(outputFormat->dup());
+
+
+        // Try to set output surface to created block pool if given.
+        if (hasOutputSurface) {
+            Mutexed<OutputSurface>::Locked output(mOutputSurface);
+            sp<IGraphicBufferProducer> igbp = output->surface->getIGraphicBufferProducer();
+            if (mOutputBufferQueue->isNewIgbp(igbp)) {
+                sp<HGraphicBufferProducer> higbp = igbp->getHalInterface();
+                if (!higbp) {
+                    higbp = new TWGraphicBufferProducer<HGraphicBufferProducer>(igbp);
+                }
+                mComponent->setOutputSurface(outputPoolId_, higbp);
+            }
+        }
     }
 
     mSync.start();
