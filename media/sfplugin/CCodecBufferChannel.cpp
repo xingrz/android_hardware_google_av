@@ -1179,10 +1179,6 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
             return -ENOENT;
         }
         work->input.buffers.push_back(c2buffer);
-
-        // TODO: Use BufferPool
-        Mutexed<InputRefs>::Locked inputRefs(mInputRefs);
-        inputRefs->bufferRefs.emplace(work->input.ordinal.frameIndex.peekull(), c2buffer);
     }
     // TODO: fill info's
 
@@ -1615,16 +1611,6 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
 
     OnReturn feed([this]() { feedInputBufferIfAvailable(); });
 
-    if (work->input.buffers.size() == 1) {
-        // TODO: Use BufferPool
-        Mutexed<InputRefs>::Locked inputRefs(mInputRefs);
-        auto found = inputRefs->bufferRefs.find(work->input.ordinal.frameIndex.peekull());
-        if (found != inputRefs->bufferRefs.end()) {
-            ALOGV("onWorkdone: removing input ref for frame=%llu",
-                    work->input.ordinal.frameIndex.peekull());
-            inputRefs->bufferRefs.erase(found);
-        }
-    }
     if (work->result != C2_OK) {
         if (work->result == C2_NOT_FOUND) {
             // TODO: Define what flushed work's result is.
