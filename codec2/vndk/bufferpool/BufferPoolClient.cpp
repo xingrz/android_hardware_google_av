@@ -29,9 +29,9 @@ namespace bufferpool {
 namespace V1_0 {
 namespace implementation {
 
-static constexpr int64_t kReceiveTimeoutUs = 100000; // 100ms
+static constexpr int64_t kReceiveTimeoutUs = 1000000; // 100ms
 static constexpr int kPostMaxRetry = 3;
-static constexpr int kCacheTtlUs = 500000; // TODO: tune
+static constexpr int kCacheTtlUs = 1000000; // TODO: tune
 
 class BufferPoolClient::Impl
         : public std::enable_shared_from_this<BufferPoolClient::Impl> {
@@ -51,6 +51,8 @@ public:
     sp<IAccessor> &getAccessor() {
         return mAccessor;
     }
+
+    bool isActive(int64_t *lastTransactionUs, bool clearCache);
 
     ResultStatus allocate(const std::vector<uint8_t> &params,
                           native_handle_t **handle,
@@ -77,6 +79,8 @@ private:
 
     bool syncReleased();
 
+    void evictCaches(bool clearCache = false);
+
     ResultStatus allocateBufferHandle(
             const std::vector<uint8_t>& params, BufferId *bufferId,
             native_handle_t **handle);
@@ -96,6 +100,7 @@ private:
     sp<IConnection> mRemoteConnection;
     uint32_t mSeqId;
     ConnectionId mConnectionId;
+    int64_t mLastEvictCacheUs;
 
     // CachedBuffers
     struct BufferCache {
@@ -103,7 +108,20 @@ private:
         bool mCreating;
         std::condition_variable mCreateCv;
         std::map<BufferId, std::unique_ptr<ClientBuffer>> mBuffers;
-        BufferCache() : mCreating(false) {}
+        int mActive;
+        int64_t mLastChangeUs;
+
+        BufferCache() : mCreating(false), mActive(0), mLastChangeUs(getTimestampNow()) {}
+
+        void incActive_l() {
+            ++mActive;
+            mLastChangeUs = getTimestampNow();
+        }
+
+        void decActive_l() {
+            --mActive;
+            mLastChangeUs = getTimestampNow();
+        }
     } mCache;
 
     // FMQ - release notifier
@@ -176,7 +194,6 @@ public:
             std::shared_ptr<BufferPoolData> cache = mCache.lock();
             if (cache) {
                 *pHandle = mHandle;
-                updateExpire();
             }
             return cache;
         }
@@ -196,7 +213,6 @@ public:
                     mCache = cache;
                     mHasCache = true;
                     *pHandle = mHandle;
-                    updateExpire();
                     return cache;
                 }
             }
@@ -210,6 +226,7 @@ public:
     bool onCacheRelease() {
         if (mHasCache) {
             // TODO: verify mCache is not valid;
+            updateExpire();
             mHasCache = false;
             return true;
         }
@@ -218,7 +235,8 @@ public:
 };
 
 BufferPoolClient::Impl::Impl(const sp<Accessor> &accessor)
-    : mLocal(true), mAccessor(accessor), mSeqId(0) {
+    : mLocal(true), mAccessor(accessor), mSeqId(0),
+      mLastEvictCacheUs(getTimestampNow()) {
     mValid = false;
     const QueueDescriptor *fmqDesc;
     ResultStatus status = accessor->connect(
@@ -232,7 +250,8 @@ BufferPoolClient::Impl::Impl(const sp<Accessor> &accessor)
 }
 
 BufferPoolClient::Impl::Impl(const sp<IAccessor> &accessor)
-    : mLocal(false), mAccessor(accessor), mSeqId(0) {
+    : mLocal(false), mAccessor(accessor), mSeqId(0),
+      mLastEvictCacheUs(getTimestampNow()) {
     mValid = false;
     bool& valid = mValid;
     sp<IConnection>& outConnection = mRemoteConnection;
@@ -254,6 +273,20 @@ BufferPoolClient::Impl::Impl(const sp<IAccessor> &accessor)
             });
 }
 
+bool BufferPoolClient::Impl::isActive(int64_t *lastTransactionUs, bool clearCache) {
+    {
+        std::lock_guard<std::mutex> lock(mCache.mLock);
+        syncReleased();
+        evictCaches(clearCache);
+        *lastTransactionUs = mCache.mLastChangeUs;
+    }
+    if (mValid && mLocal && mLocalConnection) {
+        mLocalConnection->cleanUp(clearCache);
+        return true;
+    }
+    return mCache.mActive > 0;
+}
+
 ResultStatus BufferPoolClient::Impl::allocate(
         const std::vector<uint8_t> &params,
         native_handle_t **pHandle,
@@ -269,6 +302,7 @@ ResultStatus BufferPoolClient::Impl::allocate(
         if (handle) {
             std::unique_lock<std::mutex> lock(mCache.mLock);
             syncReleased();
+            evictCaches();
             auto cacheIt = mCache.mBuffers.find(bufferId);
             if (cacheIt != mCache.mBuffers.end()) {
                 // TODO: verify it is recycled. (not having active ref)
@@ -282,6 +316,9 @@ ResultStatus BufferPoolClient::Impl::allocate(
                 if (result.second) {
                     *buffer = result.first->second->createCache(
                             shared_from_this(), pHandle);
+                    if (*buffer) {
+                        mCache.incActive_l();
+                    }
                 }
             }
         }
@@ -313,6 +350,7 @@ ResultStatus BufferPoolClient::Impl::receive(
     while(1) {
         std::unique_lock<std::mutex> lock(mCache.mLock);
         syncReleased();
+        evictCaches();
         auto cacheIt = mCache.mBuffers.find(bufferId);
         if (cacheIt != mCache.mBuffers.end()) {
             if (cacheIt->second->hasCache()) {
@@ -327,6 +365,9 @@ ResultStatus BufferPoolClient::Impl::receive(
                 break;
             } else {
                 *buffer = cacheIt->second->createCache(shared_from_this(), pHandle);
+                if (*buffer) {
+                    mCache.incActive_l();
+                }
                 ALOGV("client receive from cache %lld", (long long)mConnectionId);
                 break;
             }
@@ -348,6 +389,9 @@ ResultStatus BufferPoolClient::Impl::receive(
                             if (result.second) {
                                 *buffer = result.first->second->createCache(
                                         shared_from_this(), pHandle);
+                                if (*buffer) {
+                                    mCache.incActive_l();
+                                }
                             }
                         }
                     }
@@ -448,14 +492,12 @@ bool BufferPoolClient::Impl::syncReleased() {
             ALOGV("client release buffer %lld - %u", (long long)mConnectionId, id);
             auto found = mCache.mBuffers.find(id);
             if (found != mCache.mBuffers.end()) {
-                if (!found->second->onCacheRelease()) {
+                if (found->second->onCacheRelease()) {
+                    mCache.decActive_l();
+                } else {
                     // should not happen!
                     ALOGW("client %lld cache release status inconsitent!",
                           (long long)mConnectionId);
-                }
-                if (found->second->expire()) {
-                    ALOGV("client evict buffer from cache %lld - %u", (long long)mConnectionId, id);
-                    mCache.mBuffers.erase(found);
                 }
             } else {
                 // should not happen!
@@ -466,6 +508,25 @@ bool BufferPoolClient::Impl::syncReleased() {
         return true;
     }
     return false;
+}
+
+// should have mCache.mLock
+void BufferPoolClient::Impl::evictCaches(bool clearCache) {
+    int64_t now = getTimestampNow();
+    if (now >= mLastEvictCacheUs + kCacheTtlUs || clearCache) {
+        size_t evicted = 0;
+        for (auto it = mCache.mBuffers.begin(); it != mCache.mBuffers.end();) {
+            if (!it->second->hasCache() && (it->second->expire() || clearCache)) {
+                it = mCache.mBuffers.erase(it);
+                ++evicted;
+            } else {
+                ++it;
+            }
+        }
+        ALOGV("cache count %lld : total %zu, active %d, evicted %zu",
+              (long long)mConnectionId, mCache.mBuffers.size(), mCache.mActive, evicted);
+        mLastEvictCacheUs = now;
+    }
 }
 
 ResultStatus BufferPoolClient::Impl::allocateBufferHandle(
@@ -524,6 +585,14 @@ BufferPoolClient::~BufferPoolClient() {
 
 bool BufferPoolClient::isValid() {
     return mImpl && mImpl->isValid();
+}
+
+bool BufferPoolClient::isActive(int64_t *lastTransactionUs, bool clearCache) {
+    if (!isValid()) {
+        *lastTransactionUs = 0;
+        return false;
+    }
+    return mImpl->isActive(lastTransactionUs, clearCache);
 }
 
 ConnectionId BufferPoolClient::getConnectionId() {

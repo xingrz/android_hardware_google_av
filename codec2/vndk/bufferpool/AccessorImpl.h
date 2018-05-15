@@ -55,8 +55,7 @@ public:
                        BufferId bufferId,
                        const native_handle_t** handle);
 
-    /** Processes pending buffer status messages */
-    void sync();
+    void cleanUp(bool clearCache);
 
 private:
     // ConnectionId = pid : (timestamp_created + seqId)
@@ -76,6 +75,8 @@ private:
     private:
         std::mutex mMutex;
         int64_t mTimestampUs;
+        int64_t mLastCleanUpUs;
+        int64_t mLastLogUs;
         BufferId mSeq;
         BufferStatusObserver mObserver;
 
@@ -93,6 +94,9 @@ private:
 
         std::map<BufferId, std::unique_ptr<InternalBuffer>> mBuffers;
         std::set<BufferId> mFreeBuffers;
+
+        size_t mTotalAllocBytes;
+        size_t mTotalFreeBytes;
 
     public:
         /** Creates a buffer pool. */
@@ -185,10 +189,11 @@ private:
                 BufferId *pId, const native_handle_t **handle);
 
         /**
-         * Creates a new buffer.
+         * Adds a newly allocated buffer to bufferpool.
          *
-         * @param allocator the buffer allocator
-         * @param params    the allocator parameters
+         * @param alloc     the newly allocated buffer.
+         * @param allocSize the size of the newly allocated buffer.
+         * @param params    the allocation parameters.
          * @param pId       the buffer id for the newly allocated buffer.
          * @param handle    the native handle for the newly allocated buffer.
          *
@@ -196,10 +201,21 @@ private:
          *         NO_MEMORY when there is no memory.
          *         CRITICAL_ERROR otherwise.
          */
-        ResultStatus getNewBuffer(
-                const std::shared_ptr<BufferPoolAllocator> &allocator,
-                const std::vector<uint8_t> &params, BufferId *pId,
+        ResultStatus addNewBuffer(
+                const std::shared_ptr<BufferPoolAllocation> &alloc,
+                const size_t allocSize,
+                const std::vector<uint8_t> &params,
+                BufferId *pId,
                 const native_handle_t **handle);
+
+        /**
+         * Processes pending buffer status messages and performs periodic cache
+         * cleaning.
+         *
+         * @param clearCache    if clearCache is true, it frees all buffers
+         *                      waiting to be recycled.
+         */
+        void cleanUp(bool clearCache = false);
 
         friend class Accessor::Impl;
     } mBufferPool;

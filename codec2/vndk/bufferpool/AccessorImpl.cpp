@@ -31,20 +31,30 @@ namespace bufferpool {
 namespace V1_0 {
 namespace implementation {
 
+namespace {
+    static constexpr int64_t kCleanUpDurationUs = 500000; // TODO tune 0.5 sec
+    static constexpr int64_t kLogDurationUs = 5000000; // 5 secs
+
+    static constexpr size_t kMinAllocBytesForEviction = 1024*1024*15;
+    static constexpr size_t kMinBufferCountForEviction = 40;
+}
+
 // Buffer structure in bufferpool process
 struct InternalBuffer {
     BufferId mId;
     size_t mOwnerCount;
     size_t mTransactionCount;
     const std::shared_ptr<BufferPoolAllocation> mAllocation;
+    const size_t mAllocSize;
     const std::vector<uint8_t> mConfig;
 
     InternalBuffer(
             BufferId id,
             const std::shared_ptr<BufferPoolAllocation> &alloc,
+            const size_t allocSize,
             const std::vector<uint8_t> &allocConfig)
             : mId(id), mOwnerCount(0), mTransactionCount(0),
-            mAllocation(alloc), mConfig(allocConfig) {}
+            mAllocation(alloc), mAllocSize(allocSize), mConfig(allocConfig) {}
 
     const native_handle_t *handle() {
         return mAllocation->handle();
@@ -132,16 +142,20 @@ ResultStatus Accessor::Impl::connect(
         ConnectionId *pConnectionId, const QueueDescriptor** fmqDescPtr) {
     sp<Connection> newConnection = new Connection();
     ResultStatus status = ResultStatus::CRITICAL_ERROR;
-    if (newConnection) {
+    {
         std::lock_guard<std::mutex> lock(mBufferPool.mMutex);
-        ConnectionId id = (int64_t)sPid << 32 | sSeqId;
-        status = mBufferPool.mObserver.open(id, fmqDescPtr);
-        if (status == ResultStatus::OK) {
-            newConnection->initialize(accessor, id);
-            *connection = newConnection;
-            *pConnectionId = id;
-            ++sSeqId;
+        if (newConnection) {
+            ConnectionId id = (int64_t)sPid << 32 | sSeqId;
+            status = mBufferPool.mObserver.open(id, fmqDescPtr);
+            if (status == ResultStatus::OK) {
+                newConnection->initialize(accessor, id);
+                *connection = newConnection;
+                *pConnectionId = id;
+                ++sSeqId;
+            }
         }
+        mBufferPool.processStatusMessages();
+        mBufferPool.cleanUp();
     }
     return status;
 }
@@ -151,17 +165,27 @@ ResultStatus Accessor::Impl::close(ConnectionId connectionId) {
     mBufferPool.processStatusMessages();
     mBufferPool.handleClose(connectionId);
     mBufferPool.mObserver.close(connectionId);
+    // Since close# will be called after all works are finished, it is OK to
+    // evict unused buffers.
+    mBufferPool.cleanUp(true);
     return ResultStatus::OK;
 }
 
 ResultStatus Accessor::Impl::allocate(
         ConnectionId connectionId, const std::vector<uint8_t>& params,
         BufferId *bufferId, const native_handle_t** handle) {
-    std::lock_guard<std::mutex> lock(mBufferPool.mMutex);
+    std::unique_lock<std::mutex> lock(mBufferPool.mMutex);
     mBufferPool.processStatusMessages();
     ResultStatus status = ResultStatus::OK;
     if (!mBufferPool.getFreeBuffer(mAllocator, params, bufferId, handle)) {
-        status = mBufferPool.getNewBuffer(mAllocator, params, bufferId, handle);
+        lock.unlock();
+        std::shared_ptr<BufferPoolAllocation> alloc;
+        size_t allocSize;
+        status = mAllocator->allocate(params, &alloc, &allocSize);
+        lock.lock();
+        if (status == ResultStatus::OK) {
+            status = mBufferPool.addNewBuffer(alloc, allocSize, params, bufferId, handle);
+        }
         ALOGV("create a buffer %d : %u %p",
               status == ResultStatus::OK, *bufferId, *handle);
     }
@@ -169,6 +193,7 @@ ResultStatus Accessor::Impl::allocate(
         // TODO: handle ownBuffer failure
         mBufferPool.handleOwnBuffer(connectionId, *bufferId);
     }
+    mBufferPool.cleanUp();
     return status;
 }
 
@@ -192,18 +217,22 @@ ResultStatus Accessor::Impl::fetch(
             }
         }
     }
+    mBufferPool.cleanUp();
     return ResultStatus::CRITICAL_ERROR;
 }
 
-void Accessor::Impl::sync() {
-    // TODO: periodic jobs
+void Accessor::Impl::cleanUp(bool clearCache) {
     // transaction timeout, buffer cacheing TTL handling
     std::lock_guard<std::mutex> lock(mBufferPool.mMutex);
     mBufferPool.processStatusMessages();
+    mBufferPool.cleanUp(clearCache);
 }
 
 Accessor::Impl::Impl::BufferPool::BufferPool()
-        : mTimestampUs(getTimestampNow()), mSeq(0) {}
+    : mTimestampUs(getTimestampNow()),
+      mLastCleanUpUs(mTimestampUs),
+      mLastLogUs(mTimestampUs),
+      mSeq(0), mTotalAllocBytes(0), mTotalFreeBytes(0) {}
 
 bool Accessor::Impl::BufferPool::handleOwnBuffer(
         ConnectionId connectionId, BufferId bufferId) {
@@ -225,6 +254,7 @@ bool Accessor::Impl::BufferPool::handleReleaseBuffer(
         iter->second->mOwnerCount--;
         if (iter->second->mOwnerCount == 0 &&
                 iter->second->mTransactionCount == 0) {
+            mTotalFreeBytes += iter->second->mAllocSize;
             mFreeBuffers.insert(bufferId);
         }
     }
@@ -299,6 +329,7 @@ bool Accessor::Impl::BufferPool::handleTransferResult(const BufferStatusMessage 
             bufferIter->second->mTransactionCount--;
             if (bufferIter->second->mOwnerCount == 0
                 && bufferIter->second->mTransactionCount == 0) {
+                mTotalFreeBytes += bufferIter->second->mAllocSize;
                 mFreeBuffers.insert(message.bufferId);
             }
             mTransactions.erase(found);
@@ -366,6 +397,7 @@ bool Accessor::Impl::BufferPool::handleClose(ConnectionId connectionId) {
                 if (bufferIter->second->mOwnerCount == 0 &&
                         bufferIter->second->mTransactionCount == 0) {
                     // TODO: handle freebuffer insert fail
+                    mTotalFreeBytes += bufferIter->second->mAllocSize;
                     mFreeBuffers.insert(bufferId);
                 }
             }
@@ -388,6 +420,7 @@ bool Accessor::Impl::BufferPool::handleClose(ConnectionId connectionId) {
                 if (bufferIter->second->mOwnerCount == 0 &&
                     bufferIter->second->mTransactionCount == 0) {
                     // TODO: handle freebuffer insert fail
+                    mTotalFreeBytes += bufferIter->second->mAllocSize;
                     mFreeBuffers.insert(bufferId);
                 }
                 mTransactions.erase(iter);
@@ -411,6 +444,7 @@ bool Accessor::Impl::BufferPool::getFreeBuffer(
     if (bufferIt != mFreeBuffers.end()) {
         BufferId id = *bufferIt;
         mFreeBuffers.erase(bufferIt);
+        mTotalFreeBytes -= mBuffers[id]->mAllocSize;
         *handle = mBuffers[id]->handle();
         *pId = id;
         ALOGV("recycle a buffer %u %p", id, *handle);
@@ -419,30 +453,58 @@ bool Accessor::Impl::BufferPool::getFreeBuffer(
     return false;
 }
 
-ResultStatus Accessor::Impl::BufferPool::getNewBuffer(
-        const std::shared_ptr<BufferPoolAllocator> &allocator,
-        const std::vector<uint8_t> &params, BufferId *pId,
+ResultStatus Accessor::Impl::BufferPool::addNewBuffer(
+        const std::shared_ptr<BufferPoolAllocation> &alloc,
+        const size_t allocSize,
+        const std::vector<uint8_t> &params,
+        BufferId *pId,
         const native_handle_t** handle) {
-    std::shared_ptr<BufferPoolAllocation> alloc;
-    ResultStatus status = allocator->allocate(params, &alloc);
 
-    if (status == ResultStatus::OK) {
-        BufferId bufferId = mSeq++;
-        std::unique_ptr<InternalBuffer> buffer =
-                std::make_unique<InternalBuffer>(
-                        bufferId, alloc, params);
-        if (buffer) {
-            auto res = mBuffers.insert(std::make_pair(
-                    bufferId, std::move(buffer)));
-            if (res.second) {
-                *handle = alloc->handle();
-                *pId = bufferId;
-                return ResultStatus::OK;
+    BufferId bufferId = mSeq++;
+    std::unique_ptr<InternalBuffer> buffer =
+            std::make_unique<InternalBuffer>(
+                    bufferId, alloc, allocSize, params);
+    if (buffer) {
+        auto res = mBuffers.insert(std::make_pair(
+                bufferId, std::move(buffer)));
+        if (res.second) {
+            mTotalAllocBytes += allocSize;
+            *handle = alloc->handle();
+            *pId = bufferId;
+            return ResultStatus::OK;
+        }
+    }
+    return ResultStatus::NO_MEMORY;
+}
+
+void Accessor::Impl::BufferPool::cleanUp(bool clearCache) {
+    if (clearCache || mTimestampUs > mLastCleanUpUs + kCleanUpDurationUs) {
+        mLastCleanUpUs = mTimestampUs;
+        if (mTimestampUs > mLastLogUs + kLogDurationUs) {
+            mLastLogUs = mTimestampUs;
+            ALOGI("bufferpool %p : %zu(%zu bytes) total buffers - "
+                  "%zu(%zu bytes) free buffers",
+                  this, mBuffers.size(), mTotalAllocBytes,
+                  mFreeBuffers.size(), mTotalFreeBytes);
+        }
+        for (auto freeIt = mFreeBuffers.begin(); freeIt != mFreeBuffers.end();) {
+            if (!clearCache && mTotalAllocBytes < kMinAllocBytesForEviction
+                    && mBuffers.size() < kMinBufferCountForEviction) {
+                break;
+            }
+            auto it = mBuffers.find(*freeIt);
+            if (it != mBuffers.end() &&
+                    it->second->mOwnerCount == 0 && it->second->mTransactionCount == 0) {
+                mTotalAllocBytes -= it->second->mAllocSize;
+                mTotalFreeBytes -= it->second->mAllocSize;
+                mBuffers.erase(it);
+                freeIt = mFreeBuffers.erase(freeIt);
+            } else {
+                ++freeIt;
+                ALOGW("bufferpool inconsistent!");
             }
         }
-        return ResultStatus::NO_MEMORY;
     }
-    return status;
 }
 
 }  // namespace implementation
