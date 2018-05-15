@@ -213,7 +213,6 @@ namespace {
 // TODO: get this info from component
 const static size_t kMinBufferArraySize = 16;
 const static size_t kLinearBufferSize = 1048576;
-const static size_t kMaxGraphicBufferRefCount = 4;
 
 /**
  * Simple local buffer pool backed by std::vector.
@@ -1559,15 +1558,6 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     (void)buffer->meta()->findInt64("timeUs", &mediaTimeUs);
     mCCodecCallback->onOutputFramesRendered(mediaTimeUs, timestampNs);
 
-    // XXX: Hack to keep C2Buffers unreleased until the consumer is done
-    //      reading the content. Eventually IGBP-based C2BlockPool should handle
-    //      the lifecycle.
-    output->bufferRefs.push_back(c2Buffer);
-    if (output->bufferRefs.size() > output->maxBufferCount + 1) {
-        output->bufferRefs.pop_front();
-        ALOGV("%zu buffer refs remaining", output->bufferRefs.size());
-    }
-
     return OK;
 }
 
@@ -1907,9 +1897,6 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<GraphicBuffer> gbuf = GraphicBuffer::from(buf);
     output->generation = gbuf->getGenerationNumber();
     window->cancelBuffer(window, buf, fenceFd);
-    output->bufferRefs.clear();
-    // XXX: hack
-    output->maxBufferCount = kMaxGraphicBufferRefCount;
 
     return OK;
 }
