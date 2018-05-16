@@ -209,7 +209,7 @@ namespace {
 
 // TODO: get this info from component
 const static size_t kMinBufferArraySize = 16;
-const static size_t kLinearBufferSize = 524288;
+const static size_t kLinearBufferSize = 1048576;
 const static size_t kMaxGraphicBufferRefCount = 4;
 
 /**
