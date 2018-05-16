@@ -610,6 +610,7 @@ public:
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
         std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
@@ -732,6 +733,7 @@ public:
             return nullptr;
         }
         std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
@@ -777,6 +779,7 @@ public:
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
         std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
