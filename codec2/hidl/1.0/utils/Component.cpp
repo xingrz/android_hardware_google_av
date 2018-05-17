@@ -23,8 +23,6 @@
 #include <codec2/hidl/1.0/ComponentStore.h>
 #include <codec2/hidl/1.0/types.h>
 
-#include <hidl/HidlBinderSupport.h>
-
 #include <C2BqBufferPriv.h>
 #include <C2PlatformSupport.h>
 
@@ -341,15 +339,6 @@ void Component::initListener(const sp<Component>& self) {
 
 Component::~Component() {
     mStore->reportComponentDeath(mLocalId);
-}
-
-Component::InterfaceKey::InterfaceKey(const sp<IComponent>& component) {
-    isRemote = component->isRemote();
-    if (isRemote) {
-        remote = ::android::hardware::toBinder(component);
-    } else {
-        local = component;
-    }
 }
 
 }  // namespace utils
