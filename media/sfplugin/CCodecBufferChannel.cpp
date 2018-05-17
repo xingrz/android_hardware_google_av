@@ -110,10 +110,11 @@ public:
 
     /**
      * Release the buffer obtained from requestNewBuffer() and get the
-     * associated C2Buffer object back. Returns empty shared_ptr if the
-     * buffer is not on file.
+     * associated C2Buffer object back. Returns true if the buffer was on file
+     * and released successfully.
      */
-    virtual std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) = 0;
+    virtual bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) = 0;
 
     /**
      * Flush internal state. After this call, no index or buffer previously
@@ -162,10 +163,11 @@ public:
 
     /**
      * Release the buffer obtained from registerBuffer() and get the
-     * associated C2Buffer object back. Returns empty shared_ptr if the
-     * buffer is not on file.
+     * associated C2Buffer object back. Returns true if the buffer was on file
+     * and released successfully.
      */
-    virtual std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) = 0;
+    virtual bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) = 0;
 
     /**
      * Flush internal state. After this call, no index or buffer previously
@@ -382,27 +384,33 @@ public:
      * the previously assigned buffer. Note that the slot is not completely free
      * until the returned C2Buffer object is freed.
      *
-     * \param buffer[in]  the buffer previously assigned a slot.
-     * \return            C2Buffer object from |buffer|.
+     * \param   buffer[in]        the buffer previously assigned a slot.
+     * \param   c2buffer[in,out]  pointer to C2Buffer to be populated. Ignored
+     *                            if null.
+     * \return  true  if the buffer is successfully released from a slot
+     *          false otherwise
      */
-    std::shared_ptr<C2Buffer> releaseSlot(const sp<MediaCodecBuffer> &buffer) {
-        sp<Codec2Buffer> c2Buffer;
+    bool releaseSlot(const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) {
+        sp<Codec2Buffer> clientBuffer;
         size_t index = mBuffers.size();
         for (size_t i = 0; i < mBuffers.size(); ++i) {
             if (mBuffers[i].clientBuffer == buffer) {
-                c2Buffer = mBuffers[i].clientBuffer;
+                clientBuffer = mBuffers[i].clientBuffer;
                 mBuffers[i].clientBuffer.clear();
                 index = i;
                 break;
             }
         }
-        if (c2Buffer == nullptr) {
+        if (clientBuffer == nullptr) {
             ALOGV("%s: No matching buffer found", __func__);
-            return nullptr;
+            return false;
         }
-        std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
+        std::shared_ptr<C2Buffer> result = clientBuffer->asC2Buffer();
         mBuffers[index].compBuffer = result;
-        return result;
+        if (c2buffer) {
+            *c2buffer = result;
+        }
+        return true;
     }
 
 private:
@@ -480,30 +488,37 @@ public:
      * the buffer. Note that the slot is not completely free until the returned
      * C2Buffer object is freed.
      *
-     * \param buffer[in]  the buffer previously grabbed.
-     * \return            C2Buffer object from |buffer|.
+     * \param   buffer[in]        the buffer previously grabbed.
+     * \param   c2buffer[in,out]  pointer to C2Buffer to be populated. Ignored
+     *                            if null.
+     * \return  true  if the buffer is successfully returned
+     *          false otherwise
      */
-    std::shared_ptr<C2Buffer> returnBuffer(const sp<MediaCodecBuffer> &buffer) {
-        sp<Codec2Buffer> c2Buffer;
+    bool returnBuffer(const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) {
+        sp<Codec2Buffer> clientBuffer;
         size_t index = mBuffers.size();
         for (size_t i = 0; i < mBuffers.size(); ++i) {
             if (mBuffers[i].clientBuffer == buffer) {
                 if (!mBuffers[i].ownedByClient) {
                     ALOGD("Client returned a buffer it does not own according to our record: %zu", i);
                 }
-                c2Buffer = mBuffers[i].clientBuffer;
+                clientBuffer = mBuffers[i].clientBuffer;
                 mBuffers[i].ownedByClient = false;
                 index = i;
                 break;
             }
         }
-        if (c2Buffer == nullptr) {
+        if (clientBuffer == nullptr) {
             ALOGV("%s: No matching buffer found", __func__);
-            return nullptr;
+            return false;
         }
-        std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
+        ALOGV("%s: matching buffer found", __func__);
+        std::shared_ptr<C2Buffer> result = clientBuffer->asC2Buffer();
         mBuffers[index].compBuffer = result;
-        return result;
+        if (c2buffer) {
+            *c2buffer = result;
+        }
+        return true;
     }
 
     /**
@@ -569,8 +584,9 @@ public:
         return false;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) override {
-        return mImpl.returnBuffer(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.returnBuffer(buffer, c2buffer);
     }
 
     void flush() override {
@@ -599,8 +615,9 @@ public:
         return true;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) override {
-        return mImpl.releaseSlot(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.releaseSlot(buffer, c2buffer);
     }
 
     void flush() override {
@@ -720,8 +737,9 @@ public:
         return true;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) override {
-        return mImpl.releaseSlot(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.releaseSlot(buffer, c2buffer);
     }
 
     void flush() override {
@@ -771,8 +789,9 @@ public:
         return true;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) override {
-        return mImpl.releaseSlot(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.releaseSlot(buffer, c2buffer);
     }
 
     void flush() override {
@@ -808,8 +827,9 @@ public:
         return false;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &) override {
-        return nullptr;
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &, std::shared_ptr<C2Buffer> *) override {
+        return false;
     }
 
     void flush() override {
@@ -890,8 +910,9 @@ public:
         return true;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(const sp<MediaCodecBuffer> &buffer) final {
-        return mImpl.returnBuffer(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.returnBuffer(buffer, c2buffer);
     }
 
     void flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) override {
@@ -933,9 +954,9 @@ public:
         return true;
     }
 
-    std::shared_ptr<C2Buffer> releaseBuffer(
-            const sp<MediaCodecBuffer> &buffer) override {
-        return mImpl.releaseSlot(buffer);
+    bool releaseBuffer(
+            const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
+        return mImpl.releaseSlot(buffer, c2buffer);
     }
 
     void flush(
@@ -1017,7 +1038,7 @@ public:
 class RawGraphicOutputBuffers : public FlexOutputBuffers {
 public:
     RawGraphicOutputBuffers()
-        : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 16)) {
+        : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) {
     }
     ~RawGraphicOutputBuffers() override = default;
 
@@ -1153,8 +1174,8 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     work->input.buffers.clear();
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-        std::shared_ptr<C2Buffer> c2buffer = (*buffers)->releaseBuffer(buffer);
-        if (!c2buffer) {
+        std::shared_ptr<C2Buffer> c2buffer;
+        if (!(*buffers)->releaseBuffer(buffer, &c2buffer)) {
             return -ENOENT;
         }
         work->input.buffers.push_back(c2buffer);
@@ -1295,7 +1316,12 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     std::shared_ptr<C2Buffer> c2Buffer;
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        c2Buffer = (*buffers)->releaseBuffer(buffer);
+        if (*buffers) {
+            (*buffers)->releaseBuffer(buffer, &c2Buffer);
+        }
+    }
+    if (!c2Buffer) {
+        return INVALID_OPERATION;
     }
 
     Mutexed<OutputSurface>::Locked output(mOutputSurface);
@@ -1395,11 +1421,13 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
     bool released = false;
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-        released = ((*buffers)->releaseBuffer(buffer) != nullptr);
+        if (*buffers) {
+            released = (*buffers)->releaseBuffer(buffer, nullptr);
+        }
     }
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        if ((*buffers)->releaseBuffer(buffer)) {
+        if (*buffers && (*buffers)->releaseBuffer(buffer, nullptr)) {
             released = true;
             buffers.unlock();
             feedInputBufferIfAvailable();
