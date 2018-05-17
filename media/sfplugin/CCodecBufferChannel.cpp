@@ -397,7 +397,7 @@ public:
             }
         }
         if (c2Buffer == nullptr) {
-            ALOGV("No matching buffer found");
+            ALOGV("%s: No matching buffer found", __func__);
             return nullptr;
         }
         std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
@@ -498,7 +498,7 @@ public:
             }
         }
         if (c2Buffer == nullptr) {
-            ALOGV("No matching buffer found");
+            ALOGV("%s: No matching buffer found", __func__);
             return nullptr;
         }
         std::shared_ptr<C2Buffer> result = c2Buffer->asC2Buffer();
@@ -609,13 +609,16 @@ public:
     }
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
+        int32_t capacity = kLinearBufferSize;
+        (void)mFormat->findInt32(C2_NAME_STREAM_MAX_BUFFER_SIZE_SETTING, &capacity);
+
         std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
         array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
                 kMinBufferArraySize,
-                [this] () -> sp<Codec2Buffer> { return alloc(kLinearBufferSize); });
+                [this, capacity] () -> sp<Codec2Buffer> { return alloc(capacity); });
         return std::move(array);
     }
 
@@ -1360,7 +1363,10 @@ status_t CCodecBufferChannel::renderOutputBuffer(
             timestampNs,
             false,
             HAL_DATASPACE_UNKNOWN,
-            Rect(blocks.front().width(), blocks.front().height()),
+            Rect(blocks.front().crop().left,
+                 blocks.front().crop().top,
+                 blocks.front().crop().right(),
+                 blocks.front().crop().bottom()),
             NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW,
             0,
             Fence::NO_FENCE, 0);
@@ -1564,6 +1570,23 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
 }
 
 void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
+    class OnReturn {
+    public:
+        explicit OnReturn(std::function<void()> action) : mAction(action), mEnabled(true) {}
+        ~OnReturn() {
+            if (mEnabled) {
+                ALOGV("action performed");
+                mAction();
+            }
+        }
+        void setEnabled(bool enabled) { mEnabled = enabled; }
+    private:
+        std::function<void()> mAction;
+        bool mEnabled;
+    };
+
+    OnReturn feed([this]() { feedInputBufferIfAvailable(); });
+
     if (work->input.buffers.size() == 1) {
         // TODO: Use BufferPool
         Mutexed<InputRefs>::Locked inputRefs(mInputRefs);
@@ -1675,6 +1698,7 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
             buffers.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
             buffers.lock();
+            feed.setEnabled(false);
         } else {
             ALOGE("onWorkDone: unable to register csd");
             buffers.unlock();
@@ -1685,7 +1709,8 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
     }
 
     if (!buffer && !flags) {
-        ALOGV("onWorkDone: Not reporting output buffer");
+        ALOGV("onWorkDone: Not reporting output buffer (%lld)",
+              work->input.ordinal.frameIndex.peekull());
         return;
     }
 
@@ -1720,6 +1745,7 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
     outBuffer->meta()->setInt32("flags", flags);
     ALOGV("onWorkDone: out buffer index = %zu", index);
     mCallback->onOutputBufferAvailable(index, outBuffer);
+    feed.setEnabled(false);
 }
 
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {

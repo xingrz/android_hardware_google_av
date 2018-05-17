@@ -506,6 +506,9 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 outputFormat->setInt32("height", height);
                 outputFormat->setRect("crop", 0, 0, width - 1, height - 1);
             }
+            if (!encoder) {
+                outputFormat->setInt32("color-format", 0x24);
+            }
         } else {
             int32_t channelCount, sampleRate;
             if (msg->findInt32("channel-count", &channelCount)
@@ -518,7 +521,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         // TODO: do this based on component requiring linear allocator for input
-        if (!encoder || audio) {
+        if (audio) {
             int32_t tmp;
             if (msg->findInt32("max-input-size", &tmp)) {
                 inputFormat->setInt32(C2_NAME_STREAM_MAX_BUFFER_SIZE_SETTING, tmp);
