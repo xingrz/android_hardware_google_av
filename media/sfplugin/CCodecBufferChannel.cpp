@@ -33,6 +33,7 @@
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/AUtils.h>
+#include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/MediaCodec.h>
 #include <media/MediaCodecBuffer.h>
 #include <system/window.h>
@@ -1597,7 +1598,9 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
     }
 }
 
-void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
+void CCodecBufferChannel::onWorkDone(
+        std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
+        const C2StreamInitDataInfo::output *initData) {
     class OnReturn {
     public:
         explicit OnReturn(std::function<void()> action) : mAction(action), mEnabled(true) {}
@@ -1663,49 +1666,11 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
         }
     }
 
-    const C2StreamCsdInfo::output *csdInfo = nullptr;
-    if (!worklet->output.configUpdate.empty()) {
+    if (outputFormat != nullptr) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        sp<AMessage> newFormat = (*buffers)->dupFormat();
-        bool changed = false;
-        for (const std::unique_ptr<C2Param> &info : worklet->output.configUpdate) {
-            switch (info->coreIndex().coreIndex()) {
-                case C2StreamCsdInfo::output::CORE_INDEX:
-                    ALOGV("onWorkDone: csd found");
-                    csdInfo = static_cast<const C2StreamCsdInfo::output *>(info.get());
-                    // TODO: proper format update
-                    newFormat->setBuffer(
-                            "csd-0",
-                            ABuffer::CreateAsCopy(csdInfo->m.value, csdInfo->flexCount()));
-                    changed = true;
-                    break;
-                case C2VideoSizeStreamInfo::output::CORE_INDEX:
-                    newFormat->setInt32(
-                            "width",
-                            ((C2VideoSizeStreamInfo::output *)info.get())->width);
-                    newFormat->setInt32(
-                            "height",
-                            ((C2VideoSizeStreamInfo::output *)info.get())->height);
-                    changed = true;
-                    break;
-                case C2StreamSampleRateInfo::output::CORE_INDEX:
-                    newFormat->setInt32(
-                            "sample-rate",
-                            ((C2StreamSampleRateInfo::output *)info.get())->value);
-                    changed = true;
-                    break;
-                case C2StreamChannelCountInfo::output::CORE_INDEX:
-                    newFormat->setInt32(
-                            "channel-count",
-                            ((C2StreamChannelCountInfo::output *)info.get())->value);
-                    changed = true;
-                    break;
-            }
-        }
-        if (changed) {
-            ALOGV("output format changed; newFormat = %s", newFormat->debugString().c_str());
-            (*buffers)->setFormat(newFormat);
-        }
+        ALOGD("onWorkDone: output format changed to %s",
+                outputFormat->debugString().c_str());
+        (*buffers)->setFormat(outputFormat);
     }
 
     int32_t flags = 0;
@@ -1716,9 +1681,9 @@ void CCodecBufferChannel::onWorkDone(std::unique_ptr<C2Work> work) {
 
     sp<MediaCodecBuffer> outBuffer;
     size_t index;
-    if (csdInfo != nullptr) {
+    if (initData != nullptr) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        if ((*buffers)->registerCsd(csdInfo, &index, &outBuffer)) {
+        if ((*buffers)->registerCsd(initData, &index, &outBuffer)) {
             outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
             outBuffer->meta()->setInt32("flags", flags | MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("onWorkDone: csd index = %zu", index);

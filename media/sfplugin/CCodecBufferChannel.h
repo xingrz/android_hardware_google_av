@@ -105,8 +105,12 @@ public:
      * Notify input client about work done.
      *
      * @param workItems   finished work item.
+     * @param outputFormat new output format if it has changed, otherwise nullptr
+     * @param initData    new init data (CSD) if it has changed, otherwise nullptr
      */
-    void onWorkDone(std::unique_ptr<C2Work> work);
+    void onWorkDone(
+            std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
+            const C2StreamInitDataInfo::output *initData);
 
     enum MetaMode {
         MODE_NONE,
