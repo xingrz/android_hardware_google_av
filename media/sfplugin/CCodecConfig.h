@@ -113,6 +113,8 @@ struct CCodecConfig {
 
     std::map<C2Param::Index, std::unique_ptr<C2Param>> mCurrentConfig;
 
+    CCodecConfig();
+
     /// initializes the members required to manage the format: descriptors, reflector,
     /// reflected param helper, domain, standard params, and subscribes to standard
     /// indices.
