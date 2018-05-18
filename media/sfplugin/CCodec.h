@@ -142,6 +142,8 @@ private:
     };
 
     struct NamedTimePoint {
+        NamedTimePoint() : mTimePoint(TimePoint::max()), mName("") {}
+
         inline void set(
                 const TimePoint &timePoint,
                 const char *name) {
