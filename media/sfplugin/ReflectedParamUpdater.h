@@ -105,9 +105,11 @@ public:
      *
      * \param paramDesc parameter descriptor
      * \param fieldDesc field descriptor
+     * \param markVendor TEMP if true, prefix vendor parameter names with "vendor."
      */
     void addParamDesc(
-            std::shared_ptr<C2ParamDescriptor> paramDesc, const C2StructDescriptor &structDesc);
+            std::shared_ptr<C2ParamDescriptor> paramDesc, const C2StructDescriptor &structDesc,
+            bool markVendor = true);
 
     /**
      * Get list of param indices from field names and values in AMessage object.

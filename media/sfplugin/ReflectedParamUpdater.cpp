@@ -124,10 +124,23 @@ void ReflectedParamUpdater::addParamDesc(
         }
         addParamDesc(desc, *structDesc);
     }
+
+    // TEMP: also add vendor parameters as non-vendor
+    for (const std::shared_ptr<C2ParamDescriptor> &desc : paramDescs) {
+        if (!desc->index().isVendor()) {
+            continue;
+        }
+        std::unique_ptr<C2StructDescriptor> structDesc = reflector->describe(
+                desc->index().coreIndex());
+        if (structDesc) {
+            addParamDesc(desc, *structDesc, false);
+        }
+    }
 }
 
 void ReflectedParamUpdater::addParamDesc(
-        std::shared_ptr<C2ParamDescriptor> desc, const C2StructDescriptor &structDesc) {
+        std::shared_ptr<C2ParamDescriptor> desc, const C2StructDescriptor &structDesc,
+        bool markVendor) {
     C2String paramName = desc->name();
 
     for (auto it = structDesc.begin(); it != structDesc.end(); ++it) {
@@ -139,7 +152,7 @@ void ReflectedParamUpdater::addParamDesc(
         C2String fieldName = paramName + "." + it->name();
 
         // prefix vendor parameters and suffix standard parameters with type
-        if (desc->index().isVendor()) {
+        if (desc->index().isVendor() && markVendor) {
             fieldName = "vendor." + fieldName;
         }
 
