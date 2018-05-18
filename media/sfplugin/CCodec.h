@@ -162,6 +162,8 @@ private:
     Mutexed<Config> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
 
+    friend class CCodecCallbackImpl;
+
     DISALLOW_EVIL_CONSTRUCTORS(CCodec);
 };
 
