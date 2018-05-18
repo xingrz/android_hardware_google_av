@@ -225,6 +225,11 @@ private:
 
 const std::vector<ConfigMapper> StandardParams::NO_MAPPERS;
 
+
+CCodecConfig::CCodecConfig()
+    : mInputFormat(new AMessage),
+      mOutputFormat(new AMessage) { }
+
 void CCodecConfig::initializeStandardParams() {
     typedef Domain D;
     mStandardParams = std::make_shared<StandardParams>();
@@ -655,15 +660,17 @@ bool CCodecConfig::updateFormats(Domain domain) {
     if (domain & mInputDomain) {
         sp<AMessage> oldFormat = mInputFormat;
         mInputFormat = getSdkFormatForDomain(reflected, mInputDomain);
-        if (oldFormat == nullptr || mInputFormat->changesFrom(oldFormat)->countEntries() > 0) {
+        if (mInputFormat->countEntries() != oldFormat->countEntries()
+                || mInputFormat->changesFrom(oldFormat)->countEntries() > 0) {
             changed = true;
         }
     }
     if (domain & mOutputDomain) {
         sp<AMessage> oldFormat = mOutputFormat;
         mOutputFormat = getSdkFormatForDomain(reflected, mOutputDomain);
-        if (!changed && (oldFormat == nullptr
-                            || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0)) {
+        if (!changed &&
+                (mOutputFormat->countEntries() != oldFormat->countEntries()
+                        || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0)) {
             changed = true;
         }
     }
