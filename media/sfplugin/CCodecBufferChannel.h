@@ -37,13 +37,20 @@
 
 namespace android {
 
+class CCodecCallback {
+public:
+    virtual ~CCodecCallback() = default;
+    virtual void onError(status_t err, enum ActionCode actionCode) = 0;
+    virtual void onOutputFramesRendered(int64_t mediaTimeUs, nsecs_t renderTimeNs) = 0;
+};
+
 /**
  * BufferChannelBase implementation for CCodec.
  */
 class CCodecBufferChannel
     : public BufferChannelBase, public std::enable_shared_from_this<CCodecBufferChannel> {
 public:
-    CCodecBufferChannel(const std::function<void(status_t, enum ActionCode)> &onError);
+    explicit CCodecBufferChannel(const std::shared_ptr<CCodecCallback> &callback);
     virtual ~CCodecBufferChannel();
 
     // BufferChannelBase interface
@@ -178,6 +185,9 @@ private:
 
     void feedInputBufferIfAvailable();
     status_t queueInputBufferInternal(const sp<MediaCodecBuffer> &buffer);
+    bool handleWork(
+            std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
+            const C2StreamInitDataInfo::output *initData);
 
     QueueSync mSync;
     sp<MemoryDealer> mDealer;
@@ -185,7 +195,7 @@ private:
     int32_t mHeapSeqNum;
 
     std::shared_ptr<Codec2Client::Component> mComponent;
-    std::function<void(status_t, enum ActionCode)> mOnError;
+    std::shared_ptr<CCodecCallback> mCCodecCallback;
     std::shared_ptr<C2BlockPool> mInputAllocator;
     QueueSync mQueueSync;
 
