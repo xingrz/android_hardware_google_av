@@ -1120,9 +1120,9 @@ void CCodecBufferChannel::QueueSync::stop() {
 }
 
 CCodecBufferChannel::CCodecBufferChannel(
-        const std::function<void(status_t, enum ActionCode)> &onError)
+        const std::shared_ptr<CCodecCallback> &callback)
     : mHeapSeqNum(-1),
-      mOnError(onError),
+      mCCodecCallback(callback),
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mOutputBufferQueue(new OutputBufferQueue()),
@@ -1401,6 +1401,10 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     }
     ALOGV("queue buffer successful");
 
+    int64_t mediaTimeUs = 0;
+    (void)buffer->meta()->findInt64("timeUs", &mediaTimeUs);
+    mCCodecCallback->onOutputFramesRendered(mediaTimeUs, timestampNs);
+
     // XXX: Hack to keep C2Buffers unreleased until the consumer is done
     //      reading the content. Eventually IGBP-based C2BlockPool should handle
     //      the lifecycle.
@@ -1597,54 +1601,47 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
 void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
-    class OnReturn {
-    public:
-        explicit OnReturn(std::function<void()> action) : mAction(action), mEnabled(true) {}
-        ~OnReturn() {
-            if (mEnabled) {
-                ALOGV("action performed");
-                mAction();
-            }
-        }
-        void setEnabled(bool enabled) { mEnabled = enabled; }
-    private:
-        std::function<void()> mAction;
-        bool mEnabled;
-    };
+    bool feedNeeded = handleWork(std::move(work), outputFormat, initData);
+    if (feedNeeded) {
+        feedInputBufferIfAvailable();
+    }
+}
 
-    OnReturn feed([this]() { feedInputBufferIfAvailable(); });
-
+bool CCodecBufferChannel::handleWork(
+        std::unique_ptr<C2Work> work,
+        const sp<AMessage> &outputFormat,
+        const C2StreamInitDataInfo::output *initData) {
     if (work->result != C2_OK) {
         if (work->result == C2_NOT_FOUND) {
             // TODO: Define what flushed work's result is.
             ALOGD("flushed work; ignored.");
-            return;
+            return true;
         }
         ALOGD("work failed to complete: %d", work->result);
-        mOnError(work->result, ACTION_CODE_FATAL);
-        return;
+        mCCodecCallback->onError(work->result, ACTION_CODE_FATAL);
+        return false;
     }
 
     // NOTE: MediaCodec usage supposedly have only one worklet
     if (work->worklets.size() != 1u) {
         ALOGE("onWorkDone: incorrect number of worklets: %zu",
                 work->worklets.size());
-        mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
-        return;
+        mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+        return false;
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
     if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
         // Discard frames from previous generation.
-        return;
+        return true;
     }
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {
         ALOGE("onWorkDone: incorrect number of output buffers: %zu",
                 worklet->output.buffers.size());
-        mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
-        return;
+        mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+        return false;
     } else if (worklet->output.buffers.size() == 1u) {
         buffer = worklet->output.buffers[0];
         if (!buffer) {
@@ -1665,6 +1662,7 @@ void CCodecBufferChannel::onWorkDone(
         ALOGV("onWorkDone: output EOS");
     }
 
+    bool feedNeeded = true;
     sp<MediaCodecBuffer> outBuffer;
     size_t index;
     if (initData != nullptr) {
@@ -1677,20 +1675,20 @@ void CCodecBufferChannel::onWorkDone(
             buffers.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
             buffers.lock();
-            feed.setEnabled(false);
+            feedNeeded = false;
         } else {
             ALOGE("onWorkDone: unable to register csd");
             buffers.unlock();
-            mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
             buffers.lock();
-            return;
+            return false;
         }
     }
 
     if (!buffer && !flags) {
         ALOGV("onWorkDone: Not reporting output buffer (%lld)",
               work->input.ordinal.frameIndex.peekull());
-        return;
+        return feedNeeded;
     }
 
     if (buffer) {
@@ -1714,9 +1712,9 @@ void CCodecBufferChannel::onWorkDone(
             ALOGE("onWorkDone: unable to register output buffer");
             // TODO
             // buffers.unlock();
-            // mOnError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            // mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
             // buffers.lock();
-            return;
+            return false;
         }
     }
 
@@ -1724,7 +1722,7 @@ void CCodecBufferChannel::onWorkDone(
     outBuffer->meta()->setInt32("flags", flags);
     ALOGV("onWorkDone: out buffer index = %zu", index);
     mCallback->onOutputBufferAvailable(index, outBuffer);
-    feed.setEnabled(false);
+    return false;
 }
 
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {

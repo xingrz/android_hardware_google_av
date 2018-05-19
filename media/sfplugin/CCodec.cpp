@@ -299,12 +299,30 @@ private:
     wp<CCodec> mCodec;
 };
 
+// CCodecCallbackImpl
+
+class CCodecCallbackImpl : public CCodecCallback {
+public:
+    explicit CCodecCallbackImpl(CCodec *codec) : mCodec(codec) {}
+    ~CCodecCallbackImpl() override = default;
+
+    void onError(status_t err, enum ActionCode actionCode) override {
+        mCodec->mCallback->onError(err, actionCode);
+    }
+
+    void onOutputFramesRendered(int64_t mediaTimeUs, nsecs_t renderTimeNs) override {
+        mCodec->mCallback->onOutputFramesRendered(
+                {RenderedFrameInfo(mediaTimeUs, renderTimeNs)});
+    }
+
+private:
+    CCodec *mCodec;
+};
+
 // CCodec
 
 CCodec::CCodec()
-    : mChannel(new CCodecBufferChannel([this] (status_t err, enum ActionCode actionCode) {
-          mCallback->onError(err, actionCode);
-      })) {
+    : mChannel(new CCodecBufferChannel(std::make_shared<CCodecCallbackImpl>(this))) {
     CCodecWatchdog::getInstance()->registerCodec(this);
 }
 
