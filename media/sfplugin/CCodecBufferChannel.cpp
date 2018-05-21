@@ -194,7 +194,6 @@ public:
         if (!igbp || igbp == mIgbp) return false;
         mIgbp = igbp;
         mIgbp->getUniqueId(&mIgbpId);
-        mIgbp->setGenerationNumber(0);
         mIgbp->setMaxDequeuedBufferCount(16); // TODO: tune
         return true;
     }
@@ -1366,7 +1365,7 @@ status_t CCodecBufferChannel::renderOutputBuffer(
                 GraphicBuffer::CLONE_HANDLE,
                 width, height, format, 1, usage, stride));
         // TODO: detach?
-        graphicBuffer->setGenerationNumber(0);
+        graphicBuffer->setGenerationNumber(output->generation);
         result = igbp->attachBuffer(&igbp_slot, graphicBuffer);
         if (result != OK) {
             native_handle_delete(grallocHandle);
@@ -1746,6 +1745,13 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 //    }
 
     output->surface = newSurface;
+    ANativeWindowBuffer *buf;
+    ANativeWindow *window = output->surface.get();
+    int fenceFd;
+    window->dequeueBuffer(window, &buf, &fenceFd);
+    sp<GraphicBuffer> gbuf = GraphicBuffer::from(buf);
+    output->generation = gbuf->getGenerationNumber();
+    window->cancelBuffer(window, buf, fenceFd);
     output->bufferRefs.clear();
     // XXX: hack
     output->maxBufferCount = kMaxGraphicBufferRefCount;
