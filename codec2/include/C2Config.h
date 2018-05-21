@@ -307,7 +307,7 @@ constexpr char C2_PARAMKEY_COMPONENT_ALIASES[]  = "component.aliases";
  * Component kind.
  */
 // read-only
-typedef C2GlobalParam<C2Setting, C2SimpleValueStruct<C2Component::kind_t>, kParamIndexDomain>
+typedef C2GlobalParam<C2Setting, C2SimpleValueStruct<C2Component::kind_t>, kParamIndexKind>
         C2ComponentKindSetting;
 constexpr char C2_PARAMKEY_COMPONENT_KIND[]  = "component.kind";
 
