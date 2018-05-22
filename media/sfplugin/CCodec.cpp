@@ -1131,9 +1131,58 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             if (!work->worklets.empty()
                     && (work->worklets.front()->output.flags
                             & C2FrameData::FLAG_DISCARD_FRAME) == 0) {
+
+                // copy buffer info to config
+                std::vector<std::unique_ptr<C2Param>> updates =
+                    std::move(work->worklets.front()->output.configUpdate);
+                unsigned stream = 0;
+                for (const std::shared_ptr<C2Buffer> &buf : work->worklets.front()->output.buffers) {
+                    for (const std::shared_ptr<const C2Info> &info : buf->info()) {
+                        // move all info into output-stream #0 domain
+                        updates.emplace_back(C2Param::CopyAsStream(*info, true /* output */, stream));
+                    }
+                    for (const C2ConstGraphicBlock &block : buf->data().graphicBlocks()) {
+                        // ALOGV("got output buffer with crop %u,%u+%u,%u and size %u,%u",
+                        //      block.crop().left, block.crop().top,
+                        //      block.crop().width, block.crop().height,
+                        //      block.width(), block.height());
+                        updates.emplace_back(new C2StreamCropRectInfo::output(stream, block.crop()));
+                        updates.emplace_back(new C2StreamPictureSizeInfo::output(
+                                stream, block.width(), block.height()));
+                        break; // for now only do the first block
+                    }
+                    ++stream;
+                }
+
                 changed = config->updateConfiguration(
                         work->worklets.front()->output.configUpdate,
                         config->mOutputDomain);
+
+                // copy standard infos to graphic buffers if not already present (otherwise, we
+                // may overwrite the actual intermediate value with a final value)
+                stream = 0;
+                const static std::vector<C2Param::Index> stdGfxInfos = {
+                    C2StreamRotationInfo::output::PARAM_TYPE,
+                    C2StreamColorAspectsInfo::output::PARAM_TYPE,
+                    C2StreamHdrStaticInfo::output::PARAM_TYPE,
+                    C2StreamPixelAspectRatioInfo::output::PARAM_TYPE,
+                    C2StreamSurfaceScalingInfo::output::PARAM_TYPE
+                };
+                for (const std::shared_ptr<C2Buffer> &buf : work->worklets.front()->output.buffers) {
+                    if (buf->data().graphicBlocks().size()) {
+                        for (C2Param::Index ix : stdGfxInfos) {
+                            if (!buf->hasInfo(ix)) {
+                                const C2Param *param =
+                                    config->getConfigParameterValue(ix.withStream(stream));
+                                if (param) {
+                                    std::shared_ptr<C2Param> info(C2Param::Copy(*param));
+                                    buf->setInfo(std::static_pointer_cast<C2Info>(info));
+                                }
+                            }
+                        }
+                    }
+                    ++stream;
+                }
             }
             mChannel->onWorkDone(
                     std::move(work), changed ? config->mOutputFormat : nullptr,

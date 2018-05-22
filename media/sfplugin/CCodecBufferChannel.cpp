@@ -31,6 +31,7 @@
 #include <gui/Surface.h>
 #include <media/openmax/OMX_Core.h>
 #include <media/stagefright/foundation/ABuffer.h>
+#include <media/stagefright/foundation/ALookup.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/hexdump.h>
@@ -1320,6 +1321,133 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         return INVALID_OPERATION;
     }
 
+#if 0
+    const std::vector<std::shared_ptr<const C2Info>> infoParams = c2Buffer->info();
+    ALOGV("queuing gfx buffer with %zu infos", infoParams.size());
+    for (const std::shared_ptr<const C2Info> &info : infoParams) {
+        AString res;
+        for (size_t ix = 0; ix + 3 < info->size(); ix += 4) {
+            if (ix) res.append(", ");
+            res.append(*((int32_t*)info.get() + (ix / 4)));
+        }
+        ALOGV("  [%s]", res.c_str());
+    }
+#endif
+    std::shared_ptr<const C2StreamRotationInfo::output> rotation =
+        std::static_pointer_cast<const C2StreamRotationInfo::output>(
+                c2Buffer->getInfo(C2StreamRotationInfo::output::PARAM_TYPE));
+    bool flip = rotation && (rotation->flip & 1);
+    uint32_t quarters = ((rotation ? rotation->value : 0) / 90) & 3;
+    uint32_t transform = 0;
+    switch (quarters) {
+        case 0: // no rotation
+            transform = flip ? HAL_TRANSFORM_FLIP_H : 0;
+            break;
+        case 1: // 90 degrees counter-clockwise
+            transform = flip ? (HAL_TRANSFORM_FLIP_V | HAL_TRANSFORM_ROT_90)
+                    : HAL_TRANSFORM_ROT_270;
+            break;
+        case 2: // 180 degrees
+            transform = flip ? HAL_TRANSFORM_FLIP_V : HAL_TRANSFORM_ROT_180;
+            break;
+        case 3: // 90 degrees clockwise
+            transform = flip ? (HAL_TRANSFORM_FLIP_H | HAL_TRANSFORM_ROT_90)
+                    : HAL_TRANSFORM_ROT_90;
+            break;
+    }
+
+    std::shared_ptr<const C2StreamSurfaceScalingInfo::output> surfaceScaling =
+        std::static_pointer_cast<const C2StreamSurfaceScalingInfo::output>(
+                c2Buffer->getInfo(C2StreamSurfaceScalingInfo::output::PARAM_TYPE));
+    uint32_t videoScalingMode = NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW;
+    if (surfaceScaling) {
+        videoScalingMode = surfaceScaling->value;
+    }
+
+    // Use dataspace if component provides it. Otherwise, compose dataspace from color aspects
+    std::shared_ptr<const C2StreamDataSpaceInfo::output> dataSpaceInfo =
+        std::static_pointer_cast<const C2StreamDataSpaceInfo::output>(
+                c2Buffer->getInfo(C2StreamDataSpaceInfo::output::PARAM_TYPE));
+    uint32_t dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
+    if (dataSpaceInfo) {
+        dataSpace = dataSpaceInfo->value;
+    } else {
+        std::shared_ptr<const C2StreamColorAspectsInfo::output> colorAspects =
+            std::static_pointer_cast<const C2StreamColorAspectsInfo::output>(
+                    c2Buffer->getInfo(C2StreamColorAspectsInfo::output::PARAM_TYPE));
+        C2Color::range_t range =
+            colorAspects == nullptr ? C2Color::RANGE_UNSPECIFIED     : colorAspects->range;
+        C2Color::primaries_t primaries =
+            colorAspects == nullptr ? C2Color::PRIMARIES_UNSPECIFIED : colorAspects->primaries;
+        C2Color::transfer_t transfer =
+            colorAspects == nullptr ? C2Color::TRANSFER_UNSPECIFIED  : colorAspects->transfer;
+        C2Color::matrix_t matrix =
+            colorAspects == nullptr ? C2Color::MATRIX_UNSPECIFIED    : colorAspects->matrix;
+
+        switch (range) {
+            case C2Color::RANGE_FULL:    dataSpace |= HAL_DATASPACE_RANGE_FULL;    break;
+            case C2Color::RANGE_LIMITED: dataSpace |= HAL_DATASPACE_RANGE_LIMITED; break;
+            default: break;
+        }
+
+        switch (transfer) {
+            case C2Color::TRANSFER_LINEAR:  dataSpace |= HAL_DATASPACE_TRANSFER_LINEAR;     break;
+            case C2Color::TRANSFER_SRGB:    dataSpace |= HAL_DATASPACE_TRANSFER_SRGB;       break;
+            case C2Color::TRANSFER_170M:    dataSpace |= HAL_DATASPACE_TRANSFER_SMPTE_170M; break;
+            case C2Color::TRANSFER_GAMMA22: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_2;   break;
+            case C2Color::TRANSFER_GAMMA28: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_8;   break;
+            case C2Color::TRANSFER_ST2084:  dataSpace |= HAL_DATASPACE_TRANSFER_ST2084;     break;
+            case C2Color::TRANSFER_HLG:     dataSpace |= HAL_DATASPACE_TRANSFER_HLG;        break;
+            default: break;
+        }
+
+        switch (primaries) {
+            case C2Color::PRIMARIES_BT601_525:
+                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
+                                || matrix == C2Color::MATRIX_BT709)
+                        ? HAL_DATASPACE_STANDARD_BT601_525_UNADJUSTED
+                        : HAL_DATASPACE_STANDARD_BT601_525;
+                break;
+            case C2Color::PRIMARIES_BT601_625:
+                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
+                                || matrix == C2Color::MATRIX_BT709)
+                        ? HAL_DATASPACE_STANDARD_BT601_625_UNADJUSTED
+                        : HAL_DATASPACE_STANDARD_BT601_625;
+                break;
+            case C2Color::PRIMARIES_BT2020:
+                dataSpace |= (matrix == C2Color::MATRIX_BT2020CONSTANT
+                        ? HAL_DATASPACE_STANDARD_BT2020_CONSTANT_LUMINANCE
+                        : HAL_DATASPACE_STANDARD_BT2020);
+                break;
+            case C2Color::PRIMARIES_BT470_M:
+                dataSpace |= HAL_DATASPACE_STANDARD_BT470M;
+                break;
+            case C2Color::PRIMARIES_BT709:
+                dataSpace |= HAL_DATASPACE_STANDARD_BT709;
+                break;
+            default: break;
+        }
+    }
+
+    // convert legacy dataspace values to v0 values
+    const static
+    ALookup<android_dataspace, android_dataspace> sLegacyDataSpaceToV0 {
+        {
+            { HAL_DATASPACE_SRGB, HAL_DATASPACE_V0_SRGB },
+            { HAL_DATASPACE_BT709, HAL_DATASPACE_V0_BT709 },
+            { HAL_DATASPACE_SRGB_LINEAR, HAL_DATASPACE_V0_SRGB_LINEAR },
+            { HAL_DATASPACE_BT601_525, HAL_DATASPACE_V0_BT601_525 },
+            { HAL_DATASPACE_BT601_625, HAL_DATASPACE_V0_BT601_625 },
+            { HAL_DATASPACE_JFIF, HAL_DATASPACE_V0_JFIF },
+        }
+    };
+    sLegacyDataSpaceToV0.lookup((android_dataspace_t)dataSpace, (android_dataspace_t*)&dataSpace);
+
+    // HDR static info
+    std::shared_ptr<const C2StreamHdrStaticInfo::output> hdrStaticInfo =
+        std::static_pointer_cast<const C2StreamHdrStaticInfo::output>(
+                c2Buffer->getInfo(C2StreamHdrStaticInfo::output::PARAM_TYPE));
+
     Mutexed<OutputSurface>::Locked output(mOutputSurface);
     if (output->surface == nullptr) {
         ALOGE("no surface");
@@ -1378,20 +1506,47 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     }
     native_handle_delete(grallocHandle);
 
-    // TODO
-    // revisit this after C2Fence implementation.
-    // apply dataspace and scaling mode (getting scaling mode from native_window is not possible.)
+    // TODO: revisit this after C2Fence implementation.
     android::IGraphicBufferProducer::QueueBufferInput qbi(
             timestampNs,
             false,
-            HAL_DATASPACE_UNKNOWN,
+            (android_dataspace_t)dataSpace,
             Rect(blocks.front().crop().left,
                  blocks.front().crop().top,
                  blocks.front().crop().right(),
                  blocks.front().crop().bottom()),
-            NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW,
-            0,
+            videoScalingMode,
+            transform,
             Fence::NO_FENCE, 0);
+    if (hdrStaticInfo) {
+        struct android_smpte2086_metadata smpte2086_meta = {
+            .displayPrimaryRed = {
+                hdrStaticInfo->mastering.red.x, hdrStaticInfo->mastering.red.y
+            },
+            .displayPrimaryGreen = {
+                hdrStaticInfo->mastering.green.x, hdrStaticInfo->mastering.green.y
+            },
+            .displayPrimaryBlue = {
+                hdrStaticInfo->mastering.blue.x, hdrStaticInfo->mastering.blue.y
+            },
+            .whitePoint = {
+                hdrStaticInfo->mastering.white.x, hdrStaticInfo->mastering.white.y
+            },
+            .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
+            .minLuminance = hdrStaticInfo->mastering.minLuminance,
+        };
+
+        struct android_cta861_3_metadata cta861_meta = {
+            .maxContentLightLevel = hdrStaticInfo->maxCll,
+            .maxFrameAverageLightLevel = hdrStaticInfo->maxFall,
+        };
+
+        HdrMetadata hdr;
+        hdr.validTypes = HdrMetadata::SMPTE2086 | HdrMetadata::CTA861_3;
+        hdr.smpte2086 = smpte2086_meta;
+        hdr.cta8613 = cta861_meta;
+        qbi.setHdrMetadata(hdr);
+    }
     android::IGraphicBufferProducer::QueueBufferOutput qbo;
     result = igbp->queueBuffer(igbp_slot, qbi, &qbo);
     if (result != OK) {
