@@ -210,8 +210,6 @@ private:
     struct OutputSurface {
         sp<Surface> surface;
         uint32_t generation;
-        std::list<std::shared_ptr<C2Buffer>> bufferRefs;
-        size_t maxBufferCount;
     };
     Mutexed<OutputSurface> mOutputSurface;
     std::unique_ptr<OutputBufferQueue> mOutputBufferQueue;
