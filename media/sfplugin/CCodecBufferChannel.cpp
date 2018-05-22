@@ -1291,6 +1291,11 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailable() {
+    QueueGuard guard(mSync);
+    if (!guard.isRunning()) {
+        ALOGV("We're not running --- no input buffer reported");
+        return;
+    }
     sp<MediaCodecBuffer> inBuffer;
     size_t index;
     {
@@ -1742,6 +1747,7 @@ void CCodecBufferChannel::stop() {
 }
 
 void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) {
+    ALOGV("flush");
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         (*buffers)->flush();
@@ -1787,6 +1793,7 @@ bool CCodecBufferChannel::handleWork(
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
     if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
         // Discard frames from previous generation.
+        ALOGD("Discard frames from previous generation.");
         return true;
     }
     std::shared_ptr<C2Buffer> buffer;
