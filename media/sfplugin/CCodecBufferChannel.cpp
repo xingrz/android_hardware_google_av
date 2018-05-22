@@ -211,7 +211,8 @@ private:
 namespace {
 
 // TODO: get this info from component
-const static size_t kMinBufferArraySize = 16;
+const static size_t kMinInputBufferArraySize = 8;
+const static size_t kMinOutputBufferArraySize = 16;
 const static size_t kLinearBufferSize = 1048576;
 const static size_t kMaxGraphicBufferRefCount = 4;
 
@@ -513,7 +514,7 @@ public:
             ALOGV("%s: No matching buffer found", __func__);
             return false;
         }
-        ALOGV("%s: matching buffer found", __func__);
+        ALOGV("%s: matching buffer found (index=%zu)", __func__, index);
         std::shared_ptr<C2Buffer> result = clientBuffer->asC2Buffer();
         mBuffers[index].compBuffer = result;
         if (c2buffer) {
@@ -635,7 +636,7 @@ public:
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
-                kMinBufferArraySize,
+                kMinInputBufferArraySize,
                 [this, capacity] () -> sp<Codec2Buffer> { return alloc(capacity); });
         return std::move(array);
     }
@@ -672,7 +673,7 @@ public:
         } else {
             mUsage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         }
-        for (size_t i = 0; i < kMinBufferArraySize; ++i) {
+        for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
             sp<IMemory> memory = mDealer->allocate(kLinearBufferSize);
             if (memory == nullptr) {
                 ALOGD("Failed to allocate memory from dealer: only %zu slots allocated", i);
@@ -759,7 +760,7 @@ public:
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
-                kMinBufferArraySize,
+                kMinInputBufferArraySize,
                 [format = mFormat, alloc]() -> sp<Codec2Buffer> {
                     return new GraphicMetadataBuffer(format, alloc);
                 });
@@ -773,7 +774,9 @@ private:
 
 class GraphicInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
-    GraphicInputBuffers() : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 16)) {}
+    GraphicInputBuffers()
+        : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) {
+    }
     ~GraphicInputBuffers() override = default;
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
@@ -806,7 +809,7 @@ public:
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
-                kMinBufferArraySize,
+                kMinInputBufferArraySize,
                 [pool = mPool, format = mFormat, lbp = mLocalBufferPool]() -> sp<Codec2Buffer> {
                     C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
                     return AllocateGraphicBuffer(
@@ -972,7 +975,7 @@ public:
         array->setFormat(mFormat);
         array->initialize(
                 mImpl,
-                kMinBufferArraySize,
+                kMinOutputBufferArraySize,
                 [this]() { return allocateArrayBuffer(); });
         return std::move(array);
     }
@@ -1648,7 +1651,7 @@ status_t CCodecBufferChannel::start(
                 if (mDealer == nullptr) {
                     mDealer = new MemoryDealer(
                             align(kLinearBufferSize, MemoryDealer::getAllocationAlignment())
-                                * (kMinBufferArraySize + 1),
+                                * (kMinInputBufferArraySize + 1),
                             "EncryptedLinearInputBuffers");
                     mDecryptDestination = mDealer->allocate(kLinearBufferSize);
                 }
@@ -1707,7 +1710,7 @@ status_t CCodecBufferChannel::start(
     mSync.start();
     if (mInputSurface == nullptr) {
         // TODO: use proper buffer depth instead of this random value
-        for (size_t i = 0; i < kMinBufferArraySize; ++i) {
+        for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
             size_t index;
             sp<MediaCodecBuffer> buffer;
             {
@@ -1882,7 +1885,7 @@ bool CCodecBufferChannel::handleWork(
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     if (newSurface != nullptr) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinBufferArraySize);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
     }
 
     Mutexed<OutputSurface>::Locked output(mOutputSurface);
