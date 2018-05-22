@@ -234,6 +234,69 @@ private:
     uint32_t mHeight;
 };
 
+class Codec2ClientInterfaceWrapper : public C2ComponentStore {
+    std::shared_ptr<Codec2Client> mClient;
+
+public:
+    Codec2ClientInterfaceWrapper(std::shared_ptr<Codec2Client> client)
+        : mClient(client) { }
+
+    virtual ~Codec2ClientInterfaceWrapper() = default;
+
+    virtual c2_status_t config_sm(
+            const std::vector<C2Param *> &params,
+            std::vector<std::unique_ptr<C2SettingResult>> *const failures) {
+        return mClient->config(params, C2_MAY_BLOCK, failures);
+    };
+
+    virtual c2_status_t copyBuffer(
+            std::shared_ptr<C2GraphicBuffer>,
+            std::shared_ptr<C2GraphicBuffer>) {
+        return C2_OMITTED;
+    }
+
+    virtual c2_status_t createComponent(
+            C2String, std::shared_ptr<C2Component> *const component) {
+        component->reset();
+        return C2_OMITTED;
+    }
+
+    virtual c2_status_t createInterface(
+            C2String, std::shared_ptr<C2ComponentInterface> *const interface) {
+        interface->reset();
+        return C2_OMITTED;
+    }
+
+    virtual c2_status_t query_sm(
+            const std::vector<C2Param *> &stackParams,
+            const std::vector<C2Param::Index> &heapParamIndices,
+            std::vector<std::unique_ptr<C2Param>> *const heapParams) const {
+        return mClient->query(stackParams, heapParamIndices, C2_MAY_BLOCK, heapParams);
+    }
+
+    virtual c2_status_t querySupportedParams_nb(
+            std::vector<std::shared_ptr<C2ParamDescriptor>> *const params) const {
+        return mClient->querySupportedParams(params);
+    }
+
+    virtual c2_status_t querySupportedValues_sm(
+            std::vector<C2FieldSupportedValuesQuery> &fields) const {
+        return mClient->querySupportedValues(fields, C2_MAY_BLOCK);
+    }
+
+    virtual C2String getName() const {
+        return mClient->getName();
+    }
+
+    virtual std::shared_ptr<C2ParamReflector> getParamReflector() const {
+        return mClient->getParamReflector();
+    }
+
+    virtual std::vector<std::shared_ptr<const C2Component::Traits>> listComponents() {
+        return std::vector<std::shared_ptr<const C2Component::Traits>>();
+    }
+};
+
 }  // namespace
 
 // CCodec::ClientListener
@@ -373,6 +436,15 @@ void CCodec::allocate(const sp<MediaCodecInfo> &codecInfo) {
 
     AString componentName = codecInfo->getCodecName();
     std::shared_ptr<Codec2Client> client;
+
+    // set up preferred component store to access vendor store parameters
+    client = Codec2Client::CreateFromService("default", false);
+    if (client) {
+        ALOGI("setting up '%s' as default (vendor) store", client->getInstanceName().c_str());
+        SetPreferredCodec2ComponentStore(
+                std::make_shared<Codec2ClientInterfaceWrapper>(client));
+    }
+
     std::shared_ptr<Codec2Client::Component> comp =
             Codec2Client::CreateComponentByName(
             componentName.c_str(),
