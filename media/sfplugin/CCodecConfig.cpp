@@ -542,6 +542,9 @@ status_t CCodecConfig::initialize(
         // TODO: return error once we complete implementation.
         return UNKNOWN_ERROR;
     }
+    for (const std::shared_ptr<C2ParamDescriptor> &desc : mParamDescs) {
+        mSupportedIndices.emplace(desc->index());
+    }
 
     mReflector = client->getParamReflector();
     if (mReflector == nullptr) {
@@ -895,6 +898,7 @@ status_t CCodecConfig::setParameters(
         std::shared_ptr<Codec2Client::Component> component,
         std::vector<std::unique_ptr<C2Param>> &configUpdate,
         c2_blocking_t blocking) {
+    status_t result = OK;
     if (configUpdate.empty()) {
         return OK;
     }
@@ -902,8 +906,26 @@ status_t CCodecConfig::setParameters(
     std::vector<C2Param::Index> indices;
     std::vector<C2Param *> paramVector;
     for (const std::unique_ptr<C2Param> &param : configUpdate) {
-        paramVector.push_back(param.get());
-        indices.push_back(param->index());
+        if (mSupportedIndices.count(param->index())) {
+            // component parameter
+            paramVector.push_back(param.get());
+            indices.push_back(param->index());
+        } else if (mLocalParams.count(param->index())) {
+            // handle local parameter here
+            LocalParamValidator validator = mLocalParams.find(param->index())->second;
+            c2_status_t err = C2_OK;
+            std::unique_ptr<C2Param> copy = C2Param::Copy(*param);
+            if (validator) {
+                err = validator(copy);
+            }
+            if (err == C2_OK) {
+                mCurrentConfig[param->index()] = std::move(copy);
+            } else {
+                ALOGD("failed to set parameter value for %s => %s",
+                        mParamUpdater->getParamName(param->index()).c_str(), asString(err));
+                result = BAD_VALUE;
+            }
+        }
     }
     // update subscribed param indices
     subscribeToConfigUpdate(component, indices, blocking);
@@ -925,7 +947,7 @@ status_t CCodecConfig::setParameters(
     (void)updateConfiguration(configUpdate, ALL);
 
     // TODO: error value
-    return OK;
+    return result;
 }
 
 const C2Param *CCodecConfig::getConfigParameterValue(C2Param::Index index) const {
