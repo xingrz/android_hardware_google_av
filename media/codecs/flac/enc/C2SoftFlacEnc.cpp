@@ -256,7 +256,7 @@ void C2SoftFlacEnc::process(
         }
         inPos += processSize;
     }
-    if (eos && !drain(DRAIN_COMPONENT_WITH_EOS, pool)) {
+    if (eos && (C2_OK != drain(DRAIN_COMPONENT_WITH_EOS, pool))) {
         ALOGE("error encountered during encoding");
         mSignalledError = true;
         work->result = C2_CORRUPTED;
