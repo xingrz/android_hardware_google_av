@@ -1638,6 +1638,7 @@ status_t CCodecBufferChannel::start(
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
     std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
+    int poolMask = property_get_int32("debug.stagefright.c2-poolmask", 0);
 
     if (inputFormat != nullptr) {
         bool graphic = (iStreamFormat.value == C2FormatVideo);
@@ -1676,11 +1677,15 @@ status_t CCodecBufferChannel::start(
             }
 
             // TODO: use C2Component wrapper to associate this pool with ourselves
-            err = CreateCodec2BlockPool(pools->inputAllocatorId, nullptr, &pool);
-            ALOGD("Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
-                    pools->inputAllocatorId,
-                    (unsigned long long)(pool ? pool->getLocalId() : 111000111),
-                    asString(err), err);
+            if ((poolMask >> pools->inputAllocatorId) & 1) {
+                err = CreateCodec2BlockPool(pools->inputAllocatorId, nullptr, &pool);
+                ALOGD("Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
+                        pools->inputAllocatorId,
+                        (unsigned long long)(pool ? pool->getLocalId() : 111000111),
+                        asString(err), err);
+            } else {
+                err = C2_NOT_FOUND;
+            }
             if (err != C2_OK) {
                 C2BlockPool::local_id_t inputPoolId =
                     graphic ? C2BlockPool::BASIC_GRAPHIC : C2BlockPool::BASIC_LINEAR;
@@ -1776,12 +1781,16 @@ status_t CCodecBufferChannel::start(
                 }
             }
 
-            err = mComponent->createBlockPool(
-                    pools->outputAllocatorId, &pools->outputPoolId, &pools->outputPoolIntf);
-            ALOGI("Created output block pool with allocatorID %u => poolID %llu - %s",
-                    pools->outputAllocatorId,
-                    (unsigned long long)pools->outputPoolId,
-                    asString(err));
+            if ((poolMask >> pools->outputAllocatorId) & 1) {
+                err = mComponent->createBlockPool(
+                        pools->outputAllocatorId, &pools->outputPoolId, &pools->outputPoolIntf);
+                ALOGI("Created output block pool with allocatorID %u => poolID %llu - %s",
+                        pools->outputAllocatorId,
+                        (unsigned long long)pools->outputPoolId,
+                        asString(err));
+            } else {
+                err = C2_NOT_FOUND;
+            }
             if (err != C2_OK) {
                 // use basic pool instead
                 pools->outputPoolId =
