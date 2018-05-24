@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef SIMPLE_INTERFACE_COMMON_H_
-#define SIMPLE_INTERFACE_COMMON_H_
+#ifndef ANDROID_SIMPLE_C2_INTERFACE_H_
+#define ANDROID_SIMPLE_C2_INTERFACE_H_
 
 #include <C2Component.h>
 #include <C2Config.h>
@@ -23,16 +23,22 @@
 
 namespace android {
 
+/**
+ * Wrap a common interface object (such as Codec2Client::Interface, or C2InterfaceHelper into
+ * a C2ComponentInterface.
+ *
+ * \param T common interface type
+ */
 template <typename T>
-class SimpleInterface : public C2ComponentInterface {
+class SimpleC2Interface : public C2ComponentInterface {
 public:
-    SimpleInterface(const char *name, c2_node_id_t id, const std::shared_ptr<T> &impl)
+    SimpleC2Interface(const char *name, c2_node_id_t id, const std::shared_ptr<T> &impl)
         : mName(name),
           mId(id),
           mImpl(impl) {
     }
 
-    ~SimpleInterface() override = default;
+    ~SimpleC2Interface() override = default;
 
     // From C2ComponentInterface
     C2String getName() const override { return mName; }
@@ -68,9 +74,15 @@ private:
     const std::shared_ptr<T> mImpl;
 };
 
+/**
+ * Utility classes for common interfaces.
+ */
 template<>
-class SimpleInterface<void> {
+class SimpleC2Interface<void> {
 public:
+    /**
+     * Base Codec 2.0 parameters required for all components.
+     */
     struct BaseParams : C2InterfaceHelper {
         explicit BaseParams(
                 const std::shared_ptr<C2ReflectorHelper> &helper,
@@ -80,18 +92,42 @@ public:
                 C2String mediaType,
                 std::vector<C2String> aliases = std::vector<C2String>());
 
+        /// Marks that this component has no input latency. Otherwise, component must
+        /// add support for C2PortRequestedDelayTuning::input and C2PortActualDelayTuning::input.
         void noInputLatency();
+
+        /// Marks that this component has no output latency. Otherwise, component must
+        /// add support for C2PortRequestedDelayTuning::output and C2PortActualDelayTuning::output.
         void noOutputLatency();
+
+        /// Marks that this component has no pipeline latency. Otherwise, component must
+        /// add support for C2RequestedPipelineDelayTuning and C2ActualPipelineDelayTuning.
         void noPipelineLatency();
 
+        /// Marks that this component has no need for private buffers. Otherwise, component must
+        /// add support for C2MaxPrivateBufferCountTuning, C2PrivateAllocatorsTuning and
+        /// C2PrivateBlockPoolsTuning.
         void noPrivateBuffers();
+
+        /// Marks that this component holds no references to input buffers. Otherwise, component
+        /// must add support for C2StreamMaxReferenceAgeTuning::input and
+        /// C2StreamMaxReferenceCountTuning::input.
         void noInputReferences();
+
+        /// Marks that this component holds no references to output buffers. Otherwise, component
+        /// must add support for C2StreamMaxReferenceAgeTuning::output and
+        /// C2StreamMaxReferenceCountTuning::output.
         void noOutputReferences();
 
+        /// Marks that this component does not stretch time. Otherwise, component
+        /// must add support for C2ComponentTimeStretchTuning.
         void noTimeStretch();
 
         std::shared_ptr<C2ApiLevelSetting> mApiLevel;
         std::shared_ptr<C2ApiFeaturesSetting> mApiFeatures;
+
+        std::shared_ptr<C2PlatformLevelSetting> mPlatformLevel;
+        std::shared_ptr<C2PlatformFeaturesSetting> mPlatformFeatures;
 
         std::shared_ptr<C2ComponentNameSetting> mName;
         std::shared_ptr<C2ComponentAliasesSetting> mAliases;
@@ -145,6 +181,9 @@ public:
     };
 };
 
+template<typename T>
+using SimpleInterface = SimpleC2Interface<T>;
+
 template<typename T, typename ...Args>
 std::shared_ptr<T> AllocSharedString(const Args(&... args), const char *str) {
     size_t len = strlen(str) + 1;
@@ -194,4 +233,4 @@ struct Setter {
 
 }  // namespace android
 
-#endif  // SIMPLE_INTERFACE_COMMON_H_
+#endif  // ANDROID_SIMPLE_C2_INTERFACE_H_

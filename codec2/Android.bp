@@ -41,40 +41,6 @@ cc_library_shared {
     ldflags: ["-Wl,-Bsymbolic"],
 }
 
-cc_library_shared {
-    name: "libstagefright_simple_c2component",
-    vendor_available: true,
-
-    srcs: [
-        "SimpleC2Component.cpp",
-        "SimpleC2Interface.cpp",
-    ],
-
-    include_dirs: [
-    ],
-
-    shared_libs: [
-        "liblog",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-	"libutils",
-    ],
-
-    sanitize: {
-        misc_undefined: [
-            "unsigned-integer-overflow",
-            "signed-integer-overflow",
-        ],
-        cfi: true,
-        diag: {
-            cfi: true,
-        },
-    },
-
-    ldflags: ["-Wl,-Bsymbolic"],
-}
-
 subdirs = [
     "tests",
     "vndk",
