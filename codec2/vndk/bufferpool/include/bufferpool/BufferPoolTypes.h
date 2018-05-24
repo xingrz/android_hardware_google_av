@@ -17,7 +17,6 @@
 #ifndef ANDROID_HARDWARE_MEDIA_BUFFERPOOL_V1_0_BUFFERPOOLTYPES_H
 #define ANDROID_HARDWARE_MEDIA_BUFFERPOOL_V1_0_BUFFERPOOLTYPES_H
 
-#include <android/hardware/media/bufferpool/1.0/IAccessor.h>
 #include <android/hardware/media/bufferpool/1.0/types.h>
 #include <cutils/native_handle.h>
 #include <fmq/MessageQueue.h>
@@ -35,15 +34,12 @@ struct BufferPoolData {
     int64_t mConnectionId;
     // BufferId
     uint32_t mId;
-    // Accessor accosiated to the buffer.
-    wp<V1_0::IAccessor> mAccessor;
 
-    BufferPoolData() : mConnectionId(0), mId(0), mAccessor(nullptr) {}
+    BufferPoolData() : mConnectionId(0), mId(0) {}
 
     BufferPoolData(
-            int64_t connectionId, uint32_t id,
-            wp<V1_0::IAccessor> accessor)
-            : mConnectionId(connectionId), mId(id), mAccessor(accessor) {}
+            int64_t connectionId, uint32_t id)
+            : mConnectionId(connectionId), mId(id) {}
 
     ~BufferPoolData() {}
 };

@@ -33,7 +33,6 @@ namespace {
 using android::C2AllocatorGralloc;
 using android::C2AllocatorIon;
 using android::hardware::media::bufferpool::BufferPoolData;
-using android::hardware::media::bufferpool::V1_0::IAccessor;
 using android::hardware::media::bufferpool::V1_0::ResultStatus;
 using android::hardware::media::bufferpool::V1_0::implementation::BufferPoolAllocation;
 using android::hardware::media::bufferpool::V1_0::implementation::BufferPoolAllocator;
@@ -734,13 +733,6 @@ public:
         return mInit != C2_OK ? INVALID_CONNECTIONID : mConnectionId;
     }
 
-    bool getAccessor(android::sp<IAccessor> *accessor) {
-        if (mInit == C2_OK) {
-            return mBufferPoolManager->getAccessor(mConnectionId, accessor) == ResultStatus::OK;
-        }
-        return false;
-    }
-
 private:
     c2_status_t mInit;
     const android::sp<ClientManager> mBufferPoolManager;
@@ -782,13 +774,6 @@ int64_t C2PooledBlockPool::getConnectionId() {
         return mImpl->getConnectionId();
     }
     return 0;
-}
-
-bool C2PooledBlockPool::getAccessor(android::sp<IAccessor> *accessor) {
-    if (mImpl) {
-        return mImpl->getAccessor(accessor);
-    }
-    return false;
 }
 
 /* ========================================== 2D BLOCK ========================================= */
