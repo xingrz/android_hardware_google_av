@@ -600,6 +600,17 @@ void CCodec::configure(const sp<AMessage> &msg) {
                     KEY_MAX_INPUT_SIZE, (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
         }
 
+        if ((config->mDomain & Config::IS_DECODER) && (config->mDomain & Config::IS_AUDIO)) {
+            int delay = 0;
+            if (msg->findInt32("encoder-delay", &delay)) {
+                config->mOutputFormat->setInt32("encoder-delay", delay);
+            }
+            int padding = 0;
+            if (msg->findInt32("encoder-padding", &padding)) {
+                config->mOutputFormat->setInt32("encoder-padding", padding);
+            }
+        }
+
         ALOGD("setup formats input: %s and output: %s",
                 config->mInputFormat->debugString().c_str(),
                 config->mOutputFormat->debugString().c_str());
