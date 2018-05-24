@@ -1154,9 +1154,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                     ++stream;
                 }
 
-                changed = config->updateConfiguration(
-                        work->worklets.front()->output.configUpdate,
-                        config->mOutputDomain);
+                changed = config->updateConfiguration(updates, config->mOutputDomain);
 
                 // copy standard infos to graphic buffers if not already present (otherwise, we
                 // may overwrite the actual intermediate value with a final value)
