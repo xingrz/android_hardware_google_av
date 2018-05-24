@@ -95,12 +95,81 @@ private:
         std::map<BufferId, std::unique_ptr<InternalBuffer>> mBuffers;
         std::set<BufferId> mFreeBuffers;
 
-        size_t mTotalAllocBytes;
-        size_t mTotalFreeBytes;
+        /// Buffer pool statistics which tracks allocation and transfer statistics.
+        struct Stats {
+            /// Total size of allocations which are used or available to use.
+            /// (bytes or pixels)
+            size_t mSizeCached;
+            /// # of cached buffers which are used or available to use.
+            size_t mBuffersCached;
+            /// Total size of allocations which are currently used. (bytes or pixels)
+            size_t mSizeInUse;
+            /// # of currently used buffers
+            size_t mBuffersInUse;
+
+            /// # of allocations called on bufferpool. (# of fetched from BlockPool)
+            size_t mTotalAllocations;
+            /// # of allocations that were served from the cache.
+            /// (# of allocator alloc prevented)
+            size_t mTotalRecycles;
+            /// # of buffer transfers initiated.
+            size_t mTotalTransfers;
+            /// # of transfers that had to be fetched.
+            size_t mTotalFetches;
+
+            Stats()
+                : mSizeCached(0), mBuffersCached(0), mSizeInUse(0), mBuffersInUse(0),
+                  mTotalAllocations(0), mTotalRecycles(0), mTotalTransfers(0), mTotalFetches(0) {}
+
+            /// A new buffer is allocated on an allocation request.
+            void onBufferAllocated(size_t allocSize) {
+                mSizeCached += allocSize;
+                mBuffersCached++;
+
+                mSizeInUse += allocSize;
+                mBuffersInUse++;
+
+                mTotalAllocations++;
+            }
+
+            /// A buffer is evicted and destroyed.
+            void onBufferEvicted(size_t allocSize) {
+                mSizeCached -= allocSize;
+                mBuffersCached--;
+            }
+
+            /// A buffer is recycled on an allocation request.
+            void onBufferRecycled(size_t allocSize) {
+                mSizeInUse += allocSize;
+                mBuffersInUse++;
+
+                mTotalAllocations++;
+                mTotalRecycles++;
+            }
+
+            /// A buffer is available to be recycled.
+            void onBufferUnused(size_t allocSize) {
+                mSizeInUse -= allocSize;
+                mBuffersInUse--;
+            }
+
+            /// A buffer transfer is initiated.
+            void onBufferSent() {
+                mTotalTransfers++;
+            }
+
+            /// A buffer fetch is invoked by a buffer transfer.
+            void onBufferFetched() {
+                mTotalFetches++;
+            }
+        } mStats;
 
     public:
         /** Creates a buffer pool. */
         BufferPool();
+
+        /** Destroys a buffer pool. */
+        ~BufferPool();
 
         /**
          * Processes all pending buffer status messages, and returns the result.

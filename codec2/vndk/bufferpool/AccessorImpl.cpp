@@ -212,6 +212,7 @@ ResultStatus Accessor::Impl::fetch(
             found->second->mStatus = BufferStatus::TRANSFER_FETCH;
             auto bufferIt = mBufferPool.mBuffers.find(bufferId);
             if (bufferIt != mBufferPool.mBuffers.end()) {
+                mBufferPool.mStats.onBufferFetched();
                 *handle = bufferIt->second->handle();
                 return ResultStatus::OK;
             }
@@ -232,7 +233,27 @@ Accessor::Impl::Impl::BufferPool::BufferPool()
     : mTimestampUs(getTimestampNow()),
       mLastCleanUpUs(mTimestampUs),
       mLastLogUs(mTimestampUs),
-      mSeq(0), mTotalAllocBytes(0), mTotalFreeBytes(0) {}
+      mSeq(0) {}
+
+
+// Statistics helper
+template<typename T, typename S>
+int percentage(T base, S total) {
+    return int(total ? 0.5 + 100. * static_cast<S>(base) / total : 0);
+}
+
+Accessor::Impl::Impl::BufferPool::~BufferPool() {
+    std::lock_guard<std::mutex> lock(mMutex);
+    ALOGD("Destruction - bufferpool %p "
+          "cached: %zu/%zuM, %zu/%d%% in use; "
+          "allocs: %zu, %d%% recycled; "
+          "transfers: %zu, %d%% unfetced",
+          this, mStats.mBuffersCached, mStats.mSizeCached >> 20,
+          mStats.mBuffersInUse, percentage(mStats.mBuffersInUse, mStats.mBuffersCached),
+          mStats.mTotalAllocations, percentage(mStats.mTotalRecycles, mStats.mTotalAllocations),
+          mStats.mTotalTransfers,
+          percentage(mStats.mTotalTransfers - mStats.mTotalFetches, mStats.mTotalTransfers));
+}
 
 bool Accessor::Impl::BufferPool::handleOwnBuffer(
         ConnectionId connectionId, BufferId bufferId) {
@@ -254,7 +275,7 @@ bool Accessor::Impl::BufferPool::handleReleaseBuffer(
         iter->second->mOwnerCount--;
         if (iter->second->mOwnerCount == 0 &&
                 iter->second->mTransactionCount == 0) {
-            mTotalFreeBytes += iter->second->mAllocSize;
+            mStats.onBufferUnused(iter->second->mAllocSize);
             mFreeBuffers.insert(bufferId);
         }
     }
@@ -285,6 +306,7 @@ bool Accessor::Impl::BufferPool::handleTransferTo(const BufferStatusMessage &mes
         return true;
     }
     // TODO: verify there is target connection Id
+    mStats.onBufferSent();
     mTransactions.insert(std::make_pair(
             message.transactionId,
             std::make_unique<TransactionStatus>(message, mTimestampUs)));
@@ -298,6 +320,7 @@ bool Accessor::Impl::BufferPool::handleTransferFrom(const BufferStatusMessage &m
     auto found = mTransactions.find(message.transactionId);
     if (found == mTransactions.end()) {
         // TODO: is it feasible to check ownership here?
+        mStats.onBufferSent();
         mTransactions.insert(std::make_pair(
                 message.transactionId,
                 std::make_unique<TransactionStatus>(message, mTimestampUs)));
@@ -329,7 +352,7 @@ bool Accessor::Impl::BufferPool::handleTransferResult(const BufferStatusMessage 
             bufferIter->second->mTransactionCount--;
             if (bufferIter->second->mOwnerCount == 0
                 && bufferIter->second->mTransactionCount == 0) {
-                mTotalFreeBytes += bufferIter->second->mAllocSize;
+                mStats.onBufferUnused(bufferIter->second->mAllocSize);
                 mFreeBuffers.insert(message.bufferId);
             }
             mTransactions.erase(found);
@@ -397,7 +420,7 @@ bool Accessor::Impl::BufferPool::handleClose(ConnectionId connectionId) {
                 if (bufferIter->second->mOwnerCount == 0 &&
                         bufferIter->second->mTransactionCount == 0) {
                     // TODO: handle freebuffer insert fail
-                    mTotalFreeBytes += bufferIter->second->mAllocSize;
+                    mStats.onBufferUnused(bufferIter->second->mAllocSize);
                     mFreeBuffers.insert(bufferId);
                 }
             }
@@ -420,7 +443,7 @@ bool Accessor::Impl::BufferPool::handleClose(ConnectionId connectionId) {
                 if (bufferIter->second->mOwnerCount == 0 &&
                     bufferIter->second->mTransactionCount == 0) {
                     // TODO: handle freebuffer insert fail
-                    mTotalFreeBytes += bufferIter->second->mAllocSize;
+                    mStats.onBufferUnused(bufferIter->second->mAllocSize);
                     mFreeBuffers.insert(bufferId);
                 }
                 mTransactions.erase(iter);
@@ -444,7 +467,7 @@ bool Accessor::Impl::BufferPool::getFreeBuffer(
     if (bufferIt != mFreeBuffers.end()) {
         BufferId id = *bufferIt;
         mFreeBuffers.erase(bufferIt);
-        mTotalFreeBytes -= mBuffers[id]->mAllocSize;
+        mStats.onBufferRecycled(mBuffers[id]->mAllocSize);
         *handle = mBuffers[id]->handle();
         *pId = id;
         ALOGV("recycle a buffer %u %p", id, *handle);
@@ -468,7 +491,7 @@ ResultStatus Accessor::Impl::BufferPool::addNewBuffer(
         auto res = mBuffers.insert(std::make_pair(
                 bufferId, std::move(buffer)));
         if (res.second) {
-            mTotalAllocBytes += allocSize;
+            mStats.onBufferAllocated(allocSize);
             *handle = alloc->handle();
             *pId = bufferId;
             return ResultStatus::OK;
@@ -482,21 +505,23 @@ void Accessor::Impl::BufferPool::cleanUp(bool clearCache) {
         mLastCleanUpUs = mTimestampUs;
         if (mTimestampUs > mLastLogUs + kLogDurationUs) {
             mLastLogUs = mTimestampUs;
-            ALOGI("bufferpool %p : %zu(%zu bytes) total buffers - "
-                  "%zu(%zu bytes) free buffers",
-                  this, mBuffers.size(), mTotalAllocBytes,
-                  mFreeBuffers.size(), mTotalFreeBytes);
+            ALOGD("bufferpool %p : %zu(%zu size) total buffers - "
+                  "%zu(%zu size) used buffers - %zu/%zu (recycle/alloc) - "
+                  "%zu/%zu (fetch/transfer)",
+                  this, mStats.mBuffersCached, mStats.mSizeCached,
+                  mStats.mBuffersInUse, mStats.mSizeInUse,
+                  mStats.mTotalRecycles, mStats.mTotalAllocations,
+                  mStats.mTotalFetches, mStats.mTotalTransfers);
         }
         for (auto freeIt = mFreeBuffers.begin(); freeIt != mFreeBuffers.end();) {
-            if (!clearCache && mTotalAllocBytes < kMinAllocBytesForEviction
+            if (!clearCache && mStats.mSizeCached < kMinAllocBytesForEviction
                     && mBuffers.size() < kMinBufferCountForEviction) {
                 break;
             }
             auto it = mBuffers.find(*freeIt);
             if (it != mBuffers.end() &&
                     it->second->mOwnerCount == 0 && it->second->mTransactionCount == 0) {
-                mTotalAllocBytes -= it->second->mAllocSize;
-                mTotalFreeBytes -= it->second->mAllocSize;
+                mStats.onBufferEvicted(it->second->mAllocSize);
                 mBuffers.erase(it);
                 freeIt = mFreeBuffers.erase(freeIt);
             } else {
