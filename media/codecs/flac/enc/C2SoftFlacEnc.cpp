@@ -69,6 +69,10 @@ public:
                 .withFields({C2F(mBitrate, value).inRange(1, 21000000)})
                 .withSetter(Setter<decltype(*mBitrate)>::NonStrictValueWithNoDeps)
                 .build());
+        addParameter(
+                DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
+                .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 4608))
+                .build());
     }
 
     uint32_t getSampleRate() const { return mSampleRate->value; }
@@ -83,6 +87,7 @@ private:
     std::shared_ptr<C2StreamSampleRateInfo::input> mSampleRate;
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
+    std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
 };
 constexpr char COMPONENT_NAME[] = "c2.android.flac.encoder";
 
