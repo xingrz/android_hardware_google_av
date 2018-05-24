@@ -86,7 +86,7 @@ public:
                 .withFields({C2F(mSampleRate, value).oneOf({
                     7350, 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000
                 })})
-                .withSetter((Setter<decltype(*mSampleRate)>::StrictValueWithNoDeps))
+                .withSetter(Setter<decltype(*mSampleRate)>::NonStrictValueWithNoDeps)
                 .build());
 
         addParameter(
