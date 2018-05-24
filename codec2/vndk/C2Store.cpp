@@ -299,12 +299,25 @@ public:
 
         switch(allocatorId) {
             case C2PlatformAllocatorStore::ION:
+            case C2AllocatorStore::DEFAULT_LINEAR:
                 res = allocatorStore->fetchAllocator(
                         C2AllocatorStore::DEFAULT_LINEAR, &allocator);
                 if (res == C2_OK) {
                     std::shared_ptr<C2BlockPool> ptr =
                             std::make_shared<C2PooledBlockPool>(
                                     allocator, poolId);
+                    *pool = ptr;
+                    mBlockPools[poolId] = ptr;
+                    mComponents[poolId] = component;
+                }
+                break;
+            case C2PlatformAllocatorStore::GRALLOC:
+            case C2AllocatorStore::DEFAULT_GRAPHIC:
+                res = allocatorStore->fetchAllocator(
+                        C2AllocatorStore::DEFAULT_GRAPHIC, &allocator);
+                if (res == C2_OK) {
+                    std::shared_ptr<C2BlockPool> ptr =
+                        std::make_shared<C2PooledBlockPool>(allocator, poolId);
                     *pool = ptr;
                     mBlockPools[poolId] = ptr;
                     mComponents[poolId] = component;
