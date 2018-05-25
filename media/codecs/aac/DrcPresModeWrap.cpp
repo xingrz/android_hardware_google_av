@@ -17,7 +17,7 @@
 
 #include <assert.h>
 
-#define LOG_TAG "SoftAAC2_DrcWrapper"
+#define LOG_TAG "C2SoftAacDrcWrapper"
 //#define LOG_NDEBUG 0
 #include <utils/Log.h>
 

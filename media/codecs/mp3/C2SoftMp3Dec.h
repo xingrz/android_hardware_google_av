@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 struct tPVMP3DecoderExternal;
 
@@ -68,7 +67,7 @@ private:
 
     status_t initDecoder();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftMP3);
+    C2_DO_NOT_COPY(C2SoftMP3);
 };
 
 }  // namespace android

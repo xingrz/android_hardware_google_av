@@ -14,23 +14,24 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #ifdef MPEG4
   #define LOG_TAG "C2SoftMpeg4Enc"
 #else
   #define LOG_TAG "C2SoftH263Enc"
 #endif
-#include <utils/Log.h>
-#include <utils/misc.h>
+#include <log/log.h>
 
-#include <media/stagefright/foundation/ADebug.h>
+#include <inttypes.h>
+
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/MediaDefs.h>
+#include <utils/misc.h>
 
+#include <C2Debug.h>
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 #include <util/C2InterfaceHelper.h>
-#include <inttypes.h>
 
 #include "C2SoftMpeg4Enc.h"
 #include "mp4enc_api.h"

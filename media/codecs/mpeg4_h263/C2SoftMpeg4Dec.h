@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 struct tagvideoDecControls;
 
@@ -69,7 +68,7 @@ struct C2SoftMpeg4Dec : public SimpleC2Component {
     bool mSignalledOutputEos;
     bool mSignalledError;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftMpeg4Dec);
+    C2_DO_NOT_COPY(C2SoftMpeg4Dec);
 };
 
 }  // namespace android

@@ -17,7 +17,6 @@
 #ifndef C2_SOFT_MPEG4_ENC_H__
 #define C2_SOFT_MPEG4_ENC_H__
 
-#include <media/stagefright/foundation/ABase.h>
 #include <SimpleC2Component.h>
 
 #include "mp4enc_api.h"
@@ -69,7 +68,7 @@ private:
     c2_status_t initEncParams();
     c2_status_t initEncoder();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftMpeg4Enc);
+    C2_DO_NOT_COPY(C2SoftMpeg4Enc);
 };
 
 }  // namespace android

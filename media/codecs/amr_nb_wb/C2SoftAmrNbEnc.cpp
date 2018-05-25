@@ -14,19 +14,16 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftAmrNbEnc"
-#include <utils/Log.h>
+#include <log/log.h>
 
-#include "gsmamr_enc.h"
-
-#include "C2SoftAmrNbEnc.h"
+#include <media/stagefright/foundation/MediaDefs.h>
 
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 
-#include <media/stagefright/foundation/ADebug.h>
-#include <media/stagefright/foundation/MediaDefs.h>
+#include "C2SoftAmrNbEnc.h"
 
 namespace android {
 

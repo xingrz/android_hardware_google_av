@@ -1,25 +1,15 @@
 cc_library_shared {
     name: "libstagefright_soft_c2amrnbdec",
-    vendor_available: true,
-
-    srcs: ["C2SoftAmrDec.cpp",],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
-        "-DAMRNB",
+    defaults: [
+        "libstagefright_soft_c2-defaults",
+        "libstagefright_soft_c2_sanitize_all-defaults",
     ],
 
-    sanitize: {
-        misc_undefined: [
-            "signed-integer-overflow",
-            "unsigned-integer-overflow",
-        ],
-        cfi: true,
-        diag: {
-            cfi: true,
-        },
-    },
+    srcs: ["C2SoftAmrDec.cpp"],
+
+    cflags: [
+        "-DAMRNB",
+    ],
 
     static_libs: [
         "libstagefright_amrnbdec",
@@ -27,37 +17,18 @@ cc_library_shared {
     ],
 
     shared_libs: [
-        "liblog",
-        "libutils",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
         "libstagefright_amrnb_common",
     ],
 }
 
 cc_library_shared {
     name: "libstagefright_soft_c2amrwbdec",
-    vendor_available: true,
-
-    srcs: ["C2SoftAmrDec.cpp",],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
+    defaults: [
+        "libstagefright_soft_c2-defaults",
+        "libstagefright_soft_c2_sanitize_all-defaults",
     ],
 
-    sanitize: {
-        misc_undefined: [
-            "signed-integer-overflow",
-            "unsigned-integer-overflow",
-        ],
-        cfi: true,
-        diag: {
-            cfi: true,
-        },
-    },
+    srcs: ["C2SoftAmrDec.cpp"],
 
     static_libs: [
         "libstagefright_amrnbdec",
@@ -65,86 +36,42 @@ cc_library_shared {
     ],
 
     shared_libs: [
-        "liblog",
-        "libutils",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
         "libstagefright_amrnb_common",
     ],
 }
 
 cc_library_shared {
     name: "libstagefright_soft_c2amrnbenc",
-    vendor_available: true,
-
-    srcs: ["C2SoftAmrNbEnc.cpp"],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
+    defaults: [
+        "libstagefright_soft_c2-defaults",
+        "libstagefright_soft_c2_sanitize_all-defaults",
     ],
 
-    sanitize: {
-        misc_undefined: [
-            "signed-integer-overflow",
-            "unsigned-integer-overflow",
-        ],
-        cfi: true,
-        diag: {
-            cfi: true,
-        },
-    },
+    srcs: ["C2SoftAmrNbEnc.cpp"],
 
     static_libs: [
         "libstagefright_amrnbenc",
     ],
 
     shared_libs: [
-        "libutils",
-        "liblog",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
         "libstagefright_amrnb_common",
     ],
 }
 
 cc_library_shared {
     name: "libstagefright_soft_c2amrwbenc",
-    vendor_available: true,
-
-    srcs: ["C2SoftAmrWbEnc.cpp"],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
+    defaults: [
+        "libstagefright_soft_c2-defaults",
+        "libstagefright_soft_c2_sanitize_all-defaults",
     ],
 
-    sanitize: {
-        misc_undefined: [
-            "signed-integer-overflow",
-            "unsigned-integer-overflow",
-        ],
-        cfi: true,
-        diag: {
-            cfi: true,
-        },
-    },
+    srcs: ["C2SoftAmrWbEnc.cpp"],
 
     static_libs: [
         "libstagefright_amrwbenc",
     ],
 
     shared_libs: [
-        "libutils",
-        "liblog",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
         "libstagefright_enc_common",
     ],
 }

@@ -14,18 +14,20 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
-#define LOG_TAG "C2SoftAmrDec"
-#include <utils/Log.h>
+//#define LOG_NDEBUG 0
+#ifdef AMRNB
+#define LOG_TAG "C2SoftAmrNbDec"
+#else
+#define LOG_TAG "C2SoftAmrWbDec"
+#endif
+#include <log/log.h>
 
-#include "C2SoftAmrDec.h"
+#include <media/stagefright/foundation/MediaDefs.h>
 
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 
-#include <media/stagefright/foundation/ADebug.h>
-#include <media/stagefright/foundation/MediaDefs.h>
-
+#include "C2SoftAmrDec.h"
 #include "gsmamr_dec.h"
 #include "pvamrwbdecoder.h"
 

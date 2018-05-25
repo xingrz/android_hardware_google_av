@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 #include "vpx/vpx_decoder.h"
 #include "vpx/vp8dx.h"
@@ -72,7 +71,7 @@ struct C2SoftVpx : public SimpleC2Component {
             const std::shared_ptr<C2BlockPool> &pool,
             const std::unique_ptr<C2Work> &work);
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftVpx);
+    C2_DO_NOT_COPY(C2SoftVpx);
 };
 
 }  // namespace android

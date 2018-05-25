@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 extern "C" {
     #include "gsm.h"
@@ -58,7 +57,7 @@ struct C2SoftGsmDec : public SimpleC2Component {
     bool mSignalledError;
     bool mSignalledEos;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftGsmDec);
+    C2_DO_NOT_COPY(C2SoftGsmDec);
 };
 
 }  // namespace android

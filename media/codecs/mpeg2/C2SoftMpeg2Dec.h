@@ -19,8 +19,11 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/ColorUtils.h>
+
+#include "iv_datatypedef.h"
+#include "iv.h"
+#include "ivd.h"
 
 namespace android {
 
@@ -181,7 +184,7 @@ struct C2SoftMpeg2Dec : public SimpleC2Component {
     char mInFile[200];
 #endif /* FILE_DUMP_ENABLE */
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftMpeg2Dec);
+    C2_DO_NOT_COPY(C2SoftMpeg2Dec);
 };
 
 }  // namespace android
