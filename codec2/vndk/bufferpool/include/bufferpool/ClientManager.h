@@ -152,6 +152,11 @@ struct ClientManager : public IClientManager {
                           TransactionId *transactionId,
                           int64_t *timestampUs);
 
+    /**
+     *  Time out inactive lingering connections and close.
+     */
+    void cleanUp();
+
     /** Destructs the manager of buffer pool clients.  */
     ~ClientManager();
 private:
