@@ -1959,7 +1959,7 @@ bool CCodecBufferChannel::handleWork(
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         if ((*buffers)->registerCsd(initData, &index, &outBuffer)) {
             outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
-            outBuffer->meta()->setInt32("flags", flags | MediaCodec::BUFFER_FLAG_CODECCONFIG);
+            outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("onWorkDone: csd index = %zu", index);
 
             buffers.unlock();
