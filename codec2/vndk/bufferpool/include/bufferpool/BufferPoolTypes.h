@@ -86,12 +86,14 @@ public:
      *
      * @param params    allocation parameters
      * @param alloc     created allocation
+     * @param allocSize size of created allocation
      *
      * @return OK when an allocation is created successfully.
      */
     virtual ResultStatus allocate(
             const std::vector<uint8_t> &params,
-            std::shared_ptr<BufferPoolAllocation> *alloc) = 0;
+            std::shared_ptr<BufferPoolAllocation> *alloc,
+            size_t *allocSize) = 0;
 
     /**
      * Returns whether allocation parameters of an old allocation are

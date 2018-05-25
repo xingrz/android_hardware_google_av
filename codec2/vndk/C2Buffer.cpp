@@ -441,7 +441,8 @@ public:
     ~_C2BufferPoolAllocator() override {}
 
     ResultStatus allocate(const std::vector<uint8_t> &params,
-                          std::shared_ptr<BufferPoolAllocation> *alloc) override;
+                          std::shared_ptr<BufferPoolAllocation> *alloc,
+                          size_t *allocSize) override;
 
     bool compatible(const std::vector<uint8_t> &newParams,
                     const std::vector<uint8_t> &oldParams) override;
@@ -537,7 +538,8 @@ struct GraphicAllocationDtor {
 
 ResultStatus _C2BufferPoolAllocator::allocate(
         const std::vector<uint8_t>  &params,
-        std::shared_ptr<BufferPoolAllocation> *alloc) {
+        std::shared_ptr<BufferPoolAllocation> *alloc,
+        size_t *allocSize) {
     AllocParams c2Params;
     memcpy(&c2Params, params.data(), std::min(sizeof(AllocParams), params.size()));
     c2_status_t status = C2_BAD_VALUE;
@@ -554,6 +556,7 @@ ResultStatus _C2BufferPoolAllocator::allocate(
                     *alloc = std::shared_ptr<BufferPoolAllocation>(
                             ptr, LinearAllocationDtor(c2Linear));
                     if (*alloc) {
+                        *allocSize = (size_t)c2Params.data.params[0];
                         return ResultStatus::OK;
                     }
                     delete ptr;
@@ -575,6 +578,7 @@ ResultStatus _C2BufferPoolAllocator::allocate(
                     *alloc = std::shared_ptr<BufferPoolAllocation>(
                             ptr, GraphicAllocationDtor(c2Graphic));
                     if (*alloc) {
+                        *allocSize = c2Params.data.params[0] * c2Params.data.params[1];
                         return ResultStatus::OK;
                     }
                     delete ptr;
