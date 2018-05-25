@@ -21,72 +21,9 @@
 // use MediaDefs here vs. MediaCodecConstants as this is not MediaCodec specific/dependent
 #include <media/stagefright/foundation/MediaDefs.h>
 
-#include <SimpleC2Interface.h>
 #include <SimpleInterfaceCommon.h>
 
 namespace android {
-
-c2_status_t SimpleC2Interface::query_vb(
-        const std::vector<C2Param*> &stackParams,
-        const std::vector<C2Param::Index> &heapParamIndices,
-        c2_blocking_t mayBlock,
-        std::vector<std::unique_ptr<C2Param>>* const heapParams) const {
-    (void)mayBlock;
-
-    for (C2Param* const param : stackParams) {
-        if (param->coreIndex() != C2StreamFormatConfig::CORE_INDEX
-                || !param->forStream()
-                || param->stream() != 0u) {
-            param->invalidate();
-            continue;
-        }
-        if (param->forInput()) {
-            param->updateFrom(mInputFormat);
-        } else {
-            param->updateFrom(mOutputFormat);
-        }
-    }
-    if (heapParams) {
-        heapParams->clear();
-        for (const auto &index : heapParamIndices) {
-            switch (index.type()) {
-                case C2StreamFormatConfig::input::PARAM_TYPE:
-                    if (index.stream() == 0u) {
-                        heapParams->push_back(C2Param::Copy(mInputFormat));
-                    } else {
-                        heapParams->push_back(nullptr);
-                    }
-                    break;
-                case C2StreamFormatConfig::output::PARAM_TYPE:
-                    if (index.stream() == 0u) {
-                        heapParams->push_back(C2Param::Copy(mOutputFormat));
-                    } else {
-                        heapParams->push_back(nullptr);
-                    }
-                    break;
-                case C2PortMimeConfig::input::PARAM_TYPE:
-                    if (mInputMediaType) {
-                        heapParams->push_back(C2Param::Copy(*mInputMediaType));
-                    } else {
-                        heapParams->push_back(nullptr);
-                    }
-                    break;
-                case C2PortMimeConfig::output::PARAM_TYPE:
-                    if (mOutputMediaType) {
-                        heapParams->push_back(C2Param::Copy(*mOutputMediaType));
-                    } else {
-                        heapParams->push_back(nullptr);
-                    }
-                    break;
-                default:
-                    heapParams->push_back(nullptr);
-                    break;
-            }
-        }
-    }
-
-    return C2_OK;
-}
 
 /* SimpleInterface */
 
