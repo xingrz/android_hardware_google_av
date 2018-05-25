@@ -1,8 +1,8 @@
 cc_library_shared {
-    name: "libstagefright_soft_c2rawdec",
+    name: "libstagefright_soft_c2mp3dec",
     vendor_available: true,
 
-    srcs: ["C2SoftRawDec.cpp",],
+    srcs: ["C2SoftMp3Dec.cpp"],
 
     cflags: [
         "-Wall",
@@ -19,6 +19,10 @@ cc_library_shared {
             cfi: true,
         },
     },
+
+    static_libs: [
+        "libstagefright_mp3dec"
+    ],
 
     shared_libs: [
         "liblog",

@@ -1,16 +1,13 @@
 cc_library_shared {
-    name: "libstagefright_soft_c2g711alawdec",
+    name: "libstagefright_soft_c2aacdec",
     vendor_available: true,
 
     srcs: [
-        "C2SoftG711Dec.cpp",
+        "C2SoftAacDec.cpp",
+        "DrcPresModeWrap.cpp",
     ],
 
-    cflags: [
-        "-Werror",
-        "-Wall",
-        "-DALAW",
-    ],
+    cflags: ["-Werror"],
 
     sanitize: {
         misc_undefined: [
@@ -23,7 +20,13 @@ cc_library_shared {
         },
     },
 
+    static_libs: [
+        "libFraunhoferAAC",
+    ],
+
     shared_libs: [
+        "libcutils",
+        "libion",
         "liblog",
         "libstagefright_codec2",
         "libstagefright_codec2_vndk",
@@ -34,17 +37,12 @@ cc_library_shared {
 }
 
 cc_library_shared {
-    name: "libstagefright_soft_c2g711mlawdec",
+    name: "libstagefright_soft_c2aacenc",
     vendor_available: true,
 
-    srcs: [
-        "C2SoftG711Dec.cpp",
-    ],
+    srcs: ["C2SoftAacEnc.cpp"],
 
-    cflags: [
-        "-Werror",
-        "-Wall",
-    ],
+    cflags: ["-Werror"],
 
     sanitize: {
         misc_undefined: [
@@ -57,7 +55,13 @@ cc_library_shared {
         },
     },
 
+    static_libs: [
+        "libFraunhoferAAC",
+    ],
+
     shared_libs: [
+        "libcutils",
+        "libion",
         "liblog",
         "libstagefright_codec2",
         "libstagefright_codec2_vndk",
