@@ -139,8 +139,6 @@ private:
     bool mHasCache;
     ConnectionId mConnectionId;
     BufferId mId;
-    // For dynamic setup of buffer receiving process
-    wp<IAccessor> mAccessor;
     native_handle_t *mHandle;
     std::weak_ptr<BufferPoolData> mCache;
 
@@ -150,10 +148,9 @@ private:
 
 public:
     ClientBuffer(
-            ConnectionId connectionId, BufferId id, sp<IAccessor> accessor, native_handle_t *handle)
+            ConnectionId connectionId, BufferId id, native_handle_t *handle)
             : mInvalidated(false), mHasCache(false),
-              mConnectionId(connectionId), mId(id),
-              mAccessor(accessor), mHandle(handle) {
+              mConnectionId(connectionId), mId(id), mHandle(handle) {
         (void)mInvalidated;
         mExpireUs = getTimestampNow() + kCacheTtlUs;
     }
@@ -192,11 +189,9 @@ public:
         if (!mHasCache) {
             // Allocates a raw ptr in order to avoid sending #postBufferRelease
             // from deleter, in case of native_handle_clone failure.
-            BufferPoolData *ptr = new BufferPoolData(
-                    mConnectionId, mId, mAccessor);
+            BufferPoolData *ptr = new BufferPoolData(mConnectionId, mId);
             if (ptr) {
-                std::shared_ptr<BufferPoolData>
-                        cache(ptr, BlockPoolDataDtor(impl));
+                std::shared_ptr<BufferPoolData> cache(ptr, BlockPoolDataDtor(impl));
                 if (cache) {
                     mCache = cache;
                     mHasCache = true;
@@ -280,7 +275,7 @@ ResultStatus BufferPoolClient::Impl::allocate(
                 mCache.mBuffers.erase(cacheIt);
             }
             auto clientBuffer = std::make_unique<ClientBuffer>(
-                    mConnectionId, bufferId, mAccessor, handle);
+                    mConnectionId, bufferId, handle);
             if (clientBuffer) {
                 auto result = mCache.mBuffers.insert(std::make_pair(
                         bufferId, std::move(clientBuffer)));
@@ -345,7 +340,7 @@ ResultStatus BufferPoolClient::Impl::receive(
                 if (status == ResultStatus::OK) {
                     if (handle) {
                         auto clientBuffer = std::make_unique<ClientBuffer>(
-                                mConnectionId, bufferId, mAccessor, handle);
+                                mConnectionId, bufferId, handle);
                         if (clientBuffer) {
                             auto result = mCache.mBuffers.insert(
                                     std::make_pair(bufferId, std::move(

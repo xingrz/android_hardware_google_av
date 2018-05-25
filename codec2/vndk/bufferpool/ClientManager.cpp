@@ -37,8 +37,14 @@ class ClientManager::Impl {
 public:
     Impl();
 
+    // BnRegisterSender
     ResultStatus registerSender(const sp<IAccessor> &accessor,
                                 ConnectionId *pConnectionId);
+
+    // BpRegisterSender
+    ResultStatus registerSender(const sp<IClientManager> &receiver,
+                                ConnectionId senderId,
+                                ConnectionId *receiverId);
 
     ResultStatus create(const std::shared_ptr<BufferPoolAllocator> &allocator,
                         ConnectionId *pConnectionId);
@@ -145,6 +151,36 @@ ResultStatus ClientManager::Impl::registerSender(
     } while (getTimestampNow() < timeoutUs);
     // TODO: return timeout error
     return ResultStatus::CRITICAL_ERROR;
+}
+
+ResultStatus ClientManager::Impl::registerSender(
+        const sp<IClientManager> &receiver,
+        ConnectionId senderId,
+        ConnectionId *receiverId) {
+    sp<IAccessor> accessor;
+    {
+        std::lock_guard<std::mutex> lock(mActive.mMutex);
+        auto it = mActive.mClients.find(senderId);
+        if (it == mActive.mClients.end()) {
+            return ResultStatus::NOT_FOUND;
+        }
+        it->second->getAccessor(&accessor);
+    }
+    ResultStatus rs = ResultStatus::CRITICAL_ERROR;
+    if (accessor) {
+       Return<void> transResult = receiver->registerSender(
+                accessor,
+                [&rs, receiverId](
+                        ResultStatus status,
+                        int64_t connectionId) {
+                    rs = status;
+                    *receiverId = connectionId;
+                });
+        if (!transResult.isOk()) {
+            return ResultStatus::CRITICAL_ERROR;
+        }
+    }
+    return rs;
 }
 
 ResultStatus ClientManager::Impl::create(
@@ -296,6 +332,16 @@ ResultStatus ClientManager::create(
     return ResultStatus::CRITICAL_ERROR;
 }
 
+ResultStatus ClientManager::registerSender(
+        const sp<IClientManager> &receiver,
+        ConnectionId senderId,
+        ConnectionId *receiverId) {
+    if (mImpl) {
+        return mImpl->registerSender(receiver, senderId, receiverId);
+    }
+    return ResultStatus::CRITICAL_ERROR;
+}
+
 ResultStatus ClientManager::close(ConnectionId connectionId) {
     if (mImpl) {
         return mImpl->close(connectionId);
@@ -328,14 +374,6 @@ ResultStatus ClientManager::postSend(
         TransactionId *transactionId, int64_t* timestampUs) {
     if (mImpl && buffer) {
         return mImpl->postSend(receiverId, buffer, transactionId, timestampUs);
-    }
-    return ResultStatus::CRITICAL_ERROR;
-}
-
-ResultStatus ClientManager::getAccessor(
-        ConnectionId connectionId, sp<IAccessor> *accessor) {
-    if (mImpl) {
-        return mImpl->getAccessor(connectionId, accessor);
     }
     return ResultStatus::CRITICAL_ERROR;
 }
