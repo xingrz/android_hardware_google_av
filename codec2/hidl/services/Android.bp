@@ -90,7 +90,7 @@ cc_library_shared {
         "libstagefright_soft_c2flacdec",
         "libstagefright_soft_c2flacenc",
         "libstagefright_soft_c2gsmdec",
-        "libstagefright_soft_c2xaacdec.vendor",
+        "libstagefright_soft_c2xaacdec",
     ],
 
     compile_multilib: "32",
