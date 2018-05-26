@@ -21,7 +21,7 @@
 // use MediaDefs here vs. MediaCodecConstants as this is not MediaCodec specific/dependent
 #include <media/stagefright/foundation/MediaDefs.h>
 
-#include <SimpleInterfaceCommon.h>
+#include <SimpleC2Interface.h>
 
 namespace android {
 

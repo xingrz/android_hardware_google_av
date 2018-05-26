@@ -33,7 +33,6 @@ namespace {
 using android::C2AllocatorGralloc;
 using android::C2AllocatorIon;
 using android::hardware::media::bufferpool::BufferPoolData;
-using android::hardware::media::bufferpool::V1_0::IAccessor;
 using android::hardware::media::bufferpool::V1_0::ResultStatus;
 using android::hardware::media::bufferpool::V1_0::implementation::BufferPoolAllocation;
 using android::hardware::media::bufferpool::V1_0::implementation::BufferPoolAllocator;
@@ -442,7 +441,8 @@ public:
     ~_C2BufferPoolAllocator() override {}
 
     ResultStatus allocate(const std::vector<uint8_t> &params,
-                          std::shared_ptr<BufferPoolAllocation> *alloc) override;
+                          std::shared_ptr<BufferPoolAllocation> *alloc,
+                          size_t *allocSize) override;
 
     bool compatible(const std::vector<uint8_t> &newParams,
                     const std::vector<uint8_t> &oldParams) override;
@@ -538,7 +538,8 @@ struct GraphicAllocationDtor {
 
 ResultStatus _C2BufferPoolAllocator::allocate(
         const std::vector<uint8_t>  &params,
-        std::shared_ptr<BufferPoolAllocation> *alloc) {
+        std::shared_ptr<BufferPoolAllocation> *alloc,
+        size_t *allocSize) {
     AllocParams c2Params;
     memcpy(&c2Params, params.data(), std::min(sizeof(AllocParams), params.size()));
     c2_status_t status = C2_BAD_VALUE;
@@ -555,6 +556,7 @@ ResultStatus _C2BufferPoolAllocator::allocate(
                     *alloc = std::shared_ptr<BufferPoolAllocation>(
                             ptr, LinearAllocationDtor(c2Linear));
                     if (*alloc) {
+                        *allocSize = (size_t)c2Params.data.params[0];
                         return ResultStatus::OK;
                     }
                     delete ptr;
@@ -576,6 +578,7 @@ ResultStatus _C2BufferPoolAllocator::allocate(
                     *alloc = std::shared_ptr<BufferPoolAllocation>(
                             ptr, GraphicAllocationDtor(c2Graphic));
                     if (*alloc) {
+                        *allocSize = c2Params.data.params[0] * c2Params.data.params[1];
                         return ResultStatus::OK;
                     }
                     delete ptr;
@@ -734,13 +737,6 @@ public:
         return mInit != C2_OK ? INVALID_CONNECTIONID : mConnectionId;
     }
 
-    bool getAccessor(android::sp<IAccessor> *accessor) {
-        if (mInit == C2_OK) {
-            return mBufferPoolManager->getAccessor(mConnectionId, accessor) == ResultStatus::OK;
-        }
-        return false;
-    }
-
 private:
     c2_status_t mInit;
     const android::sp<ClientManager> mBufferPoolManager;
@@ -782,13 +778,6 @@ int64_t C2PooledBlockPool::getConnectionId() {
         return mImpl->getConnectionId();
     }
     return 0;
-}
-
-bool C2PooledBlockPool::getAccessor(android::sp<IAccessor> *accessor) {
-    if (mImpl) {
-        return mImpl->getAccessor(accessor);
-    }
-    return false;
 }
 
 /* ========================================== 2D BLOCK ========================================= */
