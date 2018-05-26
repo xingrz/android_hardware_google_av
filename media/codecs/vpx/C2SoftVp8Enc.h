@@ -52,7 +52,7 @@ struct C2SoftVp8Enc : public C2SoftVpxEnc {
     // C2 Profile parameter
     int32_t mProfile;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftVp8Enc);
+    C2_DO_NOT_COPY(C2SoftVp8Enc);
 };
 
 }  // namespace android

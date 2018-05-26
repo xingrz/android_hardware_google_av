@@ -1,29 +1,14 @@
 cc_library_shared {
     name: "libstagefright_soft_c2avcdec",
-    vendor_available: true,
+    defaults: ["libstagefright_soft_c2-defaults"],
 
-    static_libs: [
-        "libavcdec",
-    ],
+    static_libs: ["libavcdec"],
+
     srcs: ["C2SoftAvcDec.cpp"],
-
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
 
     include_dirs: [
         "external/libavc/decoder",
         "external/libavc/common",
-    ],
-
-    shared_libs: [
-        "liblog",
-        "libutils",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
     ],
 
     sanitize: {
@@ -35,31 +20,19 @@ cc_library_shared {
             cfi: false, // true,
         },
     },
-
-    ldflags: ["-Wl,-Bsymbolic"],
 }
 
 cc_library_shared {
     name: "libstagefright_soft_c2avcenc",
-    vendor_available: true,
+    defaults: ["libstagefright_soft_c2-defaults"],
 
-    static_libs: [ "libavcenc" ],
+    static_libs: ["libavcenc"],
+
     srcs: ["C2SoftAvcEnc.cpp"],
 
     include_dirs: [
         "external/libavc/encoder",
         "external/libavc/common",
-        "frameworks/av/media/libstagefright/include",
-        "frameworks/native/include/media/hardware",
-    ],
-
-    shared_libs: [
-        "liblog",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
-        "libutils",
     ],
 
     sanitize: {
@@ -73,9 +46,6 @@ cc_library_shared {
     },
 
     cflags: [
-        "-Wall",
-        "-Werror",
         "-Wno-unused-variable",
     ],
-    ldflags: ["-Wl,-Bsymbolic"],
 }

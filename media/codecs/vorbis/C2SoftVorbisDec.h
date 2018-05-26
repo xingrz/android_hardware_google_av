@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 struct vorbis_dsp_state;
 struct vorbis_info;
@@ -62,7 +61,7 @@ struct C2SoftVorbisDec : public SimpleC2Component {
 
     status_t initDecoder();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftVorbisDec);
+    C2_DO_NOT_COPY(C2SoftVorbisDec);
 };
 
 }  // namespace android
