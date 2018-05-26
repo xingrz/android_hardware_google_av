@@ -21,8 +21,6 @@
 
 #include "FLAC/stream_encoder.h"
 
-#include <media/stagefright/foundation/ADebug.h>
-
 #define FLAC_COMPRESSION_LEVEL_MIN     0
 #define FLAC_COMPRESSION_LEVEL_DEFAULT 5
 #define FLAC_COMPRESSION_LEVEL_MAX     8
@@ -83,7 +81,7 @@ private:
     bool mWroteHeader;
     char mHeader[FLAC_HEADER_SIZE];
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftFlacEnc);
+    C2_DO_NOT_COPY(C2SoftFlacEnc);
 };
 
 }  // namespace android

@@ -45,13 +45,13 @@ struct C2SoftVp9Enc : public C2SoftVpxEnc {
  private:
     // C2 Profile & Level parameter
     int32_t mProfile;
-    int32_t mLevel;
+    int32_t mLevel __unused;
 
     int32_t mTileColumns;
 
     bool mFrameParallelDecoding;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftVp9Enc);
+    C2_DO_NOT_COPY(C2SoftVp9Enc);
 };
 
 }  // namespace android

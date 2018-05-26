@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 namespace android {
 
@@ -52,7 +51,7 @@ private:
     void DecodeMLaw(int16_t *out, const uint8_t *in, size_t inSize);
 #endif
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftG711Dec);
+    C2_DO_NOT_COPY(C2SoftG711Dec);
 };
 
 }  // namespace android

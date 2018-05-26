@@ -17,12 +17,15 @@
 #ifndef ANDROID_C2_SOFT_AVC_DEC_H_
 #define ANDROID_C2_SOFT_AVC_DEC_H_
 
-#include <SimpleC2Component.h>
+#include <sys/time.h>
 
-#include <media/stagefright/foundation/ABase.h>
 #include <media/stagefright/foundation/ColorUtils.h>
 
-#include <sys/time.h>
+#include <SimpleC2Component.h>
+
+#include "ih264_typedefs.h"
+#include "iv.h"
+#include "ivd.h"
 
 namespace android {
 
@@ -182,7 +185,7 @@ private:
     char mInFile[200];
 #endif /* FILE_DUMP_ENABLE */
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAvcDec);
+    C2_DO_NOT_COPY(C2SoftAvcDec);
 };
 
 }  // namespace android

@@ -18,7 +18,6 @@
 #define ANDROID_C2_SOFT_AAC_ENC_H_
 
 #include <SimpleC2Component.h>
-#include <media/stagefright/foundation/ABase.h>
 
 #include "aacenc_lib.h"
 
@@ -65,7 +64,7 @@ private:
 
     status_t setAudioParams();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAacEnc);
+    C2_DO_NOT_COPY(C2SoftAacEnc);
 };
 
 }  // namespace android

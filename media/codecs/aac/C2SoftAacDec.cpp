@@ -14,25 +14,24 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftAacDec"
-#include <utils/Log.h>
+#include <log/log.h>
 
-#include "C2SoftAacDec.h"
-
-#include <C2PlatformSupport.h>
-#include <SimpleC2Interface.h>
+#include <inttypes.h>
+#include <math.h>
+#include <numeric>
 
 #include <cutils/properties.h>
-#include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 #include <media/stagefright/foundation/hexdump.h>
 #include <media/stagefright/MediaErrors.h>
 #include <utils/misc.h>
 
-#include <inttypes.h>
-#include <math.h>
-#include <numeric>
+#include <C2PlatformSupport.h>
+#include <SimpleC2Interface.h>
+
+#include "C2SoftAacDec.h"
 
 #define FILEREAD_MAX_LAYERS 2
 
@@ -355,7 +354,7 @@ void C2SoftAacDec::drainRingBuffer(
             >= mStreamInfo->frameSize * mStreamInfo->numChannels) {
         Info &outInfo = mBuffersInfo.front();
         ALOGV("outInfo.frameIndex = %" PRIu64, outInfo.frameIndex);
-        int samplesize = mStreamInfo->numChannels * sizeof(int16_t);
+        int samplesize __unused = mStreamInfo->numChannels * sizeof(int16_t);
 
         int available = outputDelayRingBufferSamplesAvailable();
         int numFrames = outInfo.decodedSizes.size();

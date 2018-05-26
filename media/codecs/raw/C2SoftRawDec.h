@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 namespace android {
 
@@ -46,7 +45,7 @@ private:
     std::shared_ptr<IntfImpl> mIntf;
     bool mSignalledEos;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftRawDec);
+    C2_DO_NOT_COPY(C2SoftRawDec);
 };
 
 }  // namespace android

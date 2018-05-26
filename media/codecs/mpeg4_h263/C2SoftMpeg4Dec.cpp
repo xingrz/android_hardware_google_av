@@ -14,23 +14,22 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #ifdef MPEG4
   #define LOG_TAG "C2SoftMpeg4Dec"
 #else
   #define LOG_TAG "C2SoftH263Dec"
 #endif
-#include <utils/Log.h>
+#include <log/log.h>
 
-#include "C2SoftMpeg4Dec.h"
-
-#include <C2PlatformSupport.h>
-#include <SimpleC2Interface.h>
-
-#include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/AUtils.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
+#include <C2Debug.h>
+#include <C2PlatformSupport.h>
+#include <SimpleC2Interface.h>
+
+#include "C2SoftMpeg4Dec.h"
 #include "mp4dec_api.h"
 
 namespace android {

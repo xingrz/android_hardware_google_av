@@ -1,13 +1,10 @@
 cc_library_shared {
     name: "libstagefright_soft_c2mpeg2dec",
-    vendor_available: true,
+    defaults: ["libstagefright_soft_c2-defaults"],
 
     srcs: ["C2SoftMpeg2Dec.cpp"],
 
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
+    static_libs: ["libmpeg2dec"],
 
     include_dirs: [
         "external/libmpeg2/decoder",
@@ -23,17 +20,4 @@ cc_library_shared {
             cfi: false, // true,
         },
     },
-
-    static_libs: ["libmpeg2dec"],
-
-    shared_libs: [
-        "liblog",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
-        "libutils",
-    ],
-
-    ldflags: ["-Wl,-Bsymbolic"],
 }

@@ -14,15 +14,16 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "SimpleC2Component"
-#include <media/stagefright/foundation/ADebug.h>
+#include <log/log.h>
 
 #include <cutils/properties.h>
 
 #include <inttypes.h>
 
 #include <C2Config.h>
+#include <C2Debug.h>
 #include <C2PlatformSupport.h>
 #include <SimpleC2Component.h>
 

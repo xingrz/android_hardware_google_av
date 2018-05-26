@@ -14,26 +14,23 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftAvcEnc"
-#include <utils/Log.h>
+#include <log/log.h>
 #include <utils/misc.h>
 
-#include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MetaData.h>
 
+#include <C2Debug.h>
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 #include <util/C2InterfaceHelper.h>
 
-#include "ih264_typedefs.h"
+#include "C2SoftAvcEnc.h"
 #include "ih264e.h"
 #include "ih264e_error.h"
-#include "iv2.h"
-#include "ive2.h"
-#include "C2SoftAvcEnc.h"
 
 namespace android {
 

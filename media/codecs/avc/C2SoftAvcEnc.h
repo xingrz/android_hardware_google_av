@@ -19,10 +19,13 @@
 
 #include <map>
 
-#include <media/stagefright/foundation/ABase.h>
 #include <utils/Vector.h>
 
 #include <SimpleC2Component.h>
+
+#include "ih264_typedefs.h"
+#include "iv2.h"
+#include "ive2.h"
 
 namespace android {
 
@@ -166,7 +169,7 @@ private:
 
     IV_COLOR_FORMAT_T mIvVideoColorFormat;
 
-    IV_PROFILE_T mAVCEncProfile;
+    IV_PROFILE_T mAVCEncProfile __unused;
     WORD32   mAVCEncLevel;
     bool     mStarted;
     bool     mSpsPpsHeaderReceived;
@@ -188,10 +191,10 @@ private:
     size_t mNumMemRecords;       // Number of memory records requested by codec
     size_t mNumCores;            // Number of cores used by the codec
 
-    uint32_t mWidth;
-    uint32_t mHeight;
-    uint32_t mFramerate;
-    uint32_t mBitrate;
+    uint32_t mWidth __unused;
+    uint32_t mHeight __unused;
+    uint32_t mFramerate __unused;
+    uint32_t mBitrate __unused;
     uint32_t mOutBufferSize;
     UWORD32 mHeaderGenerated;
     UWORD32 mBframes;
@@ -235,7 +238,7 @@ private:
             uint32_t capacity,
             uint64_t timestamp);
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAvcEnc);
+    C2_DO_NOT_COPY(C2SoftAvcEnc);
 };
 
 #ifdef FILE_DUMP_ENABLE
