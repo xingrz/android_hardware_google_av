@@ -19,7 +19,7 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ADebug.h>
+#include "gsmamr_enc.h"
 
 namespace android {
 
@@ -59,7 +59,7 @@ private:
     int32_t mFilledLen;
     int16_t mInputFrame[kNumSamplesPerFrame];
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAmrNbEnc);
+    C2_DO_NOT_COPY(C2SoftAmrNbEnc);
 };
 
 }  // namespace android

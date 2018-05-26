@@ -14,17 +14,16 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftRawDec"
-#include <utils/Log.h>
+#include <log/log.h>
 
-#include "C2SoftRawDec.h"
+#include <media/stagefright/foundation/MediaDefs.h>
 
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 
-#include <media/stagefright/foundation/ADebug.h>
-#include <media/stagefright/foundation/MediaDefs.h>
+#include "C2SoftRawDec.h"
 
 namespace android {
 

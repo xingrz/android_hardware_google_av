@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 #include "aacdecoder_lib.h"
 #include "DrcPresModeWrap.h"
@@ -102,7 +101,7 @@ private:
     int32_t outputDelayRingBufferSamplesAvailable();
     int32_t outputDelayRingBufferSpaceLeft();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAacDec);
+    C2_DO_NOT_COPY(C2SoftAacDec);
 };
 
 }  // namespace android

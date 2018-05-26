@@ -20,7 +20,6 @@
 #include <SimpleC2Component.h>
 
 #include "FLACDecoder.h"
-#include <media/stagefright/foundation/ABase.h>
 
 namespace android {
 
@@ -59,7 +58,7 @@ private:
 
     status_t initDecoder();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftFlacDec);
+    C2_DO_NOT_COPY(C2SoftFlacDec);
 };
 
 }  // namespace android

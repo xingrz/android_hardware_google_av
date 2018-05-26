@@ -14,21 +14,18 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftMpeg2Dec"
-#include <utils/Log.h>
+#include <log/log.h>
 
-#include "iv_datatypedef.h"
-#include "iv.h"
-#include "ivd.h"
-#include "impeg2d.h"
-#include "C2SoftMpeg2Dec.h"
+#include <media/stagefright/foundation/MediaDefs.h>
 
+#include <C2Debug.h>
 #include <C2PlatformSupport.h>
 #include <SimpleC2Interface.h>
 
-#include <media/stagefright/foundation/ADebug.h>
-#include <media/stagefright/foundation/MediaDefs.h>
+#include "C2SoftMpeg2Dec.h"
+#include "impeg2d.h"
 
 namespace android {
 

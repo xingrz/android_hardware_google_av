@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftVpxEnc"
-#include <utils/Log.h>
+#include <log/log.h>
 #include <utils/misc.h>
 
+#include <C2Debug.h>
 #include "C2SoftVpxEnc.h"
 
 #ifndef INT32_MAX

@@ -1,13 +1,10 @@
 cc_library_shared {
     name: "libstagefright_soft_c2hevcdec",
-    vendor_available: true,
+    defaults: ["libstagefright_soft_c2-defaults"],
 
     srcs: ["C2SoftHevcDec.cpp"],
 
-    cflags: [
-        "-Wall",
-        "-Werror",
-    ],
+    static_libs: ["libhevcdec"],
 
     include_dirs: [
         "external/libhevc/decoder",
@@ -23,17 +20,4 @@ cc_library_shared {
             cfi: false, // true,
         },
     },
-
-    static_libs: ["libhevcdec"],
-
-    shared_libs: [
-        "liblog",
-        "libutils",
-        "libstagefright_codec2",
-        "libstagefright_codec2_vndk",
-        "libstagefright_foundation",
-        "libstagefright_simple_c2component",
-    ],
-
-    ldflags: ["-Wl,-Bsymbolic"],
 }

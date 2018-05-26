@@ -19,7 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
 
 namespace android {
 
@@ -61,7 +60,7 @@ private:
 
     status_t initDecoder();
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAmrDec);
+    C2_DO_NOT_COPY(C2SoftAmrDec);
 };
 
 }  // namespace android

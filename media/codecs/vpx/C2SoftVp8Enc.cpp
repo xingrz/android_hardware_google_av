@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftVp8Enc"
 #include <utils/Log.h>
 #include <utils/misc.h>

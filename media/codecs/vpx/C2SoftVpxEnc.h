@@ -17,8 +17,6 @@
 #ifndef ANDROID_C2_SOFT_VPX_ENC_H__
 #define ANDROID_C2_SOFT_VPX_ENC_H__
 
-#include <media/stagefright/foundation/ABase.h>
-#include <media/stagefright/foundation/ADebug.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
 #include <SimpleC2Component.h>
@@ -226,7 +224,7 @@ struct C2SoftVpxEnc : public SimpleC2Component {
      // Signalled Error
      bool mSignalledError;
 
-     DISALLOW_EVIL_CONSTRUCTORS(C2SoftVpxEnc);
+     C2_DO_NOT_COPY(C2SoftVpxEnc);
 };
 
 class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {

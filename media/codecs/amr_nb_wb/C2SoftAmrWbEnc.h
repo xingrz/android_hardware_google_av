@@ -19,8 +19,6 @@
 
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ADebug.h>
-
 #include "voAMRWB.h"
 
 namespace android {
@@ -65,7 +63,7 @@ private:
     status_t initEncoder();
     int encodeInput(uint8_t *buffer, uint32_t length);
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftAmrWbEnc);
+    C2_DO_NOT_COPY(C2SoftAmrWbEnc);
 };
 
 }  // namespace android

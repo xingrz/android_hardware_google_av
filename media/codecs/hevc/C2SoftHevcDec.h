@@ -17,10 +17,13 @@
 #ifndef ANDROID_C2_SOFT_HEVC_DEC_H_
 #define ANDROID_C2_SOFT_HEVC_DEC_H_
 
+#include <media/stagefright/foundation/ColorUtils.h>
+
 #include <SimpleC2Component.h>
 
-#include <media/stagefright/foundation/ABase.h>
-#include <media/stagefright/foundation/ColorUtils.h>
+#include "ihevc_typedefs.h"
+#include "iv.h"
+#include "ivd.h"
 
 namespace android {
 
@@ -130,7 +133,7 @@ struct C2SoftHevcDec : public SimpleC2Component {
     struct timeval mTimeStart;
     struct timeval mTimeEnd;
 
-    DISALLOW_EVIL_CONSTRUCTORS(C2SoftHevcDec);
+    C2_DO_NOT_COPY(C2SoftHevcDec);
 };
 
 }  // namespace android
