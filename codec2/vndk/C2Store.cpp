@@ -788,6 +788,7 @@ C2PlatformComponentStore::C2PlatformComponentStore()
     mComponents.emplace("c2.android.flac.decoder", "libstagefright_soft_c2flacdec.so");
     mComponents.emplace("c2.android.flac.encoder", "libstagefright_soft_c2flacenc.so");
     mComponents.emplace("c2.android.gsm.decoder", "libstagefright_soft_c2gsmdec.so");
+    mComponents.emplace("c2.android.xaac.decoder", "libstagefright_soft_c2xaacdec.so");
 }
 
 c2_status_t C2PlatformComponentStore::copyBuffer(

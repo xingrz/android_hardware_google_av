@@ -35,67 +35,130 @@ constexpr char COMPONENT_NAME[] = "c2.android.vp9.decoder";
 constexpr char COMPONENT_NAME[] = "c2.android.vp8.decoder";
 #endif
 
-
-class C2SoftVpx::IntfImpl : public C2InterfaceHelper {
+class C2SoftVpxDec::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
-        : C2InterfaceHelper(helper) {
-
-        setDerivedInstance(this);
-
-        addParameter(
-                DefineParam(mInputFormat, C2_NAME_INPUT_STREAM_FORMAT_SETTING)
-                .withConstValue(new C2StreamFormatConfig::input(0u, C2FormatCompressed))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputFormat, C2_NAME_OUTPUT_STREAM_FORMAT_SETTING)
-                .withConstValue(new C2StreamFormatConfig::output(0u, C2FormatVideo))
-                .build());
-
-        addParameter(
-                DefineParam(mInputMediaType, C2_NAME_INPUT_PORT_MIME_SETTING)
-                .withConstValue(AllocSharedString<C2PortMimeConfig::input>(
+        : SimpleInterface<void>::BaseParams(
+                helper,
+                COMPONENT_NAME,
+                C2Component::KIND_DECODER,
+                C2Component::DOMAIN_VIDEO,
 #ifdef VP9
-                        MEDIA_MIMETYPE_VIDEO_VP9
+                MEDIA_MIMETYPE_VIDEO_VP9
 #else
-                        MEDIA_MIMETYPE_VIDEO_VP8
+                MEDIA_MIMETYPE_VIDEO_VP8
 #endif
-                )).build());
+                ) {
+        noPrivateBuffers(); // TODO: account for our buffers here
+        noInputReferences();
+        noOutputReferences();
+        noInputLatency();
+        noTimeStretch();
+
+        // TODO: output latency and reordering
 
         addParameter(
-                DefineParam(mOutputMediaType, C2_NAME_OUTPUT_PORT_MIME_SETTING)
-                .withConstValue(AllocSharedString<C2PortMimeConfig::output>(
-                        MEDIA_MIMETYPE_VIDEO_RAW))
+                DefineParam(mAttrib, C2_PARAMKEY_COMPONENT_ATTRIBUTES)
+                .withConstValue(new C2ComponentAttributesSetting(C2Component::ATTRIB_IS_TEMPORAL))
                 .build());
 
         addParameter(
-                DefineParam(mSize, C2_NAME_STREAM_VIDEO_SIZE_INFO)
-                .withDefault(new C2VideoSizeStreamInfo::output(0u, 320, 240))
+                DefineParam(mSize, C2_PARAMKEY_PICTURE_SIZE)
+                .withDefault(new C2StreamPictureSizeInfo::output(0u, 320, 240))
                 .withFields({
                     C2F(mSize, width).inRange(2, 2048, 2),
                     C2F(mSize, height).inRange(2, 2048, 2),
                 })
                 .withSetter(SizeSetter)
                 .build());
+
+#ifdef VP9
+        // TODO: Add C2Config::PROFILE_VP9_2HDR ??
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withDefault(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_VP9_0, C2Config::LEVEL_VP9_5))
+                .withFields({
+                    C2F(mProfileLevel, profile).oneOf({
+                            C2Config::PROFILE_VP9_0,
+                            C2Config::PROFILE_VP9_2}),
+                    C2F(mProfileLevel, level).oneOf({
+                            C2Config::LEVEL_VP9_1,
+                            C2Config::LEVEL_VP9_1_1,
+                            C2Config::LEVEL_VP9_2,
+                            C2Config::LEVEL_VP9_2_1,
+                            C2Config::LEVEL_VP9_3,
+                            C2Config::LEVEL_VP9_3_1,
+                            C2Config::LEVEL_VP9_4,
+                            C2Config::LEVEL_VP9_4_1,
+                            C2Config::LEVEL_VP9_5,
+                    })
+                })
+                .withSetter(ProfileLevelSetter, mSize)
+                .build());
+#else
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withConstValue(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_UNUSED, C2Config::LEVEL_UNUSED))
+                .build());
+#endif
+
+        C2ChromaOffsetStruct locations[1] = { C2ChromaOffsetStruct::ITU_YUV_420_0() };
+        std::shared_ptr<C2StreamColorInfo::output> defaultColorInfo =
+            C2StreamColorInfo::output::AllocShared(
+                    1u, 0u, 8u /* bitDepth */, C2Color::YUV_420);
+        memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
+
+        defaultColorInfo =
+            C2StreamColorInfo::output::AllocShared(
+                    { C2ChromaOffsetStruct::ITU_YUV_420_0() },
+                    0u, 8u /* bitDepth */, C2Color::YUV_420);
+
+        addParameter(
+                DefineParam(mColorInfo, C2_PARAMKEY_CODED_COLOR_INFO)
+                .withConstValue(defaultColorInfo)
+                .build());
+
+        // TODO: support more formats?
+        addParameter(
+                DefineParam(mPixelFormat, C2_PARAMKEY_PIXEL_FORMAT)
+                .withConstValue(new C2StreamPixelFormatInfo::output(
+                                     0u, HAL_PIXEL_FORMAT_YCBCR_420_888))
+                .build());
     }
 
-    static C2R SizeSetter(bool mayBlock, C2P<C2VideoSizeStreamInfo::output> &me) {
+    static C2R SizeSetter(bool mayBlock, const C2P<C2VideoSizeStreamInfo::output> &oldMe,
+                          C2P<C2VideoSizeStreamInfo::output> &me) {
         (void)mayBlock;
-        // TODO: maybe apply block limit?
-        return me.F(me.v.width).validatePossible(me.v.width).plus(
-                me.F(me.v.height).validatePossible(me.v.height));
+        C2R res = C2R::Ok();
+        if (!me.F(me.v.width).supportsAtAll(me.v.width)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.width)));
+            me.set().width = oldMe.v.width;
+        }
+        if (!me.F(me.v.height).supportsAtAll(me.v.height)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.height)));
+            me.set().height = oldMe.v.height;
+        }
+        return res;
+    }
+
+    static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::input> &me,
+                                  const C2P<C2StreamPictureSizeInfo::output> &size) {
+        (void)mayBlock;
+        (void)size;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
     }
 
 private:
-    std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
-    std::shared_ptr<C2StreamFormatConfig::output> mOutputFormat;
-    std::shared_ptr<C2PortMimeConfig::input> mInputMediaType;
-    std::shared_ptr<C2PortMimeConfig::output> mOutputMediaType;
+    std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
     std::shared_ptr<C2VideoSizeStreamInfo::output> mSize;
+    std::shared_ptr<C2StreamColorInfo::output> mColorInfo;
+    std::shared_ptr<C2StreamPixelFormatInfo::output> mPixelFormat;
 };
 
-C2SoftVpx::C2SoftVpx(
+C2SoftVpxDec::C2SoftVpxDec(
         const char *name,
         c2_node_id_t id,
         const std::shared_ptr<IntfImpl> &intfImpl)
@@ -104,23 +167,23 @@ C2SoftVpx::C2SoftVpx(
       mCodecCtx(nullptr) {
 }
 
-C2SoftVpx::~C2SoftVpx() {
+C2SoftVpxDec::~C2SoftVpxDec() {
     onRelease();
 }
 
-c2_status_t C2SoftVpx::onInit() {
+c2_status_t C2SoftVpxDec::onInit() {
     status_t err = initDecoder();
     return err == OK ? C2_OK : C2_CORRUPTED;
 }
 
-c2_status_t C2SoftVpx::onStop() {
+c2_status_t C2SoftVpxDec::onStop() {
     mSignalledError = false;
     mSignalledOutputEos = false;
 
     return C2_OK;
 }
 
-void C2SoftVpx::onReset() {
+void C2SoftVpxDec::onReset() {
     (void)onStop();
     c2_status_t err = onFlush_sm();
     if (err != C2_OK)
@@ -131,11 +194,11 @@ void C2SoftVpx::onReset() {
     }
 }
 
-void C2SoftVpx::onRelease() {
+void C2SoftVpxDec::onRelease() {
     destroyDecoder();
 }
 
-c2_status_t C2SoftVpx::onFlush_sm() {
+c2_status_t C2SoftVpxDec::onFlush_sm() {
     if (mFrameParallelMode) {
         // Flush decoder by passing nullptr data ptr and 0 size.
         // Ideally, this should never fail.
@@ -168,7 +231,7 @@ static int GetCPUCoreCount() {
     return cpuCoreCount;
 }
 
-status_t C2SoftVpx::initDecoder() {
+status_t C2SoftVpxDec::initDecoder() {
 #ifdef VP9
     mMode = MODE_VP9;
 #else
@@ -204,7 +267,7 @@ status_t C2SoftVpx::initDecoder() {
     return OK;
 }
 
-status_t C2SoftVpx::destroyDecoder() {
+status_t C2SoftVpxDec::destroyDecoder() {
     if  (mCodecCtx) {
         vpx_codec_destroy(mCodecCtx);
         delete mCodecCtx;
@@ -226,7 +289,7 @@ void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
     work->workletsProcessed = 1u;
 }
 
-void C2SoftVpx::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
+void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
                            const std::shared_ptr<C2GraphicBlock> &block) {
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(block,
                                                            C2Rect(mWidth, mHeight));
@@ -250,7 +313,7 @@ void C2SoftVpx::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
     }
 }
 
-void C2SoftVpx::process(
+void C2SoftVpxDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
     work->result = C2_OK;
@@ -346,7 +409,7 @@ static void copyOutputBufferToYV12Frame(uint8_t *dst,
     }
 }
 
-bool C2SoftVpx::outputBuffer(
+bool C2SoftVpxDec::outputBuffer(
         const std::shared_ptr<C2BlockPool> &pool,
         const std::unique_ptr<C2Work> &work)
 {
@@ -415,7 +478,7 @@ bool C2SoftVpx::outputBuffer(
     return true;
 }
 
-c2_status_t C2SoftVpx::drainInternal(
+c2_status_t C2SoftVpxDec::drainInternal(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool,
         const std::unique_ptr<C2Work> &work) {
@@ -438,7 +501,7 @@ c2_status_t C2SoftVpx::drainInternal(
 
     return C2_OK;
 }
-c2_status_t C2SoftVpx::drain(
+c2_status_t C2SoftVpxDec::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
     return drainInternal(drainMode, pool, nullptr);
@@ -455,8 +518,8 @@ public:
             std::shared_ptr<C2Component>* const component,
             std::function<void(C2Component*)> deleter) override {
         *component = std::shared_ptr<C2Component>(
-            new C2SoftVpx(COMPONENT_NAME, id,
-                          std::make_shared<C2SoftVpx::IntfImpl>(mHelper)),
+            new C2SoftVpxDec(COMPONENT_NAME, id,
+                          std::make_shared<C2SoftVpxDec::IntfImpl>(mHelper)),
             deleter);
         return C2_OK;
     }
@@ -466,9 +529,9 @@ public:
             std::shared_ptr<C2ComponentInterface>* const interface,
             std::function<void(C2ComponentInterface*)> deleter) override {
         *interface = std::shared_ptr<C2ComponentInterface>(
-            new SimpleInterface<C2SoftVpx::IntfImpl>(
+            new SimpleInterface<C2SoftVpxDec::IntfImpl>(
                 COMPONENT_NAME, id,
-                std::make_shared<C2SoftVpx::IntfImpl>(mHelper)),
+                std::make_shared<C2SoftVpxDec::IntfImpl>(mHelper)),
             deleter);
         return C2_OK;
     }
