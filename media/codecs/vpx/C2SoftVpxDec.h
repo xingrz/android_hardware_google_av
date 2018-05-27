@@ -25,12 +25,12 @@
 
 namespace android {
 
-struct C2SoftVpx : public SimpleC2Component {
+struct C2SoftVpxDec : public SimpleC2Component {
     class IntfImpl;
 
-    C2SoftVpx(const char* name, c2_node_id_t id,
+    C2SoftVpxDec(const char* name, c2_node_id_t id,
               const std::shared_ptr<IntfImpl>& intfImpl);
-    virtual ~C2SoftVpx();
+    virtual ~C2SoftVpxDec();
 
     // From SimpleC2Component
     c2_status_t onInit() override;
@@ -71,7 +71,7 @@ struct C2SoftVpx : public SimpleC2Component {
             const std::shared_ptr<C2BlockPool> &pool,
             const std::unique_ptr<C2Work> &work);
 
-    C2_DO_NOT_COPY(C2SoftVpx);
+    C2_DO_NOT_COPY(C2SoftVpxDec);
 };
 
 }  // namespace android

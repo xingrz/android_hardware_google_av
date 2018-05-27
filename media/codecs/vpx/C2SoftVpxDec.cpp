@@ -35,7 +35,7 @@ constexpr char COMPONENT_NAME[] = "c2.android.vp9.decoder";
 constexpr char COMPONENT_NAME[] = "c2.android.vp8.decoder";
 #endif
 
-class C2SoftVpx::IntfImpl : public SimpleInterface<void>::BaseParams {
+class C2SoftVpxDec::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
         : SimpleInterface<void>::BaseParams(
@@ -96,6 +96,12 @@ public:
                 })
                 .withSetter(ProfileLevelSetter, mSize)
                 .build());
+#else
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withConstValue(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_UNUSED, C2Config::LEVEL_UNUSED))
+                .build());
 #endif
 
         C2ChromaOffsetStruct locations[1] = { C2ChromaOffsetStruct::ITU_YUV_420_0() };
@@ -152,7 +158,7 @@ private:
     std::shared_ptr<C2StreamPixelFormatInfo::output> mPixelFormat;
 };
 
-C2SoftVpx::C2SoftVpx(
+C2SoftVpxDec::C2SoftVpxDec(
         const char *name,
         c2_node_id_t id,
         const std::shared_ptr<IntfImpl> &intfImpl)
@@ -161,23 +167,23 @@ C2SoftVpx::C2SoftVpx(
       mCodecCtx(nullptr) {
 }
 
-C2SoftVpx::~C2SoftVpx() {
+C2SoftVpxDec::~C2SoftVpxDec() {
     onRelease();
 }
 
-c2_status_t C2SoftVpx::onInit() {
+c2_status_t C2SoftVpxDec::onInit() {
     status_t err = initDecoder();
     return err == OK ? C2_OK : C2_CORRUPTED;
 }
 
-c2_status_t C2SoftVpx::onStop() {
+c2_status_t C2SoftVpxDec::onStop() {
     mSignalledError = false;
     mSignalledOutputEos = false;
 
     return C2_OK;
 }
 
-void C2SoftVpx::onReset() {
+void C2SoftVpxDec::onReset() {
     (void)onStop();
     c2_status_t err = onFlush_sm();
     if (err != C2_OK)
@@ -188,11 +194,11 @@ void C2SoftVpx::onReset() {
     }
 }
 
-void C2SoftVpx::onRelease() {
+void C2SoftVpxDec::onRelease() {
     destroyDecoder();
 }
 
-c2_status_t C2SoftVpx::onFlush_sm() {
+c2_status_t C2SoftVpxDec::onFlush_sm() {
     if (mFrameParallelMode) {
         // Flush decoder by passing nullptr data ptr and 0 size.
         // Ideally, this should never fail.
@@ -225,7 +231,7 @@ static int GetCPUCoreCount() {
     return cpuCoreCount;
 }
 
-status_t C2SoftVpx::initDecoder() {
+status_t C2SoftVpxDec::initDecoder() {
 #ifdef VP9
     mMode = MODE_VP9;
 #else
@@ -261,7 +267,7 @@ status_t C2SoftVpx::initDecoder() {
     return OK;
 }
 
-status_t C2SoftVpx::destroyDecoder() {
+status_t C2SoftVpxDec::destroyDecoder() {
     if  (mCodecCtx) {
         vpx_codec_destroy(mCodecCtx);
         delete mCodecCtx;
@@ -283,7 +289,7 @@ void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
     work->workletsProcessed = 1u;
 }
 
-void C2SoftVpx::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
+void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
                            const std::shared_ptr<C2GraphicBlock> &block) {
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(block,
                                                            C2Rect(mWidth, mHeight));
@@ -307,7 +313,7 @@ void C2SoftVpx::finishWork(uint64_t index, const std::unique_ptr<C2Work> &work,
     }
 }
 
-void C2SoftVpx::process(
+void C2SoftVpxDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
     work->result = C2_OK;
@@ -403,7 +409,7 @@ static void copyOutputBufferToYV12Frame(uint8_t *dst,
     }
 }
 
-bool C2SoftVpx::outputBuffer(
+bool C2SoftVpxDec::outputBuffer(
         const std::shared_ptr<C2BlockPool> &pool,
         const std::unique_ptr<C2Work> &work)
 {
@@ -472,7 +478,7 @@ bool C2SoftVpx::outputBuffer(
     return true;
 }
 
-c2_status_t C2SoftVpx::drainInternal(
+c2_status_t C2SoftVpxDec::drainInternal(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool,
         const std::unique_ptr<C2Work> &work) {
@@ -495,7 +501,7 @@ c2_status_t C2SoftVpx::drainInternal(
 
     return C2_OK;
 }
-c2_status_t C2SoftVpx::drain(
+c2_status_t C2SoftVpxDec::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
     return drainInternal(drainMode, pool, nullptr);
@@ -512,8 +518,8 @@ public:
             std::shared_ptr<C2Component>* const component,
             std::function<void(C2Component*)> deleter) override {
         *component = std::shared_ptr<C2Component>(
-            new C2SoftVpx(COMPONENT_NAME, id,
-                          std::make_shared<C2SoftVpx::IntfImpl>(mHelper)),
+            new C2SoftVpxDec(COMPONENT_NAME, id,
+                          std::make_shared<C2SoftVpxDec::IntfImpl>(mHelper)),
             deleter);
         return C2_OK;
     }
@@ -523,9 +529,9 @@ public:
             std::shared_ptr<C2ComponentInterface>* const interface,
             std::function<void(C2ComponentInterface*)> deleter) override {
         *interface = std::shared_ptr<C2ComponentInterface>(
-            new SimpleInterface<C2SoftVpx::IntfImpl>(
+            new SimpleInterface<C2SoftVpxDec::IntfImpl>(
                 COMPONENT_NAME, id,
-                std::make_shared<C2SoftVpx::IntfImpl>(mHelper)),
+                std::make_shared<C2SoftVpxDec::IntfImpl>(mHelper)),
             deleter);
         return C2_OK;
     }
