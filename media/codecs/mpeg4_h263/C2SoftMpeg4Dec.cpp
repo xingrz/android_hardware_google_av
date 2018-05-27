@@ -40,42 +40,36 @@ constexpr char COMPONENT_NAME[] = "c2.android.mpeg4.decoder";
 constexpr char COMPONENT_NAME[] = "c2.android.h263.decoder";
 #endif
 
-class C2SoftMpeg4Dec::IntfImpl : public C2InterfaceHelper {
+class C2SoftMpeg4Dec::IntfImpl : public SimpleInterface<void>::BaseParams {
 public:
     explicit IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helper)
-        : C2InterfaceHelper(helper) {
-
-        setDerivedInstance(this);
-
-        addParameter(
-                DefineParam(mInputFormat, C2_NAME_INPUT_STREAM_FORMAT_SETTING)
-                .withConstValue(new C2StreamFormatConfig::input(0u, C2FormatCompressed))
-                .build());
-
-        addParameter(
-                DefineParam(mOutputFormat, C2_NAME_OUTPUT_STREAM_FORMAT_SETTING)
-                .withConstValue(new C2StreamFormatConfig::output(0u, C2FormatVideo))
-                .build());
-
-        addParameter(
-                DefineParam(mInputMediaType, C2_NAME_INPUT_PORT_MIME_SETTING)
-                .withConstValue(AllocSharedString<C2PortMimeConfig::input>(
+        : SimpleInterface<void>::BaseParams(
+                helper,
+                COMPONENT_NAME,
+                C2Component::KIND_DECODER,
+                C2Component::DOMAIN_VIDEO,
 #ifdef MPEG4
-                        MEDIA_MIMETYPE_VIDEO_MPEG4
+                MEDIA_MIMETYPE_VIDEO_MPEG4
 #else
-                        MEDIA_MIMETYPE_VIDEO_H263
+                MEDIA_MIMETYPE_VIDEO_H263
 #endif
-                )).build());
+                ) {
+        noPrivateBuffers(); // TODO: account for our buffers here
+        noInputReferences();
+        noOutputReferences();
+        noInputLatency();
+        noTimeStretch();
+
+        // TODO: output latency and reordering
 
         addParameter(
-                DefineParam(mOutputMediaType, C2_NAME_OUTPUT_PORT_MIME_SETTING)
-                .withConstValue(AllocSharedString<C2PortMimeConfig::output>(
-                        MEDIA_MIMETYPE_VIDEO_RAW))
+                DefineParam(mAttrib, C2_PARAMKEY_COMPONENT_ATTRIBUTES)
+                .withConstValue(new C2ComponentAttributesSetting(C2Component::ATTRIB_IS_TEMPORAL))
                 .build());
 
         addParameter(
-            DefineParam(mSize, C2_NAME_STREAM_VIDEO_SIZE_INFO)
-                .withDefault(new C2VideoSizeStreamInfo::output(0u, 176, 144))
+                DefineParam(mSize, C2_PARAMKEY_PICTURE_SIZE)
+                .withDefault(new C2StreamPictureSizeInfo::output(0u, 176, 144))
                 .withFields({
 #ifdef MPEG4
                     C2F(mSize, width).inRange(16, 352, 2),
@@ -87,21 +81,96 @@ public:
                 })
                 .withSetter(SizeSetter)
                 .build());
+
+#ifdef MPEG4
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withDefault(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_MP4V_SIMPLE, C2Config::LEVEL_MP4V_3))
+                .withFields({
+                    C2F(mProfileLevel, profile).equalTo(
+                            C2Config::PROFILE_MP4V_SIMPLE),
+                    C2F(mProfileLevel, level).oneOf({
+                            C2Config::LEVEL_MP4V_0,
+                            C2Config::LEVEL_MP4V_0B,
+                            C2Config::LEVEL_MP4V_1,
+                            C2Config::LEVEL_MP4V_2,
+                            C2Config::LEVEL_MP4V_3})
+                })
+                .withSetter(ProfileLevelSetter, mSize)
+                .build());
+#else
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withDefault(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_H263_BASELINE, C2Config::LEVEL_H263_30))
+                .withFields({
+                    C2F(mProfileLevel, profile).oneOf({
+                            C2Config::PROFILE_H263_BASELINE,
+                            C2Config::PROFILE_H263_ISWV2}),
+                    C2F(mProfileLevel, level).oneOf({
+                            C2Config::LEVEL_H263_10,
+                            C2Config::LEVEL_H263_20,
+                            C2Config::LEVEL_H263_30,
+                            C2Config::LEVEL_H263_40,
+                            C2Config::LEVEL_H263_45})
+                })
+                .withSetter(ProfileLevelSetter, mSize)
+                .build());
+#endif
+
+        C2ChromaOffsetStruct locations[1] = { C2ChromaOffsetStruct::ITU_YUV_420_0() };
+        std::shared_ptr<C2StreamColorInfo::output> defaultColorInfo =
+            C2StreamColorInfo::output::AllocShared(
+                    1u, 0u, 8u /* bitDepth */, C2Color::YUV_420);
+        memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
+
+        defaultColorInfo =
+            C2StreamColorInfo::output::AllocShared(
+                    { C2ChromaOffsetStruct::ITU_YUV_420_0() },
+                    0u, 8u /* bitDepth */, C2Color::YUV_420);
+
+        addParameter(
+                DefineParam(mColorInfo, C2_PARAMKEY_CODED_COLOR_INFO)
+                .withConstValue(defaultColorInfo)
+                .build());
+
+        // TODO: support more formats?
+        addParameter(
+                DefineParam(mPixelFormat, C2_PARAMKEY_PIXEL_FORMAT)
+                .withConstValue(new C2StreamPixelFormatInfo::output(
+                                     0u, HAL_PIXEL_FORMAT_YCBCR_420_888))
+                .build());
     }
 
-    static C2R SizeSetter(bool mayBlock, C2P<C2VideoSizeStreamInfo::output> &me) {
+    static C2R SizeSetter(bool mayBlock, const C2P<C2VideoSizeStreamInfo::output> &oldMe,
+                          C2P<C2VideoSizeStreamInfo::output> &me) {
         (void)mayBlock;
-        // TODO: maybe apply block limit?
-        return me.F(me.v.width).validatePossible(me.v.width).plus(
-                me.F(me.v.height).validatePossible(me.v.height));
+        C2R res = C2R::Ok();
+        if (!me.F(me.v.width).supportsAtAll(me.v.width)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.width)));
+            me.set().width = oldMe.v.width;
+        }
+        if (!me.F(me.v.height).supportsAtAll(me.v.height)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.height)));
+            me.set().height = oldMe.v.height;
+        }
+        return res;
+    }
+
+    static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::input> &me,
+                                  const C2P<C2StreamPictureSizeInfo::output> &size) {
+        (void)mayBlock;
+        (void)size;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
     }
 
 private:
-    std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
-    std::shared_ptr<C2StreamFormatConfig::output> mOutputFormat;
-    std::shared_ptr<C2PortMimeConfig::input> mInputMediaType;
-    std::shared_ptr<C2PortMimeConfig::output> mOutputMediaType;
+    std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
     std::shared_ptr<C2VideoSizeStreamInfo::output> mSize;
+    std::shared_ptr<C2StreamColorInfo::output> mColorInfo;
+    std::shared_ptr<C2StreamPixelFormatInfo::output> mPixelFormat;
 };
 
 C2SoftMpeg4Dec::C2SoftMpeg4Dec(
