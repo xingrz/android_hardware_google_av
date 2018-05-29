@@ -517,7 +517,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
         return;
     }
 
-    auto doConfig = [msg, comp, this] {
+    auto doConfig = [msg, comp, this]() -> status_t {
         AString mime;
         if (!msg->findString("mime", &mime)) {
             return BAD_VALUE;
@@ -560,6 +560,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
         err = config->setParameters(comp, configUpdate, C2_DONT_BLOCK);
         if (err != OK) {
             ALOGW("failed to configure c2 params");
+            return err;
         }
 
         std::vector<std::unique_ptr<C2Param>> params;
