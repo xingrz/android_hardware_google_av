@@ -839,6 +839,7 @@ void CCodec::initiateStop() {
         state->set(STOPPING);
     }
 
+    mChannel->stop();
     (new AMessage(kWhatStop, this))->post();
 }
 
@@ -860,7 +861,6 @@ void CCodec::stop() {
         }
         comp = state->comp;
     }
-    mChannel->stop();
     status_t err = comp->stop();
     if (err != C2_OK) {
         // TODO: convert err into status_t
@@ -901,6 +901,7 @@ void CCodec::initiateRelease(bool sendCallback /* = true */) {
         state->set(RELEASING);
     }
 
+    mChannel->stop();
     std::thread([this, sendCallback] { release(sendCallback); }).detach();
 }
 
@@ -918,7 +919,6 @@ void CCodec::release(bool sendCallback) {
         }
         comp = state->comp;
     }
-    mChannel->stop();
     comp->release();
 
     {
@@ -958,6 +958,7 @@ void CCodec::signalFlush() {
             return;
     }
 
+    mChannel->stop();
     (new AMessage(kWhatFlush, this))->post();
 }
 
@@ -974,8 +975,6 @@ void CCodec::flush() {
     if (tryAndReportOnError(checkFlushing) != OK) {
         return;
     }
-
-    mChannel->stop();
 
     std::list<std::unique_ptr<C2Work>> flushedWork;
     c2_status_t err = comp->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
