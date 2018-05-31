@@ -53,7 +53,7 @@ public:
      *
      * @param producer      the IGBP, which will be used to fetch blocks
      */
-    void configureProducer(const android::sp<android::HGraphicBufferProducer> &producer);
+    virtual void configureProducer(const android::sp<android::HGraphicBufferProducer> &producer);
 
     class Impl;
 private:
