@@ -1226,7 +1226,7 @@ status_t CCodecBufferChannel::setInputSurface(
         const std::shared_ptr<InputSurfaceWrapper> &surface) {
     ALOGV("setInputSurface");
     mInputSurface = surface;
-    return OK;
+    return mInputSurface->connect(mComponent);
 }
 
 status_t CCodecBufferChannel::signalEndOfInputStream() {
@@ -1972,8 +1972,6 @@ status_t CCodecBufferChannel::start(
                 mCallback->onInputBufferAvailable(index, buffer);
             }
         }
-    } else {
-        (void)mInputSurface->connect(mComponent);
     }
     return OK;
 }
