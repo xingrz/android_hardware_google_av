@@ -90,6 +90,7 @@ public:
             C2StreamColorInfo::output::AllocShared(
                     { C2ChromaOffsetStruct::ITU_YUV_420_0() },
                     0u, 8u /* bitDepth */, C2Color::YUV_420);
+        helper->addStructDescriptors<C2ChromaOffsetStruct>();
 
         addParameter(
                 DefineParam(mColorInfo, C2_PARAMKEY_CODED_COLOR_INFO)
