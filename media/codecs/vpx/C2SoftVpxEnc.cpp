@@ -477,8 +477,25 @@ void C2SoftVpxEnc::process(
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
     }
 
+    std::shared_ptr<const C2GraphicView> rView;
+    std::shared_ptr<C2Buffer> inputBuffer;
+    if (!work->input.buffers.empty()) {
+        inputBuffer = work->input.buffers[0];
+        rView = std::make_shared<const C2GraphicView>(
+                    inputBuffer->data().graphicBlocks().front().map().get());
+        if (rView->error() != C2_OK) {
+            ALOGE("graphic view map err = %d", rView->error());
+            work->result = C2_CORRUPTED;
+            return;
+        }
+    } else {
+        ALOGE("Empty input Buffer");
+        work->result = C2_BAD_VALUE;
+        return;
+    }
+
     const C2ConstGraphicBlock inBuffer =
-        work->input.buffers[0]->data().graphicBlocks().front();
+        inputBuffer->data().graphicBlocks().front();
     if (inBuffer.width() != mIntf->getWidth() ||
         inBuffer.height() != mIntf->getHeight()) {
         ALOGE("unexpected Input buffer attributes %d(%d) x %d(%d)",
@@ -487,19 +504,13 @@ void C2SoftVpxEnc::process(
         work->result = C2_BAD_VALUE;
         return;
     }
-    const C2GraphicView rView = work->input.buffers[0]->data().graphicBlocks().front().map().get();
-    if (rView.error() != C2_OK) {
-        ALOGE("graphic view map err = %d", rView.error());
-        work->result = C2_CORRUPTED;
-        return;
-    }
     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-    const C2PlanarLayout &layout = rView.layout();
+    const C2PlanarLayout &layout = rView->layout();
     switch (layout.type) {
         case C2PlanarLayout::TYPE_RGB:
         case C2PlanarLayout::TYPE_RGBA: {
             ConvertRGBToPlanarYUV(mConversionBuffer, mIntf->getWidth(),
-                                  mIntf->getHeight(), rView);
+                                  mIntf->getHeight(), *rView.get());
             break;
         }
         default:
