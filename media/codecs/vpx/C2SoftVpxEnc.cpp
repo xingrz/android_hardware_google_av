@@ -457,7 +457,7 @@ void C2SoftVpxEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -554,6 +554,7 @@ void C2SoftVpxEnc::process(
         return;
     }
 
+    bool populated = false;
     vpx_codec_iter_t encoded_packet_iterator = nullptr;
     const vpx_codec_cx_pkt_t* encoded_packet;
     while ((encoded_packet = vpx_codec_get_cx_data(
@@ -588,11 +589,15 @@ void C2SoftVpxEnc::process(
             work->worklets.front()->output.ordinal = work->input.ordinal;
             work->worklets.front()->output.ordinal.timestamp = encoded_packet->data.frame.pts;
             work->workletsProcessed = 1u;
+            populated = true;
             if (eos) {
                 mSignalledOutputEos = true;
                 ALOGV("signalled EOS");
             }
         }
+    }
+    if (!populated) {
+        work->workletsProcessed = 0u;
     }
 }
 

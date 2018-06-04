@@ -1226,7 +1226,7 @@ status_t CCodecBufferChannel::setInputSurface(
         const std::shared_ptr<InputSurfaceWrapper> &surface) {
     ALOGV("setInputSurface");
     mInputSurface = surface;
-    return OK;
+    return mInputSurface->connect(mComponent);
 }
 
 status_t CCodecBufferChannel::signalEndOfInputStream() {
@@ -1255,7 +1255,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     work->input.ordinal.timestamp = timeUs;
     work->input.ordinal.frameIndex = mFrameIndex++;
     work->input.buffers.clear();
-    {
+    if (buffer->size() > 0u) {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         std::shared_ptr<C2Buffer> c2buffer;
         if (!(*buffers)->releaseBuffer(buffer, &c2buffer)) {
@@ -1972,8 +1972,6 @@ status_t CCodecBufferChannel::start(
                 mCallback->onInputBufferAvailable(index, buffer);
             }
         }
-    } else {
-        (void)mInputSurface->connect(mComponent);
     }
     return OK;
 }
