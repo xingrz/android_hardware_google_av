@@ -60,7 +60,8 @@ bool Codec2Buffer::canCopyLinear(const std::shared_ptr<C2Buffer> &buffer) const 
 
 bool Codec2Buffer::copyLinear(const std::shared_ptr<C2Buffer> &buffer) {
     // We assume that all canCopyLinear() checks passed.
-    if (!buffer || buffer->data().linearBlocks().size() == 0u) {
+    if (!buffer || buffer->data().linearBlocks().size() == 0u
+            || buffer->data().linearBlocks()[0].size() == 0u) {
         setRange(0, 0);
         return true;
     }
