@@ -138,7 +138,6 @@ C2SoftXaacDec::C2SoftXaacDec(
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
         mIntf(intfImpl),
         mXheaacCodecHandle(nullptr),
-        mMemoryArray{nullptr},
         mOutputDrainBuffer(nullptr) {
 }
 
@@ -180,7 +179,7 @@ c2_status_t C2SoftXaacDec::onStop() {
     mCurTimestamp = 0;
     mIsCodecInitialized = false;
     mIsCodecConfigFlushRequired = false;
-    for (int i = 0; i < MAX_MEM_ALLOCS; i++) mMemoryArray[i] = nullptr;
+    mMemoryVec.clear();
     mSignalledOutputEos = false;
     mSignalledError = false;
     mOutputDrainBufferWritePos = 0;
@@ -568,7 +567,6 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     mInputBufferSize = 0;
     mInputBuffer = nullptr;
     mOutputBuffer = nullptr;
-    mMallocCount = 0;
     /* Process struct initing end */
 
     /* ******************************************************************/
@@ -584,17 +582,12 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     RETURN_IF_FATAL(err_code,  "IA_API_CMD_GET_API_SIZE");
 
     /* Allocate memory for API */
-    if (!mMemoryArray[mMallocCount]) {
-        mMemoryArray[mMallocCount] = memalign(4, pui_api_size);
-        if (!mMemoryArray[mMallocCount]) {
-            ALOGE("malloc for pui_api_size + 4 >> %d Failed", pui_api_size + 4);
-            return IA_FATAL_ERROR;
-        }
+    mXheaacCodecHandle = memalign(4, pui_api_size);
+    if (!mXheaacCodecHandle) {
+        ALOGE("malloc for pui_api_size + 4 >> %d Failed", pui_api_size + 4);
+        return IA_FATAL_ERROR;
     }
-
-    /* Set API object with the memory allocated */
-    mXheaacCodecHandle = (pVOID)((WORD8*)mMemoryArray[mMallocCount]);
-    mMallocCount++;
+    mMemoryVec.push(mXheaacCodecHandle);
 
     /* Set the config params to default values */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -617,6 +610,7 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     /* Initialize Memory info tables                                    */
     /* ******************************************************************/
     uint32_t ui_proc_mem_tabs_size;
+    pVOID pv_alloc_ptr;
     /* Get memory info tables size */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_GET_MEMTABS_SIZE,
@@ -624,21 +618,18 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
                                 &ui_proc_mem_tabs_size);
     RETURN_IF_FATAL(err_code,  "IA_API_CMD_GET_MEMTABS_SIZE");
 
-    if (!mMemoryArray[mMallocCount]) {
-        mMemoryArray[mMallocCount] = memalign(4, ui_proc_mem_tabs_size);
-        if (!mMemoryArray[mMallocCount]) {
-            ALOGE("Malloc for size (ui_proc_mem_tabs_size + 4) = %d failed!", ui_proc_mem_tabs_size + 4);
-            return IA_FATAL_ERROR;
-        }
+    pv_alloc_ptr = memalign(4, ui_proc_mem_tabs_size);
+    if (!pv_alloc_ptr) {
+        ALOGE("Malloc for size (ui_proc_mem_tabs_size + 4) = %d failed!", ui_proc_mem_tabs_size + 4);
+        return IA_FATAL_ERROR;
     }
 
     /* Set pointer for process memory tables    */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_SET_MEMTABS_PTR,
                                 0,
-                                (pVOID)((WORD8*)mMemoryArray[mMallocCount]));
+                                pv_alloc_ptr);
     RETURN_IF_FATAL(err_code,  "IA_API_CMD_SET_MEMTABS_PTR");
-    mMallocCount++;
 
     /* initialize the API, post config, fill memory tables  */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -676,16 +667,12 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
                                     &ui_type);
         RETURN_IF_FATAL(err_code,  "IA_API_CMD_GET_MEM_INFO_TYPE");
 
-        if (!mMemoryArray[mMallocCount]) {
-            mMemoryArray[mMallocCount] = memalign(ui_alignment, ui_size);
-            if (!mMemoryArray[mMallocCount]) {
-                ALOGE("Malloc for size (ui_size + ui_alignment) = %d failed!",
-                       ui_size + ui_alignment);
-                return IA_FATAL_ERROR;
-            }
+        pv_alloc_ptr = memalign(ui_alignment, ui_size);
+        if (!pv_alloc_ptr) {
+            ALOGE("Malloc for size (ui_size + ui_alignment) = %d failed!",
+                   ui_size + ui_alignment);
+            return IA_FATAL_ERROR;
         }
-        pVOID pv_alloc_ptr = (pVOID)((WORD8*)mMemoryArray[mMallocCount]);
-        mMallocCount++;
 
         /* Set the buffer pointer */
         err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -777,14 +764,11 @@ IA_ERRORCODE C2SoftXaacDec::deInitXAACDecoder() {
                                 0,
                                 NULL);
 
-
-    for (int i = 0; i < mMallocCount; i++) {
-        if (mMemoryArray[i]) {
-            free(mMemoryArray[i]);
-            mMemoryArray[i] = nullptr;
-        }
+    /* Irrespective of error returned in IA_API_CMD_INPUT_OVER, free allocated memory */
+    for (void* buf : mMemoryVec) {
+        free(buf);
     }
-    mMallocCount = 0;
+    mMemoryVec.clear();
 
     return err_code;
 }

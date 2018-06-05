@@ -16,7 +16,7 @@
 
 #ifndef ANDROID_C2_SOFT_XAAC_DEC_H_
 #define ANDROID_C2_SOFT_XAAC_DEC_H_
-
+#include <utils/Vector.h>
 #include <SimpleC2Component.h>
 
 #include "ixheaacd_type_def.h"
@@ -26,7 +26,6 @@
 #include "ixheaacd_memory_standards.h"
 #include "ixheaacd_aac_config.h"
 
-#define MAX_MEM_ALLOCS              100
 #define MAX_CHANNEL_COUNT           8  /* maximum number of audio channels that can be decoded */
 #define MAX_NUM_BLOCKS              8  /* maximum number of audio blocks that can be decoded */
 
@@ -76,8 +75,7 @@ private:
     bool mIsCodecInitialized;
     bool mIsCodecConfigFlushRequired;
 
-    void* mMemoryArray[MAX_MEM_ALLOCS];
-    int32_t mMallocCount;
+    Vector<void*> mMemoryVec;
 
     size_t mInputBufferCount __unused;
     size_t mOutputBufferCount __unused;
