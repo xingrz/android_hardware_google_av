@@ -413,7 +413,19 @@ void SimpleC2Component::processQueue() {
         return;
     }
 
-    process(work, mOutputBlockPool);
+    if (!work->input.buffers.empty()) {
+        process(work, mOutputBlockPool);
+    } else {
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
+        if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
+            drain(DRAIN_COMPONENT_WITH_EOS, mOutputBlockPool);
+            work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
+        }
+        work->worklets.front()->output.buffers.clear();
+        work->worklets.front()->output.ordinal = work->input.ordinal;
+        work->workletsProcessed = 1u;
+        work->result = C2_OK;
+    }
     ALOGV("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);

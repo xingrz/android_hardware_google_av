@@ -16,9 +16,9 @@
 
 #define LOG_NDEBUG 0
 #define LOG_TAG "CCodec"
-#include <cutils/properties.h>
 #include <utils/Log.h>
 
+#include <sstream>
 #include <thread>
 
 #include <C2Config.h>
@@ -162,6 +162,11 @@ public:
         return OK;
     }
 
+    status_t configure(Config &config __unused) {
+        // TODO
+        return OK;
+    }
+
 private:
     std::shared_ptr<Codec2Client::InputSurface> mSurface;
     std::shared_ptr<Codec2Client::InputSurfaceConnection> mConnection;
@@ -186,6 +191,7 @@ public:
         mSource->configure(mNode, dataSpace);
 
         // TODO: configure according to intf().
+        // TODO: initial color aspects (dataspace)
 
         sp<IOMXBufferSource> source = mNode->getSource();
         if (source == nullptr) {
@@ -213,18 +219,121 @@ public:
         mNode.clear();
     }
 
-    status_t signalEndOfInputStream() override {
-        binder::Status status = mSource->signalEndOfInputStream();
+    status_t GetStatus(const binder::Status &status) {
         status_t err = OK;
-        if (status.isOk()) {
-            return OK;
-        } else if ((err = status.serviceSpecificErrorCode()) != OK) {
-            return err;
-        } else if ((err = status.transactionError()) != OK) {
-            return err;
-        } else {
-            return UNKNOWN_ERROR;
+        if (!status.isOk()) {
+            err = status.serviceSpecificErrorCode();
+            if (err == OK) {
+                err = status.transactionError();
+                if (err == OK) {
+                    // binder status failed, but there is no servie or transaction error
+                    err = UNKNOWN_ERROR;
+                }
+            }
         }
+        return err;
+    }
+
+    status_t signalEndOfInputStream() override {
+        return GetStatus(mSource->signalEndOfInputStream());
+    }
+
+    status_t configure(Config &config) {
+        std::stringstream status;
+        status_t err = OK;
+
+        // handle each configuration granually, in case we need to handle part of the configuration
+        // elsewhere
+
+        // TRICKY: we do not unset frame delay repeating
+        if (config.mMinFps > 0 && config.mMinFps != mConfig.mMinFps) {
+            int64_t us = 1e6 / config.mMinFps + 0.5;
+            status_t res = GetStatus(mSource->setRepeatPreviousFrameDelayUs(us));
+            status << " minFps=" << config.mMinFps << " => repeatDelayUs=" << us;
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mMinFps = config.mMinFps;
+        }
+
+        // TODO: pts gap
+
+        // max fps
+        // TRICKY: we do not unset max fps to 0 unless using fixed fps
+        if ((config.mMaxFps > 0 || (config.mFixedAdjustedFps > 0 && config.mMaxFps == 0))
+                && config.mMaxFps != mConfig.mMaxFps) {
+            status_t res = GetStatus(mSource->setMaxFps(config.mMaxFps));
+            status << " maxFps=" << config.mMaxFps;
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mMaxFps = config.mMaxFps;
+        }
+
+        if (config.mTimeOffsetUs != mConfig.mTimeOffsetUs) {
+            status_t res = GetStatus(mSource->setTimeOffsetUs(config.mTimeOffsetUs));
+            status << " timeOffset " << config.mTimeOffsetUs << "us";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mTimeOffsetUs = config.mTimeOffsetUs;
+        }
+
+        // TODO: time lapse config
+
+        if (config.mStartAtUs != mConfig.mStartAtUs
+                || (config.mStopped != mConfig.mStopped && !config.mStopped)) {
+            status_t res = GetStatus(mSource->setStartTimeUs(config.mStartAtUs));
+            status << " start at " << config.mStartAtUs << "us";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mStartAtUs = config.mStartAtUs;
+            mConfig.mStopped = config.mStopped;
+        }
+
+        // suspend-resume
+        if (config.mSuspended != mConfig.mSuspended) {
+            status_t res = GetStatus(mSource->setSuspend(config.mSuspended, config.mSuspendAtUs));
+            status << " " << (config.mSuspended ? "suspend" : "resume")
+                    << " at " << config.mSuspendAtUs << "us";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mSuspended = config.mSuspended;
+            mConfig.mSuspendAtUs = config.mSuspendAtUs;
+        }
+
+        if (config.mStopped != mConfig.mStopped && config.mStopped) {
+            status_t res = GetStatus(mSource->setStopTimeUs(config.mStopAtUs));
+            status << " stop at " << config.mStopAtUs << "us";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            } else {
+                status << " delayUs";
+                res = GetStatus(mSource->getStopTimeOffsetUs(&config.mInputDelayUs));
+                if (res != OK) {
+                    status << " (=> " << asString(res) << ")";
+                } else {
+                    status << "=" << config.mInputDelayUs << "us";
+                }
+                mConfig.mInputDelayUs = config.mInputDelayUs;
+            }
+            mConfig.mStopAtUs = config.mStopAtUs;
+            mConfig.mStopped = config.mStopped;
+        }
+
+        // color aspects (android._color-aspects)
+
+        // consumer usage
+        ALOGD("ISConfig%s", status.str().c_str());
+        return err;
     }
 
 private:
@@ -232,6 +341,7 @@ private:
     sp<C2OMXNode> mNode;
     uint32_t mWidth;
     uint32_t mHeight;
+    Config mConfig;
 };
 
 class Codec2ClientInterfaceWrapper : public C2ComponentStore {
@@ -551,6 +661,48 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         Mutexed<Config>::Locked config(mConfig);
+
+        /**
+         * Handle input surface configuration
+         */
+        if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))
+                && (config->mDomain & Config::IS_ENCODER)) {
+            config->mISConfig.reset(new InputSurfaceWrapper::Config{});
+            {
+                config->mISConfig->mMinFps = 0;
+                int64_t value;
+                if (msg->findInt64("repeat-previous-frame-after", &value) && value > 0) {
+                    config->mISConfig->mMinFps = 1e6 / value;
+                }
+                (void)msg->findFloat("max-fps-to-encoder", &config->mISConfig->mMaxFps);
+                config->mISConfig->mMinAdjustedFps = 0;
+                config->mISConfig->mFixedAdjustedFps = 0;
+                if (msg->findInt64("max-pts-gap-to-encoder", &value)) {
+                    if (value < 0 && value >= INT32_MIN) {
+                        config->mISConfig->mFixedAdjustedFps = -1e6 / value;
+                    } else if (value > 0 && value <= INT32_MAX) {
+                        config->mISConfig->mMinAdjustedFps = 1e6 / value;
+                    }
+                }
+            }
+
+            {
+                double value;
+                if (!msg->findDouble("time-lapse-fps", &value)) {
+                    config->mISConfig->mCaptureFps = value;
+                }
+            }
+
+            {
+                config->mISConfig->mSuspended = false;
+                config->mISConfig->mSuspendAtUs = -1;
+                int32_t value;
+                if (msg->findInt32("create-input-buffers-suspended", &value) && value) {
+                    config->mISConfig->mSuspended = true;
+                }
+            }
+        }
+
         std::vector<std::unique_ptr<C2Param>> configUpdate;
         status_t err = config->getConfigUpdateFromSdkParams(
                 comp, msg, Config::CONFIG, C2_DONT_BLOCK, &configUpdate);
@@ -719,6 +871,14 @@ status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &s
     status_t err = mChannel->setInputSurface(surface);
     if (err != OK) {
         return err;
+    }
+
+    Mutexed<Config>::Locked config(mConfig);
+    config->mInputSurface = surface;
+    if (config->mISConfig) {
+        surface->configure(*config->mISConfig);
+    } else {
+        ALOGD("ISConfig: no configuration");
     }
 
     // TODO: configure |surface| with other settings.
@@ -1041,6 +1201,34 @@ void CCodec::setParameters(const sp<AMessage> &params) {
     }
 
     Mutexed<Config>::Locked config(mConfig);
+
+    /**
+     * Handle input surface parameters
+     */
+    if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))
+            && (config->mDomain & Config::IS_ENCODER) && config->mInputSurface && config->mISConfig) {
+        (void)params->findInt64("time-offset-us", &config->mISConfig->mTimeOffsetUs);
+
+        if (params->findInt64("skip-frames-before", &config->mISConfig->mStartAtUs)) {
+            config->mISConfig->mStopped = false;
+        } else if (params->findInt64("stop-time-us", &config->mISConfig->mStopAtUs)) {
+            config->mISConfig->mStopped = true;
+        }
+
+        int32_t value;
+        if (params->findInt32("drop-input-frames", &value)) {
+            config->mISConfig->mSuspended = value;
+            config->mISConfig->mSuspendAtUs = -1;
+            (void)params->findInt64("drop-start-time-us", &config->mISConfig->mSuspendAtUs);
+        }
+
+        (void)config->mInputSurface->configure(*config->mISConfig);
+        if (config->mISConfig->mStopped) {
+            config->mInputFormat->setInt64(
+                    "android._stop-time-offset-us", config->mISConfig->mInputDelayUs);
+        }
+    }
+
     std::vector<std::unique_ptr<C2Param>> configUpdate;
     (void)config->getConfigUpdateFromSdkParams(comp, params, Config::PARAM, C2_MAY_BLOCK, &configUpdate);
     if (property_get_bool("debug.stagefright.ccodec_delayed_params", false)) {
