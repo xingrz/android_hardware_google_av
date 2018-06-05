@@ -86,18 +86,18 @@ private:
     short* mOutputDrainBuffer;
     uint32_t mOutputDrainBufferWritePos;
 
-    status_t initDecoder();
-    int configflushDecode();
-    int drainDecoder();
+    IA_ERRORCODE initDecoder();
+    IA_ERRORCODE configflushDecode();
+    IA_ERRORCODE drainDecoder();
 
     void finishWork(const std::unique_ptr<C2Work>& work,
                     const std::shared_ptr<C2BlockPool>& pool);
 
-    status_t initXAACDrc();
-    int initXAACDecoder();
-    int deInitXAACDecoder();
-    int configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength);
-    int decodeXAACStream(uint8_t* inBuffer,
+    IA_ERRORCODE initXAACDrc();
+    IA_ERRORCODE initXAACDecoder();
+    IA_ERRORCODE deInitXAACDecoder();
+    IA_ERRORCODE configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength);
+    IA_ERRORCODE decodeXAACStream(uint8_t* inBuffer,
                          uint32_t inBufferLength,
                          int32_t* bytesConsumed,
                          int32_t* outBytes);

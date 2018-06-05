@@ -162,8 +162,8 @@ c2_status_t C2SoftXaacDec::onInit() {
     mSignalledError = false;
     mOutputDrainBufferWritePos = 0;
 
-    status_t err = initDecoder();
-    return err == OK ? C2_OK : C2_CORRUPTED;
+    IA_ERRORCODE err = initDecoder();
+    return err == IA_NO_ERROR ? C2_OK : C2_CORRUPTED;
 }
 
 c2_status_t C2SoftXaacDec::onStop() {
@@ -193,8 +193,8 @@ void C2SoftXaacDec::onReset() {
 }
 
 void C2SoftXaacDec::onRelease() {
-    int errCode = deInitXAACDecoder();
-    if (0 != errCode) ALOGE("deInitXAACDecoder() failed %d", errCode);
+    IA_ERRORCODE errCode = deInitXAACDecoder();
+    if (IA_NO_ERROR != errCode) ALOGE("deInitXAACDecoder() failed %d", errCode);
 
     if (mOutputDrainBuffer) {
         delete[] mOutputDrainBuffer;
@@ -202,42 +202,25 @@ void C2SoftXaacDec::onRelease() {
     }
 }
 
-status_t C2SoftXaacDec::initDecoder() {
+IA_ERRORCODE C2SoftXaacDec::initDecoder() {
     ALOGV("initDecoder()");
-    status_t status = UNKNOWN_ERROR;
     IA_ERRORCODE err_code = IA_NO_ERROR;
-    int loop = 0;
 
     err_code = initXAACDecoder();
     if (err_code != IA_NO_ERROR) {
-        if (NULL == mXheaacCodecHandle) {
-            ALOGE("AAC decoder handle is null");
-        }
-
-        int temp_loop = 0;
-        for (loop = 0; loop < mMallocCount; loop++) {
-            if (mMemoryArray[loop]) {
-                free(mMemoryArray[loop]);
-            } else if (!temp_loop) {
-                temp_loop = loop;
-            }
-        }
-        if (temp_loop > 0) {
-            ALOGE(" memory allocation error %d\n", temp_loop);
-        }
         ALOGE("initXAACDecoder Failed");
-
-        mMallocCount = 0;
-        return status;
-    } else {
-        status = OK;
+        /* Call deInit to free any allocated memory */
+        deInitXAACDecoder();
+        return IA_FATAL_ERROR;
     }
 
     mOutputDrainBuffer = new short[kOutputDrainBufferSize];
 
-    initXAACDrc();
+    err_code = initXAACDrc();
+    RETURN_IF_FATAL(err_code,  "initXAACDrc");
 
-    return status;
+
+    return IA_NO_ERROR;
 }
 
 static void fillEmptyWork(const std::unique_ptr<C2Work>& work) {
@@ -329,8 +312,8 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
         inBufferLength = size;
 
         /* GA header configuration sent to Decoder! */
-        int err_code = configXAACDecoder(inBuffer, inBufferLength);
-        if (err_code) {
+        IA_ERRORCODE err_code = configXAACDecoder(inBuffer, inBufferLength);
+        if (IA_NO_ERROR != err_code) {
             ALOGE("configXAACDecoder err_code = %d", err_code);
             mSignalledError = true;
             work->result = C2_CORRUPTED;
@@ -414,8 +397,8 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
          * which should initialize the codec. Once this state is reached, call the
          * decodeXAACStream API with same frame to decode! */
         if (!mIsCodecInitialized) {
-            int err_code = configXAACDecoder(inBuffer, inBufferLength);
-            if (err_code) {
+            IA_ERRORCODE err_code = configXAACDecoder(inBuffer, inBufferLength);
+            if (IA_NO_ERROR != err_code) {
                 ALOGE("configXAACDecoder Failed 2 err_code = %d", err_code);
                 mSignalledError = true;
                 work->result = C2_CORRUPTED;
@@ -450,25 +433,25 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
         }
 
         signed int bytesConsumed = 0;
-        int errorCode = 0;
+        IA_ERRORCODE errorCode = IA_NO_ERROR;
         if (mIsCodecInitialized) {
             errorCode = decodeXAACStream(inBuffer, inBufferLength,
                                          &bytesConsumed, &mNumOutBytes);
         } else {
-            ALOGE("Assumption that first frame after header initializes decoder Failed!");
+            ALOGW("Assumption that first frame after header initializes decoder Failed!");
         }
         size -= bytesConsumed;
         offset += bytesConsumed;
 
         if (inBufferLength != (uint32_t)bytesConsumed)
-            ALOGE("All data not consumed");
+            ALOGW("All data not consumed");
 
         /* In case of error, decoder would have given out empty buffer */
-        if ((0 != errorCode) && (0 == mNumOutBytes) && mIsCodecInitialized)
+        if ((IA_NO_ERROR != errorCode) && (0 == mNumOutBytes) && mIsCodecInitialized)
             mNumOutBytes = mOutputFrameLength * (mPcmWdSz / 8) * mNumChannels;
 
         if (!bytesConsumed) {
-            ALOGE("bytesConsumed = 0 should never happen");
+            ALOGW("bytesConsumed = 0 should never happen");
         }
 
         if ((uint32_t)mNumOutBytes >
@@ -479,7 +462,7 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
             return;
         }
 
-        if (errorCode) {
+        if (IA_NO_ERROR != errorCode) {
             // TODO: check for overflow, ASAN
             memset(mOutputBuffer, 0, mNumOutBytes);
 
@@ -515,7 +498,7 @@ c2_status_t C2SoftXaacDec::drain(uint32_t drainMode,
     return C2_OK;
 }
 
-int C2SoftXaacDec::configflushDecode() {
+IA_ERRORCODE C2SoftXaacDec::configflushDecode() {
     IA_ERRORCODE err_code;
     uint32_t ui_init_done;
     uint32_t inBufferLength = 8203;
@@ -549,11 +532,7 @@ int C2SoftXaacDec::configflushDecode() {
         RETURN_IF_FATAL(err_code, "getXAACStreamInfo");
         ALOGV("Found Codec with below config---\nsampFreq %d\nnumChannels %d\npcmWdSz %d\nchannelMask %d\noutputFrameLength %d",
                mSampFreq, mNumChannels, mPcmWdSz, mChannelMask, mOutputFrameLength);
-        if(mNumChannels > MAX_CHANNEL_COUNT) {
-            ALOGE(" No of channels are more than max channels\n");
-            mIsCodecInitialized = false;
-        } else
-            mIsCodecInitialized = true;
+        mIsCodecInitialized = true;
     }
     return IA_NO_ERROR;
 }
@@ -570,14 +549,14 @@ c2_status_t C2SoftXaacDec::onFlush_sm() {
     return C2_OK;
 }
 
-int C2SoftXaacDec::drainDecoder() {
+IA_ERRORCODE C2SoftXaacDec::drainDecoder() {
     /* Output delay compensation logic should sit here. */
     /* Nothing to be done as XAAC decoder does not introduce output buffer delay */
 
     return 0;
 }
 
-int C2SoftXaacDec::initXAACDecoder() {
+IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     /* First part                                        */
     /* Error Handler Init                                */
     /* Get Library Name, Library Version and API Version */
@@ -786,7 +765,7 @@ status_t C2SoftXaacDec::initXAACDrc() {
     return IA_NO_ERROR;
 }
 
-int C2SoftXaacDec::deInitXAACDecoder() {
+IA_ERRORCODE C2SoftXaacDec::deInitXAACDecoder() {
     ALOGV("deInitXAACDecoder");
 
     /* Error code */
@@ -810,7 +789,7 @@ int C2SoftXaacDec::deInitXAACDecoder() {
     return err_code;
 }
 
-int C2SoftXaacDec::configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength) {
+IA_ERRORCODE C2SoftXaacDec::configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength) {
     if (mInputBufferSize < inBufferLength) {
         ALOGE("Cannot config AAC, input buffer size %d < inBufferLength %d", mInputBufferSize, inBufferLength);
         return false;
@@ -867,10 +846,10 @@ int C2SoftXaacDec::configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength)
         mIsCodecInitialized = true;
     }
 
-    return err_code;
+    return IA_NO_ERROR;
 }
 
-int C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
+IA_ERRORCODE C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
                                  uint32_t inBufferLength,
                                  int32_t* bytesConsumed,
                                  int32_t* outBytes) {
@@ -917,7 +896,7 @@ int C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
                                 outBytes);
     RETURN_IF_FATAL(err_code,  "IA_API_CMD_GET_OUTPUT_BYTES");
 
-    return err_code;
+    return IA_NO_ERROR;
 }
 
 IA_ERRORCODE C2SoftXaacDec::getXAACStreamInfo() {
@@ -936,6 +915,10 @@ IA_ERRORCODE C2SoftXaacDec::getXAACStreamInfo() {
                                 IA_ENHAACPLUS_DEC_CONFIG_PARAM_NUM_CHANNELS,
                                 &mNumChannels);
     RETURN_IF_FATAL(err_code,  "IA_ENHAACPLUS_DEC_CONFIG_PARAM_NUM_CHANNELS");
+    if (mNumChannels > MAX_CHANNEL_COUNT) {
+        ALOGE(" No of channels are more than max channels\n");
+        return IA_FATAL_ERROR;
+    }
 
     /* PCM word size */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -943,6 +926,10 @@ IA_ERRORCODE C2SoftXaacDec::getXAACStreamInfo() {
                                 IA_ENHAACPLUS_DEC_CONFIG_PARAM_PCM_WDSZ,
                                 &mPcmWdSz);
     RETURN_IF_FATAL(err_code,  "IA_ENHAACPLUS_DEC_CONFIG_PARAM_PCM_WDSZ");
+    if ((mPcmWdSz / 8) != 2) {
+        ALOGE(" No of channels are more than max channels\n");
+        return IA_FATAL_ERROR;
+    }
 
     /* channel mask to tell the arrangement of channels in bit stream */
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
