@@ -1957,6 +1957,7 @@ status_t CCodecBufferChannel::start(
         }
     }
 
+    mPendingFeed = 0;
     mSync.start();
     if (mInputSurface == nullptr) {
         // TODO: use proper buffer depth instead of this random value
