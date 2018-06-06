@@ -904,7 +904,9 @@ status_t CCodecConfig::getConfigUpdateFromSdkParams(
         } else if (mLocalParams.count(ix)) {
             // query local parameter here
             auto it = mCurrentConfig.find(ix);
-            configUpdate->emplace_back(C2Param::Copy(*it->second));
+            if (it != mCurrentConfig.end()) {
+                configUpdate->emplace_back(C2Param::Copy(*it->second));
+            }
         }
     }
 
