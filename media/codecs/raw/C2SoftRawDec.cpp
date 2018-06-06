@@ -61,7 +61,7 @@ public:
         addParameter(
                 DefineParam(mSampleRate, C2_NAME_STREAM_SAMPLE_RATE_SETTING)
                 .withDefault(new C2StreamSampleRateInfo::output(0u, 44100))
-                .withFields({C2F(mSampleRate, value).inRange(8000, 96000)})
+                .withFields({C2F(mSampleRate, value).inRange(8000, 192000)})
                 .withSetter((Setter<decltype(*mSampleRate)>::StrictValueWithNoDeps))
                 .build());
 
