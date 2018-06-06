@@ -718,8 +718,6 @@ void CCodec::configure(const sp<AMessage> &msg) {
         std::vector<std::unique_ptr<C2Param>> params;
         C2StreamUsageTuning::input usage(0u, 0u);
         C2StreamMaxBufferSizeInfo::input maxInputSize(0u, 0u);
-        // TEMP: get max input size from format (in case component is not exposing this)
-        (void)msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
 
         std::initializer_list<C2Param::Index> indices {
         };
@@ -741,9 +739,13 @@ void CCodec::configure(const sp<AMessage> &msg) {
             config->mInputFormat->setInt32("using-sw-read-often", true);
         }
 
+        // use client specified input size if specified
+        bool clientInputSize = msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
+
         // TEMP: enforce minimum buffer size of 1MB for video decoders
-        if (!encoder && !(config->mDomain & Config::IS_AUDIO)) {
-            maxInputSize.value = c2_max(1048576u, maxInputSize.value);
+        if (!clientInputSize && maxInputSize.value == 0
+                && !encoder && !(config->mDomain & Config::IS_AUDIO)) {
+            maxInputSize.value = 1048576u;
         }
 
         // TODO: do this based on component requiring linear allocator for input
@@ -752,7 +754,8 @@ void CCodec::configure(const sp<AMessage> &msg) {
             // component or by a default)
             if (maxInputSize.value) {
                 config->mInputFormat->setInt32(
-                        KEY_MAX_INPUT_SIZE, (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
+                        KEY_MAX_INPUT_SIZE,
+                        (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
             }
         }
 
