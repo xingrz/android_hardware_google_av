@@ -191,7 +191,12 @@ private:
         if (fence) {
             static constexpr int kFenceWaitTimeMs = 10;
 
-            status = fence->wait(kFenceWaitTimeMs);
+            status_t status = fence->wait(kFenceWaitTimeMs);
+            if (status == -ETIME) {
+                // fence is not signalled yet.
+                mProducer->cancelBuffer(slot, fenceHandle);
+                return C2_TIMED_OUT;
+            }
             if (status != android::NO_ERROR) {
                 ALOGD("buffer fence wait error %d", status);
                 mProducer->cancelBuffer(slot, fenceHandle);
