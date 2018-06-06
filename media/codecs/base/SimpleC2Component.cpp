@@ -357,7 +357,8 @@ void SimpleC2Component::processQueue() {
                     { C2PortBlockPoolsTuning::output::PARAM_TYPE },
                     C2_DONT_BLOCK,
                     &params);
-            if (err != C2_OK && err != C2_NOT_FOUND) {
+            if (err != C2_OK && err != C2_BAD_INDEX) {
+                ALOGD("query err = %d", err);
                 return err;
             }
             C2BlockPool::local_id_t poolId =
