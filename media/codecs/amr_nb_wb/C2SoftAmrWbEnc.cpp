@@ -82,6 +82,11 @@ class C2SoftAmrWbEnc::IntfImpl : public C2InterfaceHelper {
                 .withFields({C2F(mBitrate, value).inRange(6600, 23850)})
                 .withSetter(Setter<decltype(*mBitrate)>::NonStrictValueWithNoDeps)
                 .build());
+
+        addParameter(
+                DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
+                .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 8192))
+                .build());
     }
 
     uint32_t getSampleRate() const { return mSampleRate->value; }
@@ -96,6 +101,7 @@ class C2SoftAmrWbEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamSampleRateInfo::input> mSampleRate;
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
+    std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
 };
 
 C2SoftAmrWbEnc::C2SoftAmrWbEnc(const char* name, c2_node_id_t id,
@@ -113,7 +119,28 @@ C2SoftAmrWbEnc::~C2SoftAmrWbEnc() {
 }
 
 c2_status_t C2SoftAmrWbEnc::onInit() {
-    mMode = VOAMRWB_MD2305;
+    // TODO: get mode directly from config
+    switch(mIntf->getBitrate()) {
+        case 6600: mMode = VOAMRWB_MD66;
+            break;
+        case 8850: mMode = VOAMRWB_MD885;
+            break;
+        case 12650: mMode = VOAMRWB_MD1265;
+            break;
+        case 14250: mMode = VOAMRWB_MD1425;
+            break;
+        case 15850: mMode = VOAMRWB_MD1585;
+            break;
+        case 18250: mMode = VOAMRWB_MD1825;
+            break;
+        case 19850: mMode = VOAMRWB_MD1985;
+            break;
+        case 23050: mMode = VOAMRWB_MD2305;
+            break;
+        case 23850: mMode = VOAMRWB_MD2385;
+            break;
+        default: mMode = VOAMRWB_MD2305;
+    }
     status_t err = initEncoder();
     mIsFirst = true;
     mSignalledError = false;

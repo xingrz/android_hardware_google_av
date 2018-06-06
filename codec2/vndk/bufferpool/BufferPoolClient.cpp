@@ -410,6 +410,9 @@ ResultStatus BufferPoolClient::Impl::receive(
                                       *buffer ? true : false);
     ALOGV("client receive %lld - %u : %s (%d)", (long long)mConnectionId, bufferId,
           *buffer ? "ok" : "fail", posted);
+    if (mValid && mLocal && mLocalConnection) {
+        mLocalConnection->cleanUp(false);
+    }
     if (*buffer) {
         if (!posted) {
             buffer->reset();
@@ -432,13 +435,20 @@ void BufferPoolClient::Impl::postBufferRelease(BufferId bufferId) {
 bool BufferPoolClient::Impl::postSend(
         BufferId bufferId, ConnectionId receiver,
         TransactionId *transactionId, int64_t *timestampUs) {
-    std::lock_guard<std::mutex> lock(mReleasing.mLock);
-    *timestampUs = getTimestampNow();
-    *transactionId = (mConnectionId << 32) | mSeqId++;
-    // TODO: retry, add timeout, target?
-    return  mReleasing.mStatusChannel->postBufferStatusMessage(
-            *transactionId, bufferId, BufferStatus::TRANSFER_TO, mConnectionId,
-            receiver, mReleasing.mReleasingIds, mReleasing.mReleasedIds);
+    bool ret = false;
+    {
+        std::lock_guard<std::mutex> lock(mReleasing.mLock);
+        *timestampUs = getTimestampNow();
+        *transactionId = (mConnectionId << 32) | mSeqId++;
+        // TODO: retry, add timeout, target?
+        ret =  mReleasing.mStatusChannel->postBufferStatusMessage(
+                *transactionId, bufferId, BufferStatus::TRANSFER_TO, mConnectionId,
+                receiver, mReleasing.mReleasingIds, mReleasing.mReleasedIds);
+    }
+    if (mValid && mLocal && mLocalConnection) {
+        mLocalConnection->cleanUp(false);
+    }
+    return ret;
 }
 
 bool BufferPoolClient::Impl::postReceive(

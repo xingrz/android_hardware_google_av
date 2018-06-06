@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-//#define LOG_NDEBUG 0
+#define LOG_NDEBUG 0
 #define LOG_TAG "C2SoftAacEnc"
 #include <utils/Log.h>
 
@@ -299,11 +299,13 @@ void C2SoftAacEnc::process(
 
     size_t numFrames = (view.capacity() + mInputSize + (eos ? mNumBytesPerInputFrame - 1 : 0))
             / mNumBytesPerInputFrame;
-    ALOGV("capacity = %u; mInputSize = %zu; numFrames = %zu", view.capacity(), mInputSize, numFrames);
+    ALOGV("capacity = %u; mInputSize = %zu; numFrames = %zu mNumBytesPerInputFrame = %u",
+          view.capacity(), mInputSize, numFrames, mNumBytesPerInputFrame);
 
     std::shared_ptr<C2LinearBlock> block;
     std::unique_ptr<C2WriteView> wView;
-    uint8_t *outPtr = nullptr;
+    uint8_t temp[1];
+    uint8_t *outPtr = temp;
     size_t outAvailable = 0u;
 
     if (numFrames) {
@@ -384,7 +386,8 @@ void C2SoftAacEnc::process(
                 inargs.numInSamples -= outargs.numInSamples;
             }
         }
-        ALOGV("nOutputBytes = %zu; inargs.numInSamples = %d", nOutputBytes, inargs.numInSamples);
+        ALOGV("encoderErr = %d nOutputBytes = %zu; mInputSize = %zu inargs.numInSamples = %d",
+              encoderErr, nOutputBytes, mInputSize, inargs.numInSamples);
     }
 
     if (eos && inBufferSize[0] > 0) {

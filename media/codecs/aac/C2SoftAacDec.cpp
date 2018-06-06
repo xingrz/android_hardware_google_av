@@ -729,7 +729,7 @@ c2_status_t C2SoftAacDec::drainInternal(
             finish(mBuffersInfo.front().frameIndex, fillEmptyWork);
             mBuffersInfo.pop_front();
         }
-        if (work->workletsProcessed == 0u) {
+        if (work && work->workletsProcessed == 0u) {
             fillEmptyWork(work);
         }
         mBuffersInfo.clear();
