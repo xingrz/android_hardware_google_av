@@ -299,9 +299,14 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
                           C2P<C2VideoSizeStreamTuning::input>& me) {
         (void)mayBlock;
         // TODO: maybe apply block limit?
-        return me.F(me.v.width)
-            .validatePossible(me.v.width)
-            .plus(me.F(me.v.height).validatePossible(me.v.height));
+        C2R res = C2R::Ok();
+        if (!me.F(me.v.width).supportsAtAll(me.v.width)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.width)));
+        }
+        if (!me.F(me.v.height).supportsAtAll(me.v.height)) {
+            res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.height)));
+        }
+        return res;
     }
 
     uint32_t getWidth() const { return mSize->width; }
