@@ -1739,7 +1739,7 @@ status_t CCodecBufferChannel::start(
             Mutexed<BlockPools>::Locked pools(mBlockPools);
 
             // set default allocator ID.
-            pools->inputAllocatorId = (graphic) ? C2PlatformAllocatorStore::BUFFERQUEUE
+            pools->inputAllocatorId = (graphic) ? C2PlatformAllocatorStore::GRALLOC
                                                 : C2PlatformAllocatorStore::ION;
 
             // query C2PortAllocatorsTuning::input from component. If an allocator ID is obtained
@@ -1844,7 +1844,7 @@ status_t CCodecBufferChannel::start(
             Mutexed<BlockPools>::Locked pools(mBlockPools);
 
             // set default allocator ID.
-            pools->outputAllocatorId = (graphic) ? C2PlatformAllocatorStore::BUFFERQUEUE
+            pools->outputAllocatorId = (graphic) ? C2PlatformAllocatorStore::GRALLOC
                                                  : C2PlatformAllocatorStore::ION;
 
             // query C2PortAllocatorsTuning::output from component, or use default allocator if
@@ -1871,6 +1871,13 @@ status_t CCodecBufferChannel::start(
                                 outputAllocators->m.values[0]);
                     }
                 }
+            }
+
+            // use bufferqueue if outputting to a surface
+            if (pools->outputAllocatorId == C2PlatformAllocatorStore::GRALLOC
+                    && hasOutputSurface
+                    && ((poolMask >> C2PlatformAllocatorStore::BUFFERQUEUE) & 1)) {
+                pools->outputAllocatorId = C2PlatformAllocatorStore::BUFFERQUEUE;
             }
 
             if ((poolMask >> pools->outputAllocatorId) & 1) {
