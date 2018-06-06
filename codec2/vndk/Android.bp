@@ -20,6 +20,7 @@ cc_library_shared {
         "C2AllocatorGralloc.cpp",
         "C2Buffer.cpp",
         "C2Config.cpp",
+        "C2PlatformStorePluginLoader.cpp",
         "C2Store.cpp",
         "platform/C2BqBuffer.cpp",
         "util/C2Debug.cpp",
