@@ -57,9 +57,18 @@ void SimpleC2Component::WorkQueue::markDrain(uint32_t drainMode) {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+namespace {
+
+struct DummyReadView : public C2ReadView {
+    DummyReadView() : C2ReadView(C2_NO_INIT) {}
+};
+
+}  // namespace
+
 SimpleC2Component::SimpleC2Component(
         const std::shared_ptr<C2ComponentInterface> &intf)
-    : mIntf(intf) {
+    : mDummyReadView(DummyReadView()),
+      mIntf(intf) {
 }
 
 c2_status_t SimpleC2Component::setListener_vb(
@@ -401,19 +410,7 @@ void SimpleC2Component::processQueue() {
         return;
     }
 
-    if (!work->input.buffers.empty()) {
-        process(work, mOutputBlockPool);
-    } else {
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
-        if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
-            drain(DRAIN_COMPONENT_WITH_EOS, mOutputBlockPool);
-            work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
-        }
-        work->worklets.front()->output.buffers.clear();
-        work->worklets.front()->output.ordinal = work->input.ordinal;
-        work->workletsProcessed = 1u;
-        work->result = C2_OK;
-    }
+    process(work, mOutputBlockPool);
     ALOGV("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
