@@ -1242,8 +1242,9 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
 
     int32_t flags = 0;
     int32_t tmp = 0;
+    bool eos = false;
     if (buffer->meta()->findInt32("eos", &tmp) && tmp) {
-        flags |= C2FrameData::FLAG_END_OF_STREAM;
+        eos = true;
         ALOGV("input EOS");
     }
     if (buffer->meta()->findInt32("csd", &tmp) && tmp) {
@@ -1251,7 +1252,6 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     }
     ALOGV("queueInputBuffer: buffer->size() = %zu", buffer->size());
     std::unique_ptr<C2Work> work(new C2Work);
-    work->input.flags = (C2FrameData::flags_t)flags;
     work->input.ordinal.timestamp = timeUs;
     work->input.ordinal.frameIndex = mFrameIndex++;
     work->input.buffers.clear();
@@ -1262,7 +1262,10 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
             return -ENOENT;
         }
         work->input.buffers.push_back(c2buffer);
+    } else if (eos) {
+        flags |= C2FrameData::FLAG_END_OF_STREAM;
     }
+    work->input.flags = (C2FrameData::flags_t)flags;
     // TODO: fill info's
 
     work->worklets.clear();
@@ -1271,6 +1274,19 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
     c2_status_t err = mComponent->queue(&items);
+
+    if (err == C2_OK && eos && buffer->size() > 0u) {
+        work.reset(new C2Work);
+        work->input.ordinal.timestamp = timeUs;
+        work->input.ordinal.frameIndex = mFrameIndex++;
+        work->input.buffers.clear();
+        work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
+
+        items.clear();
+        items.push_back(std::move(work));
+        err = mComponent->queue(&items);
+    }
+
     feedInputBufferIfAvailableInternal();
     return err;
 }
@@ -2139,7 +2155,7 @@ bool CCodecBufferChannel::handleWork(
 
     outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
     outBuffer->meta()->setInt32("flags", flags);
-    ALOGV("onWorkDone: out buffer index = %zu", index);
+    ALOGV("onWorkDone: out buffer index = %zu size = %zu", index, outBuffer->size());
     mCallback->onOutputBufferAvailable(index, outBuffer);
     return false;
 }
