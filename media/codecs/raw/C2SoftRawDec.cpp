@@ -134,16 +134,13 @@ void C2SoftRawDec::process(
         return;
     }
 
-    const C2ConstLinearBlock inBuffer = work->input.buffers[0]->data().linearBlocks().front();
-    size_t inSize = inBuffer.size();
-
-    ALOGV("in buffer attr. size %zu timestamp %d frameindex %d", inSize,
+    ALOGV("in buffer attr. timestamp %d frameindex %d",
           (int)work->input.ordinal.timestamp.peeku(), (int)work->input.ordinal.frameIndex.peeku());
 
     work->worklets.front()->output.flags = work->input.flags;
     work->worklets.front()->output.buffers.clear();
     work->worklets.front()->output.ordinal = work->input.ordinal;
-    if (inSize != 0) {
+    if (!work->input.buffers.empty()) {
         work->worklets.front()->output.buffers.push_back(work->input.buffers[0]);
     }
     work->workletsProcessed = 1u;
