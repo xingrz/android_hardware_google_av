@@ -607,9 +607,6 @@ Status _addBaseBlock(
     auto it = baseBlockIndices->find(bpData.get());
     if (it != baseBlockIndices->end()) {
         *index = it->second;
-    } else if (!bufferPoolSender) {
-        ALOGE("No access to the receiver's BufferPool.");
-        return Status::BAD_VALUE;
     } else {
         *index = baseBlocks->size();
         baseBlockIndices->emplace(bpData.get(), *index);
@@ -617,16 +614,18 @@ Status _addBaseBlock(
 
         BaseBlock &dBaseBlock = baseBlocks->back();
         dBaseBlock.type = BaseBlock::Type::POOLED;
-        ResultStatus bpStatus = bufferPoolSender->send(
-                bpData,
-                &dBaseBlock.pooledBlock);
 
-        if (bpStatus != ResultStatus::OK) {
-            ALOGE("Failed to send buffer with BufferPool. Error: %d.",
-                    static_cast<int>(bpStatus));
-            return Status::BAD_VALUE;
+        if (bufferPoolSender) {
+            ResultStatus bpStatus = bufferPoolSender->send(
+                    bpData,
+                    &dBaseBlock.pooledBlock);
+
+            if (bpStatus != ResultStatus::OK) {
+                ALOGE("Failed to send buffer with BufferPool. Error: %d.",
+                        static_cast<int>(bpStatus));
+                return Status::BAD_VALUE;
+            }
         }
-
     }
     return Status::OK;
 }
