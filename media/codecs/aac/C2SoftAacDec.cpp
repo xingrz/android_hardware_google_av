@@ -103,7 +103,7 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mAacFormat, C2_NAME_STREAM_BITRATE_SETTING)
+                DefineParam(mAacFormat, C2_NAME_STREAM_AAC_FORMAT_SETTING)
                 .withDefault(new C2StreamAacFormatInfo::input(0u, C2AacStreamFormatRaw))
                 .withFields({C2F(mAacFormat, value).oneOf({
                     C2AacStreamFormatRaw, C2AacStreamFormatAdts
