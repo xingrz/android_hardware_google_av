@@ -214,6 +214,7 @@ struct C2SoftVpxEnc : public SimpleC2Component {
      // Conversion buffer is needed to input to
      // yuv420 planar format.
      uint8_t* mConversionBuffer;
+     size_t mConversionBufferSize;
 
      // Request Key Frame
      bool mKeyFrameRequested;

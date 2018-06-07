@@ -44,6 +44,10 @@ public:
         return mValid;
     }
 
+    bool isLocal() {
+        return mValid && mLocal;
+    }
+
     ConnectionId getConnectionId() {
         return mConnectionId;
     }
@@ -239,7 +243,7 @@ BufferPoolClient::Impl::Impl(const sp<Accessor> &accessor)
       mLastEvictCacheUs(getTimestampNow()) {
     const QueueDescriptor *fmqDesc;
     ResultStatus status = accessor->connect(
-            &mLocalConnection, &mConnectionId, &fmqDesc);
+            &mLocalConnection, &mConnectionId, &fmqDesc, true);
     if (status == ResultStatus::OK) {
         mReleasing.mStatusChannel =
                 std::make_unique<BufferStatusChannel>(*fmqDesc);
@@ -594,6 +598,10 @@ BufferPoolClient::~BufferPoolClient() {
 
 bool BufferPoolClient::isValid() {
     return mImpl && mImpl->isValid();
+}
+
+bool BufferPoolClient::isLocal() {
+    return mImpl && mImpl->isLocal();
 }
 
 bool BufferPoolClient::isActive(int64_t *lastTransactionUs, bool clearCache) {

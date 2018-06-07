@@ -655,14 +655,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         sp<RefBase> obj;
+        sp<Surface> surface;
         if (msg->findObject("native-window", &obj)) {
-            sp<Surface> surface = static_cast<Surface *>(obj.get());
+            surface = static_cast<Surface *>(obj.get());
             setSurface(surface);
         }
 
         Mutexed<Config>::Locked config(mConfig);
 
-        /**
+        /*
          * Handle input surface configuration
          */
         if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))
@@ -703,6 +704,26 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
         }
 
+        /*
+         * Handle desired color format.
+         */
+        if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            int32_t format = -1;
+            if (!msg->findInt32(KEY_COLOR_FORMAT, &format)) {
+                /*
+                 * Also handle default color format (encoders require color format, so this is only
+                 * needed for decoders.
+                 */
+                if (!(config->mDomain & Config::IS_ENCODER)) {
+                    format = (surface == nullptr) ? COLOR_FormatYUV420Planar : COLOR_FormatSurface;
+                }
+            }
+
+            if (format >= 0) {
+                msg->setInt32("android._color-format", format);
+            }
+        }
+
         std::vector<std::unique_ptr<C2Param>> configUpdate;
         status_t err = config->getConfigUpdateFromSdkParams(
                 comp, msg, Config::CONFIG, C2_DONT_BLOCK, &configUpdate);
@@ -718,8 +739,6 @@ void CCodec::configure(const sp<AMessage> &msg) {
         std::vector<std::unique_ptr<C2Param>> params;
         C2StreamUsageTuning::input usage(0u, 0u);
         C2StreamMaxBufferSizeInfo::input maxInputSize(0u, 0u);
-        // TEMP: get max input size from format (in case component is not exposing this)
-        (void)msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
 
         std::initializer_list<C2Param::Index> indices {
         };
@@ -741,9 +760,13 @@ void CCodec::configure(const sp<AMessage> &msg) {
             config->mInputFormat->setInt32("using-sw-read-often", true);
         }
 
+        // use client specified input size if specified
+        bool clientInputSize = msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
+
         // TEMP: enforce minimum buffer size of 1MB for video decoders
-        if (!encoder && !(config->mDomain & Config::IS_AUDIO)) {
-            maxInputSize.value = c2_max(1048576u, maxInputSize.value);
+        if (!clientInputSize && maxInputSize.value == 0
+                && !encoder && !(config->mDomain & Config::IS_AUDIO)) {
+            maxInputSize.value = 1048576u;
         }
 
         // TODO: do this based on component requiring linear allocator for input
@@ -752,10 +775,24 @@ void CCodec::configure(const sp<AMessage> &msg) {
             // component or by a default)
             if (maxInputSize.value) {
                 config->mInputFormat->setInt32(
-                        KEY_MAX_INPUT_SIZE, (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
+                        KEY_MAX_INPUT_SIZE,
+                        (int32_t)(c2_min(maxInputSize.value, uint32_t(INT32_MAX))));
             }
         }
 
+        if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            // Set desired color format from configuration parameter
+            int32_t format;
+            if (msg->findInt32("android._color-format", &format)) {
+                if (config->mDomain & Config::IS_ENCODER) {
+                    config->mInputFormat->setInt32(KEY_COLOR_FORMAT, format);
+                } else {
+                    config->mOutputFormat->setInt32(KEY_COLOR_FORMAT, format);
+                }
+            }
+        }
+
+        // propagate encoder delay and padding to output format
         if ((config->mDomain & Config::IS_DECODER) && (config->mDomain & Config::IS_AUDIO)) {
             int delay = 0;
             if (msg->findInt32("encoder-delay", &delay)) {
