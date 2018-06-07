@@ -655,14 +655,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         sp<RefBase> obj;
+        sp<Surface> surface;
         if (msg->findObject("native-window", &obj)) {
-            sp<Surface> surface = static_cast<Surface *>(obj.get());
+            surface = static_cast<Surface *>(obj.get());
             setSurface(surface);
         }
 
         Mutexed<Config>::Locked config(mConfig);
 
-        /**
+        /*
          * Handle input surface configuration
          */
         if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))
@@ -700,6 +701,26 @@ void CCodec::configure(const sp<AMessage> &msg) {
                 if (msg->findInt32("create-input-buffers-suspended", &value) && value) {
                     config->mISConfig->mSuspended = true;
                 }
+            }
+        }
+
+        /*
+         * Handle desired color format.
+         */
+        if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            int32_t format = -1;
+            if (!msg->findInt32(KEY_COLOR_FORMAT, &format)) {
+                /*
+                 * Also handle default color format (encoders require color format, so this is only
+                 * needed for decoders.
+                 */
+                if (!(config->mDomain & Config::IS_ENCODER)) {
+                    format = (surface == nullptr) ? COLOR_FormatYUV420Planar : COLOR_FormatSurface;
+                }
+            }
+
+            if (format >= 0) {
+                msg->setInt32("android._color-format", format);
             }
         }
 
@@ -759,6 +780,19 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
         }
 
+        if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            // Set desired color format from configuration parameter
+            int32_t format;
+            if (msg->findInt32("android._color-format", &format)) {
+                if (config->mDomain & Config::IS_ENCODER) {
+                    config->mInputFormat->setInt32(KEY_COLOR_FORMAT, format);
+                } else {
+                    config->mOutputFormat->setInt32(KEY_COLOR_FORMAT, format);
+                }
+            }
+        }
+
+        // propagate encoder delay and padding to output format
         if ((config->mDomain & Config::IS_DECODER) && (config->mDomain & Config::IS_AUDIO)) {
             int delay = 0;
             if (msg->findInt32("encoder-delay", &delay)) {
