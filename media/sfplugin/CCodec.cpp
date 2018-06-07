@@ -29,6 +29,7 @@
 
 #include <android/IOMXBufferSource.h>
 #include <android/IGraphicBufferSource.h>
+#include <android-base/stringprintf.h>
 #include <cutils/properties.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <gui/IGraphicBufferProducer.h>
@@ -48,6 +49,7 @@ namespace android {
 
 using namespace std::chrono_literals;
 using ::android::hardware::graphics::bufferqueue::V1_0::utils::H2BGraphicBufferProducer;
+using android::base::StringPrintf;
 using BGraphicBufferSource = ::android::IGraphicBufferSource;
 
 namespace {
@@ -764,9 +766,23 @@ void CCodec::configure(const sp<AMessage> &msg) {
         bool clientInputSize = msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
 
         // TEMP: enforce minimum buffer size of 1MB for video decoders
-        if (!clientInputSize && maxInputSize.value == 0
-                && !encoder && !(config->mDomain & Config::IS_AUDIO)) {
-            maxInputSize.value = 1048576u;
+        // and 16K / 4K for audio encoders/decoders
+        if (!clientInputSize && maxInputSize.value == 0) {
+            if (config->mDomain & Config::IS_AUDIO) {
+                maxInputSize.value = encoder ? 16384 : 4096;
+            } else if (!encoder) {
+                maxInputSize.value = 1048576u;
+            }
+        }
+
+        // verify that CSD fits into this size (if defined)
+        if ((config->mDomain & Config::IS_DECODER) && maxInputSize.value > 0) {
+            sp<ABuffer> csd;
+            for (size_t ix = 0; msg->findBuffer(StringPrintf("csd-%zu", ix).c_str(), &csd); ++ix) {
+                if (csd && csd->size() > maxInputSize.value) {
+                    maxInputSize.value = csd->size();
+                }
+            }
         }
 
         // TODO: do this based on component requiring linear allocator for input
