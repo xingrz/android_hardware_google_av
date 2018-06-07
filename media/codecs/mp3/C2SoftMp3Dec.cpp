@@ -336,15 +336,17 @@ void C2SoftMP3::process(
         return;
     }
 
-    const C2ConstLinearBlock inBuffer = work->input.buffers[0]->data().linearBlocks().front();
     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-    size_t inOffset = inBuffer.offset();
-    size_t inSize = inBuffer.size();
-    C2ReadView rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-    if (inSize && rView.error()) {
-        ALOGE("read view map failed %d", rView.error());
-        work->result = rView.error();
-        return;
+    size_t inSize = 0u;
+    C2ReadView rView = mDummyReadView;
+    if (!work->input.buffers.empty()) {
+        rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+        inSize = rView.capacity();
+        if (inSize && rView.error()) {
+            ALOGE("read view map failed %d", rView.error());
+            work->result = rView.error();
+            return;
+        }
     }
 
     if (inSize == 0 && !eos) {
@@ -360,8 +362,7 @@ void C2SoftMP3::process(
     int32_t numChannels = mConfig->num_channels;
     size_t calOutSize;
     std::vector<size_t> decodedSizes;
-    const uint8_t *inPtr = rView.data() + inOffset;
-    if (inSize && OK != calculateOutSize(const_cast<uint8 *>(inPtr),
+    if (inSize && OK != calculateOutSize(const_cast<uint8 *>(rView.data()),
                                          inSize, &decodedSizes)) {
         work->result = C2_CORRUPTED;
         return;
@@ -397,7 +398,7 @@ void C2SoftMP3::process(
             break;
         }
 
-        mConfig->pInputBuffer = const_cast<uint8 *>(inPtr + inPos);
+        mConfig->pInputBuffer = const_cast<uint8 *>(rView.data() + inPos);
         mConfig->inputBufferCurrentLength = (inSize - inPos);
         mConfig->inputBufferMaxLength = 0;
         mConfig->inputBufferUsedLength = 0;
