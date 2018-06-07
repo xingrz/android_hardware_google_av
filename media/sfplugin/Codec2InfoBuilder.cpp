@@ -265,6 +265,10 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
                     caps->addColorFormat(COLOR_FormatSurface);
                 }
                 caps->addColorFormat(COLOR_FormatYUV420Flexible);
+                caps->addColorFormat(COLOR_FormatYUV420Planar);
+                caps->addColorFormat(COLOR_FormatYUV420SemiPlanar);
+                caps->addColorFormat(COLOR_FormatYUV420PackedPlanar);
+                caps->addColorFormat(COLOR_FormatYUV420PackedSemiPlanar);
                 // framework video encoders must support surface format, though it is unclear
                 // that they will be able to map it if it is opaque
                 if (encoder && trait.name.find("android") != std::string::npos) {
