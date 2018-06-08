@@ -11,7 +11,12 @@ Functionality of component is to test common functionality across all the Codec2
 usage: MtsHidlC2V1\_0TargetComponentTest -I software -C <comp name>
 
 #### audio :
-Functionality of audio test is to validate audio specific functionality Codec2 components. This resource files for this test are taken from hardware/interfaces/media/res. The path to these files on the device is required to be given for bitstream tests.
+Functionality of audio test is to validate audio specific functionality Codec2 components. The resource files for this test are taken from hardware/interfaces/media/res. The path to these files on the device is required to be given for bitstream tests.
 
 usage: MtsHidlC2V1\_0TargetAudioDecTest -I software -C <comp name> -P /sdcard/media
+
+#### video :
+Functionality of video test is to validate video specific functionality Codec2 components. The resource files for this test are taken from hardware/interfaces/media/res. The path to these files on the device is required to be given for bitstream tests.
+
+usage: MtsHidlC2V1\_0TargetVideoDecTest -I software -C <comp name> -P /sdcard/media
 
