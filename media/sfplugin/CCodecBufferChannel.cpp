@@ -1677,7 +1677,8 @@ status_t CCodecBufferChannel::start(
     std::shared_ptr<C2AllocatorStore> allocatorStore = GetCodec2PlatformAllocatorStore();
     int poolMask = property_get_int32(
             "debug.stagefright.c2-poolmask",
-            1 << C2PlatformAllocatorStore::ION);
+            1 << C2PlatformAllocatorStore::ION |
+            1 << C2PlatformAllocatorStore::BUFFERQUEUE);
 
     if (inputFormat != nullptr) {
         bool graphic = (iStreamFormat.value == C2FormatVideo);
