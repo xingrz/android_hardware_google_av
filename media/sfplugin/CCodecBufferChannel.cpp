@@ -1906,6 +1906,10 @@ status_t CCodecBufferChannel::start(
 
     mPendingFeed = 0;
     mSync.start();
+    return OK;
+}
+
+status_t CCodecBufferChannel::requestInitialInputBuffers() {
     if (mInputSurface == nullptr) {
         // TODO: use proper buffer depth instead of this random value
         for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
@@ -1924,6 +1928,7 @@ status_t CCodecBufferChannel::start(
                 }
             }
             if (buffer) {
+                ALOGV("[%s] input buffer %zu available", mName, index);
                 mCallback->onInputBufferAvailable(index, buffer);
             }
         }
