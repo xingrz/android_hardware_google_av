@@ -20,7 +20,14 @@ cc_test {
     srcs: [
         "MtsHidlC2V1_0TargetAudioDecTest.cpp",
         //"media_audio_hidl_test_common.cpp"
-    ]
+    ],
 }
 
-
+cc_test {
+    name: "MtsHidlC2V1_0TargetAudioEncTest",
+    defaults: ["MtsMediaC2V1_0Defaults"],
+    srcs: [
+        "MtsHidlC2V1_0TargetAudioEncTest.cpp",
+        //"media_audio_hidl_test_common.cpp"
+    ],
+}
