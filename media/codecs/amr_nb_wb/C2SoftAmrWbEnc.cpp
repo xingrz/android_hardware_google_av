@@ -278,16 +278,19 @@ void C2SoftAmrWbEnc::process(
         return;
     }
 
-    const C2ConstLinearBlock inBuffer = work->input.buffers[0]->data().linearBlocks().front();
-    bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-    size_t inOffset = inBuffer.offset();
-    size_t inSize = inBuffer.size();
-    C2ReadView rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-    if (inSize && rView.error()) {
-        ALOGE("read view map failed %d", rView.error());
-        work->result = rView.error();
-        return;
+    size_t inOffset = 0u;
+    size_t inSize = 0u;
+    C2ReadView rView = mDummyReadView;
+    if (!work->input.buffers.empty()) {
+        rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+        inSize = rView.capacity();
+        if (inSize && rView.error()) {
+            ALOGE("read view map failed %d", rView.error());
+            work->result = rView.error();
+            return;
+        }
     }
+    bool eos = (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0;
 
     ALOGV("in buffer attr. size %zu timestamp %d frameindex %d, flags %x",
           inSize, (int)work->input.ordinal.timestamp.peeku(),
@@ -311,10 +314,10 @@ void C2SoftAmrWbEnc::process(
     }
     uint64_t outTimeStamp =
         mProcessedSamples * 1000000ll / mIntf->getSampleRate();
-    const uint8_t *inPtr = rView.data() + inOffset;
     size_t inPos = 0;
     size_t outPos = 0;
     while (inPos < inSize) {
+        const uint8_t *inPtr = rView.data() + inOffset;
         int validSamples = mFilledLen / sizeof(int16_t);
         if ((inPos + (kNumBytesPerInputFrame - mFilledLen)) <= inSize) {
             memcpy(mInputFrame + validSamples, inPtr + inPos,
