@@ -195,6 +195,8 @@ private:
     int32_t mHeapSeqNum;
 
     std::shared_ptr<Codec2Client::Component> mComponent;
+    std::string mComponentName; ///< component name for debugging
+    const char *mName; ///< C-string version of component name
     std::shared_ptr<CCodecCallback> mCCodecCallback;
     std::shared_ptr<C2BlockPool> mInputAllocator;
     QueueSync mQueueSync;
