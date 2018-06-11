@@ -96,9 +96,14 @@ public:
 
     /**
      * Start queueing buffers to the component. This object should never queue
-     * buffers before this call.
+     * buffers before this call has completed.
      */
     status_t start(const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat);
+
+    /**
+     * Request initial input buffers to be filled by client.
+     */
+    status_t requestInitialInputBuffers();
 
     /**
      * Stop queueing buffers to the component. This object should never queue

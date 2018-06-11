@@ -1011,6 +1011,8 @@ void CCodec::start() {
         return;
     }
     mCallback->onStartCompleted();
+
+    (void)mChannel->requestInitialInputBuffers();
 }
 
 void CCodec::initiateShutdown(bool keepComponentAllocated) {
@@ -1215,6 +1217,8 @@ void CCodec::signalResume() {
         }
         state->set(RUNNING);
     }
+
+    (void)mChannel->requestInitialInputBuffers();
 }
 
 void CCodec::signalSetParameters(const sp<AMessage> &params) {
