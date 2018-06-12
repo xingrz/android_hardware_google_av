@@ -277,17 +277,19 @@ BufferPoolClient::Impl::Impl(const sp<IAccessor> &accessor)
 }
 
 bool BufferPoolClient::Impl::isActive(int64_t *lastTransactionUs, bool clearCache) {
+    bool active = false;
     {
         std::lock_guard<std::mutex> lock(mCache.mLock);
         syncReleased();
         evictCaches(clearCache);
         *lastTransactionUs = mCache.mLastChangeUs;
+        active = mCache.mActive > 0;
     }
     if (mValid && mLocal && mLocalConnection) {
         mLocalConnection->cleanUp(clearCache);
         return true;
     }
-    return mCache.mActive > 0;
+    return active;
 }
 
 ResultStatus BufferPoolClient::Impl::allocate(
