@@ -276,8 +276,9 @@ status_t attachToBufferQueue(const C2ConstGraphicBlock& block,
                              int32_t* bqSlot);
 
 // Return false if block does not come from a bufferqueue-based blockpool.
-// Otherwise, extract bqId and bqSlot and return true.
+// Otherwise, extract generation, bqId and bqSlot and return true.
 bool getBufferQueueAssignment(const C2ConstGraphicBlock& block,
+                              uint32_t* generation,
                               uint64_t* bqId,
                               int32_t* bqSlot);
 
