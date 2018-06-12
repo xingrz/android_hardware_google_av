@@ -578,6 +578,11 @@ void C2InterfaceHelper::addParameter(std::shared_ptr<ParamHelper> param) {
     c2_status_t err = param->validate(mReflector);
     if (err != C2_CORRUPTED) {
         _mFactory->addParam(param);
+
+        // run setter to ensure correct values
+        bool changed = false;
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        (void)param->trySet(param->value().get(), C2_MAY_BLOCK, &changed, *_mFactory, &failures);
     }
 }
 
