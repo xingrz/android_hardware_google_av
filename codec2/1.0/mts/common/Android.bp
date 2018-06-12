@@ -14,12 +14,6 @@ cc_library_static {
     ],
 
     export_include_dirs: ["."],
-
-    shared_libs: [
-        "libhidlallocatorutils",
-        "libstagefright_bufferqueue_helper",
-    ],
-
 }
 
 cc_defaults {
@@ -35,7 +29,5 @@ cc_defaults {
 
     shared_libs: [
         "libcodec2_hidl_client",
-        "libhidlallocatorutils",
-        "libstagefright_bufferqueue_helper",
     ],
 }

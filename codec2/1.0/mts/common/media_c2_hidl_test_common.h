@@ -45,7 +45,7 @@ using ::android::hardware::hidl_string;
 struct CodecListener : public android::Codec2Client::Listener {
    public:
     CodecListener(
-        std::function<void(std::list<std::unique_ptr<C2Work>>& workItems)> fn =
+        const std::function<void(std::list<std::unique_ptr<C2Work>>& workItems)> fn =
             nullptr)
         : callBack(fn) {}
     virtual void onWorkDone(
