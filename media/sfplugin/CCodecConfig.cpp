@@ -731,19 +731,24 @@ bool CCodecConfig::updateFormats(Domain domain) {
     bool changed = false;
     if (domain & mInputDomain) {
         sp<AMessage> oldFormat = mInputFormat;
+        mInputFormat = mInputFormat->dup(); // trigger format changed
         mInputFormat->extend(getSdkFormatForDomain(reflected, mInputDomain));
         if (mInputFormat->countEntries() != oldFormat->countEntries()
                 || mInputFormat->changesFrom(oldFormat)->countEntries() > 0) {
             changed = true;
+        } else {
+            mInputFormat = oldFormat; // no change
         }
     }
     if (domain & mOutputDomain) {
         sp<AMessage> oldFormat = mOutputFormat;
+        mOutputFormat = mOutputFormat->dup(); // trigger output format changed
         mOutputFormat->extend(getSdkFormatForDomain(reflected, mOutputDomain));
-        if (!changed &&
-                (mOutputFormat->countEntries() != oldFormat->countEntries()
-                        || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0)) {
+        if (mOutputFormat->countEntries() != oldFormat->countEntries()
+                || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0) {
             changed = true;
+        } else {
+            mOutputFormat = oldFormat; // no change
         }
     }
     ALOGV_IF(changed, "format(s) changed");
