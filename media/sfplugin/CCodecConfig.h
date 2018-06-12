@@ -102,6 +102,7 @@ struct CCodecConfig {
     Domain mDomain; // component domain
     Domain mInputDomain; // input port domain
     Domain mOutputDomain; // output port domain
+    std::string mCodingMediaType;  // media type of the coded stream
 
     // standard MediaCodec to Codec 2.0 params mapping
     std::shared_ptr<StandardParams> mStandardParams;
