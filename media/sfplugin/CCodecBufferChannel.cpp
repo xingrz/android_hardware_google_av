@@ -471,6 +471,11 @@ public:
         return true;
     }
 
+    void flush() {
+        ALOGV("[%s] buffers are flushed %zu", mName, mBuffers.size());
+        mBuffers.clear();
+    }
+
 private:
     friend class BuffersArrayImpl;
 
@@ -697,6 +702,7 @@ public:
     void flush() override {
         // This is no-op by default unless we're in array mode where we need to keep
         // track of the flushed work.
+        mImpl.flush();
     }
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
@@ -1237,7 +1243,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
-      mPendingFeed(0) {
+      mPendingFeed(0),
+      mInputMetEos(false) {
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
@@ -1276,6 +1283,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     bool eos = false;
     if (buffer->meta()->findInt32("eos", &tmp) && tmp) {
         eos = true;
+        mInputMetEos = true;
         ALOGV("[%s] input EOS", mName);
     }
     if (buffer->meta()->findInt32("csd", &tmp) && tmp) {
@@ -1431,7 +1439,7 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    while (mPendingFeed > 0) {
+    while (!mInputMetEos && mPendingFeed > 0) {
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
@@ -1453,7 +1461,6 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     ALOGV("[%s] %s: pending feed +1 from %u", mName, __func__, mPendingFeed.load());
     ++mPendingFeed;
     feedInputBufferIfAvailable();
-
     std::shared_ptr<C2Buffer> c2Buffer;
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
@@ -1956,6 +1963,7 @@ status_t CCodecBufferChannel::start(
     }
 
     mPendingFeed = 0;
+    mInputMetEos = false;
     mSync.start();
     return OK;
 }

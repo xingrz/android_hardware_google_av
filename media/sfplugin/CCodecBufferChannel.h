@@ -233,6 +233,7 @@ private:
 
     MetaMode mMetaMode;
     std::atomic_int32_t mPendingFeed;
+    std::atomic_bool mInputMetEos;
 
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != NULL || mDescrambler != NULL;
