@@ -358,6 +358,7 @@ void C2SoftMpeg4Enc::process(
 
     std::shared_ptr<const C2GraphicView> rView;
     std::shared_ptr<C2Buffer> inputBuffer;
+    bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
     if (!work->input.buffers.empty()) {
         inputBuffer = work->input.buffers[0];
         rView = std::make_shared<const C2GraphicView>(
@@ -368,16 +369,6 @@ void C2SoftMpeg4Enc::process(
             return;
         }
     } else {
-        ALOGE("Empty input Buffer");
-        work->result = C2_BAD_VALUE;
-        return;
-    }
-
-    uint64_t inputTimeStamp = work->input.ordinal.timestamp.peekull();
-    bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-    const C2ConstGraphicBlock inBuffer =
-        inputBuffer->data().graphicBlocks().front();
-    if (inBuffer.width() == 0 || inBuffer.height() == 0) {
         fillEmptyWork(work);
         if (eos) {
             mSignalledOutputEos = true;
@@ -385,6 +376,9 @@ void C2SoftMpeg4Enc::process(
         }
         return;
     }
+
+    uint64_t inputTimeStamp = work->input.ordinal.timestamp.peekull();
+    const C2ConstGraphicBlock inBuffer = inputBuffer->data().graphicBlocks().front();
     if (inBuffer.width() < mIntf->getWidth() ||
         inBuffer.height() < mIntf->getHeight()) {
         /* Expect width height to be configured */
