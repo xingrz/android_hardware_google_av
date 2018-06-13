@@ -137,7 +137,47 @@ private:
     Mapper mReverse;        ///< optional Codec 2.0 => SDK value mapper
 };
 
+template <typename PORT, typename STREAM>
+AString QueryMediaTypeImpl(
+        const std::shared_ptr<Codec2Client::Component> &component) {
+    AString mediaType;
+    std::vector<std::unique_ptr<C2Param>> queried;
+    c2_status_t c2err = component->query(
+            {}, { PORT::PARAM_TYPE, STREAM::PARAM_TYPE }, C2_DONT_BLOCK, &queried);
+    if (c2err != C2_OK && queried.size() == 0) {
+        ALOGD("Query media type failed => %s", asString(c2err));
+    } else {
+        PORT *portMediaType =
+            PORT::From(queried[0].get());
+        if (portMediaType) {
+            mediaType = AString(
+                    portMediaType->m.value,
+                    strnlen(portMediaType->m.value, portMediaType->flexCount()));
+        } else {
+            STREAM *streamMediaType = STREAM::From(queried[0].get());
+            if (streamMediaType) {
+                mediaType = AString(
+                        streamMediaType->m.value,
+                        strnlen(streamMediaType->m.value, streamMediaType->flexCount()));
+            }
+        }
+        ALOGD("read media type: %s", mediaType.c_str());
+    }
+    return mediaType;
 }
+
+AString QueryMediaType(
+        bool input, const std::shared_ptr<Codec2Client::Component> &component) {
+    typedef C2PortMediaTypeSetting P;
+    typedef C2StreamMediaTypeSetting S;
+    if (input) {
+        return QueryMediaTypeImpl<P::input, S::input>(component);
+    } else {
+        return QueryMediaTypeImpl<P::output, S::output>(component);
+    }
+}
+
+}  // namespace
 
 /**
  * Set of standard parameters used by CCodec that are exposed to MediaCodec.
@@ -437,6 +477,29 @@ void CCodecConfig::initializeStandardParams() {
             return C2Value();
         }));
 
+    std::shared_ptr<C2Mapper::ProfileLevelMapper> mapper =
+        C2Mapper::GetProfileLevelMapper(mCodingMediaType);
+
+    add(ConfigMapper(KEY_PROFILE, C2_PARAMKEY_PROFILE_LEVEL, "profile")
+        .withMapper([mapper](C2Value v) -> C2Value {
+            C2Config::profile_t c2 = PROFILE_UNUSED;
+            int32_t sdk;
+            if (mapper && v.get(&sdk) && mapper->mapProfile(sdk, &c2)) {
+                return c2;
+            }
+            return PROFILE_UNUSED;
+        }));
+
+    add(ConfigMapper(KEY_LEVEL, C2_PARAMKEY_PROFILE_LEVEL, "level")
+        .withMapper([mapper](C2Value v) -> C2Value {
+            C2Config::level_t c2 = LEVEL_UNUSED;
+            int32_t sdk;
+            if (mapper && v.get(&sdk) && mapper->mapLevel(sdk, &c2)) {
+                return c2;
+            }
+            return LEVEL_UNUSED;
+        }));
+
     /* still to do
     constexpr char KEY_AAC_DRC_ATTENUATION_FACTOR[] = "aac-drc-cut-level";
     constexpr char KEY_AAC_DRC_BOOST_FACTOR[] = "aac-drc-boost-level";
@@ -459,10 +522,8 @@ void CCodecConfig::initializeStandardParams() {
     constexpr char KEY_GRID_ROWS[] = "grid-rows";
     constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
     constexpr char KEY_LATENCY[] = "latency";
-    constexpr char KEY_LEVEL[] = "level";
     constexpr char KEY_MAX_BIT_RATE[] = "max-bitrate";
     constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth";
-    constexpr char KEY_PROFILE[] = "profile";
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
     constexpr char KEY_QUALITY[] = "quality";
     constexpr char KEY_REPEAT_PREVIOUS_FRAME_AFTER[] = "repeat-previous-frame-after";
@@ -497,32 +558,13 @@ status_t CCodecConfig::initialize(
 
         // TEMP: determine domain from media type (port (preferred) or stream #0)
         if (domain.value == C2Component::DOMAIN_OTHER) {
-            c2err = component->query(
-                    {}, { C2PortMediaTypeSetting::input::PARAM_TYPE,
-                          C2StreamMediaTypeSetting::input::PARAM_TYPE }, C2_DONT_BLOCK, &queried);
-            if (c2err != C2_OK && queried.size() == 0) {
-                ALOGD("Query media type failed => %s", asString(c2err));
-            } else {
-                AString mediaType;
-                C2PortMediaTypeSetting::input *portMediaType =
-                    C2PortMediaTypeSetting::input::From(queried[0].get());
-                if (portMediaType) {
-                    mediaType = AString(portMediaType->m.value, portMediaType->flexCount());
-                } else {
-                    C2StreamMediaTypeSetting::input *streamMediaType =
-                        C2StreamMediaTypeSetting::input::From(queried[0].get());
-                    if (streamMediaType) {
-                        mediaType = AString(streamMediaType->m.value, streamMediaType->flexCount());
-                    }
-                }
-                ALOGD("read media type: %s", mediaType.c_str());
-                if (mediaType.startsWith("audio/")) {
-                    domain.value = C2Component::DOMAIN_AUDIO;
-                } else if (mediaType.startsWith("video/")) {
-                    domain.value = C2Component::DOMAIN_VIDEO;
-                } else if (mediaType.startsWith("image/")) {
-                    domain.value = C2Component::DOMAIN_IMAGE;
-                }
+            AString mediaType = QueryMediaType(true /* input */, component);
+            if (mediaType.startsWith("audio/")) {
+                domain.value = C2Component::DOMAIN_AUDIO;
+            } else if (mediaType.startsWith("video/")) {
+                domain.value = C2Component::DOMAIN_VIDEO;
+            } else if (mediaType.startsWith("image/")) {
+                domain.value = C2Component::DOMAIN_IMAGE;
             }
         }
     }
@@ -538,11 +580,22 @@ status_t CCodecConfig::initialize(
 
     ALOGV("domain is %#x (%u %u)", mDomain, domain.value, kind.value);
 
+    std::vector<C2Param::Index> paramIndices;
+    switch (kind.value) {
+    case C2Component::KIND_DECODER:
+        mCodingMediaType = QueryMediaType(true /* input */, component).c_str();
+        break;
+    case C2Component::KIND_ENCODER:
+        mCodingMediaType = QueryMediaType(false /* input */, component).c_str();
+        break;
+    default:
+        mCodingMediaType = "";
+    }
+
     c2err = component->querySupportedParams(&mParamDescs);
     if (c2err != C2_OK) {
         ALOGD("Query supported params failed after returning %zu values => %s",
                 mParamDescs.size(), asString(c2err));
-        // TODO: return error once we complete implementation.
         return UNKNOWN_ERROR;
     }
     for (const std::shared_ptr<C2ParamDescriptor> &desc : mParamDescs) {
@@ -552,7 +605,6 @@ status_t CCodecConfig::initialize(
     mReflector = client->getParamReflector();
     if (mReflector == nullptr) {
         ALOGE("Failed to get param reflector");
-        // TODO: report error once we complete implementation.
         return UNKNOWN_ERROR;
     }
 
@@ -679,19 +731,24 @@ bool CCodecConfig::updateFormats(Domain domain) {
     bool changed = false;
     if (domain & mInputDomain) {
         sp<AMessage> oldFormat = mInputFormat;
+        mInputFormat = mInputFormat->dup(); // trigger format changed
         mInputFormat->extend(getSdkFormatForDomain(reflected, mInputDomain));
         if (mInputFormat->countEntries() != oldFormat->countEntries()
                 || mInputFormat->changesFrom(oldFormat)->countEntries() > 0) {
             changed = true;
+        } else {
+            mInputFormat = oldFormat; // no change
         }
     }
     if (domain & mOutputDomain) {
         sp<AMessage> oldFormat = mOutputFormat;
+        mOutputFormat = mOutputFormat->dup(); // trigger output format changed
         mOutputFormat->extend(getSdkFormatForDomain(reflected, mOutputDomain));
-        if (!changed &&
-                (mOutputFormat->countEntries() != oldFormat->countEntries()
-                        || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0)) {
+        if (mOutputFormat->countEntries() != oldFormat->countEntries()
+                || mOutputFormat->changesFrom(oldFormat)->countEntries() > 0) {
             changed = true;
+        } else {
+            mOutputFormat = oldFormat; // no change
         }
     }
     ALOGV_IF(changed, "format(s) changed");
@@ -1004,4 +1061,3 @@ const C2Param *CCodecConfig::getConfigParameterValue(C2Param::Index index) const
 }
 
 }  // namespace android
-
