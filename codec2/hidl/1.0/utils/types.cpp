@@ -864,15 +864,22 @@ Status objcpy(FrameData* d, const C2FrameData& s,
 // DefaultBufferPoolSender's implementation
 
 DefaultBufferPoolSender::DefaultBufferPoolSender(
-        const sp<IClientManager>& receiverManager) :
-    mReceiverManager(receiverManager), mSourceConnectionId(0) {
+        const sp<IClientManager>& receiverManager,
+        std::chrono::steady_clock::duration refreshInterval)
+    : mReceiverManager(receiverManager),
+      mSourceConnectionId(0),
+      mLastSent(std::chrono::steady_clock::now()),
+      mRefreshInterval(refreshInterval) {
 }
 
-void DefaultBufferPoolSender::setReceiver(const sp<IClientManager>& receiverManager) {
+void DefaultBufferPoolSender::setReceiver(
+        const sp<IClientManager>& receiverManager,
+        std::chrono::steady_clock::duration refreshInterval) {
     std::lock_guard<std::mutex> lock(mMutex);
     if (mReceiverManager != receiverManager) {
         mReceiverManager = receiverManager;
     }
+    mRefreshInterval = refreshInterval;
 }
 
 ResultStatus DefaultBufferPoolSender::send(
@@ -892,19 +899,28 @@ ResultStatus DefaultBufferPoolSender::send(
         }
     }
     int64_t connectionId = bpData->mConnectionId;
-    if (mSourceConnectionId == 0 || mSourceConnectionId != connectionId) {
+    std::chrono::steady_clock::time_point now =
+            std::chrono::steady_clock::now();
+    std::chrono::steady_clock::duration interval = now - mLastSent;
+    if (mSourceConnectionId == 0 ||
+            mSourceConnectionId != connectionId ||
+            interval > mRefreshInterval) {
         // Initialize the bufferpool connection.
         mSourceConnectionId = connectionId;
         if (mSourceConnectionId == 0) {
             return ResultStatus::CRITICAL_ERROR;
         }
+
         int64_t receiverConnectionId;
-        rs = mSenderManager->registerSender(mReceiverManager, connectionId, &receiverConnectionId);
+        rs = mSenderManager->registerSender(mReceiverManager,
+                                            connectionId,
+                                            &receiverConnectionId);
         if ((rs != ResultStatus::OK) && (rs != ResultStatus::ALREADY_EXISTS)) {
             ALOGW("registerSender -- returned error: %d.",
                     static_cast<int>(rs));
             return rs;
         } else {
+            ALOGV("registerSender -- succeeded.");
             mReceiverConnectionId = receiverConnectionId;
         }
     }
@@ -926,6 +942,7 @@ ResultStatus DefaultBufferPoolSender::send(
     bpMessage->bufferId = bpData->mId;
     bpMessage->transactionId = transactionId;
     bpMessage->timestampUs = timestampUs;
+    mLastSent = now;
     return rs;
 }
 
