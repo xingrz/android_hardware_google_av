@@ -28,6 +28,7 @@
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
 
 #include <C2PlatformSupport.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <utils/Errors.h>
 
@@ -130,6 +131,9 @@ ComponentStore::ComponentStore(const std::shared_ptr<C2ComponentStore>& store) :
 
 c2_status_t ComponentStore::validateSupportedParams(
         const std::vector<std::shared_ptr<C2ParamDescriptor>>& params) {
+    if (!mParamReflector) {
+        return C2_BAD_INDEX;
+    }
     c2_status_t res = C2_OK;
 
     for (const std::shared_ptr<C2ParamDescriptor> &desc : params) {
@@ -228,8 +232,16 @@ Return<sp<IInputSurface>> ComponentStore::createInputSurface() {
     typedef ::android::hardware::graphics::bufferqueue::V1_0::
             IGraphicBufferProducer HGBP;
     typedef ::android::TWGraphicBufferProducer<HGBP> B2HGBP;
+    std::shared_ptr<C2ComponentStore> platformStore =
+            GetCodec2PlatformComponentStore();
+    std::shared_ptr<C2ReflectorHelper> reflector;
+    if (platformStore) {
+        reflector = std::static_pointer_cast<C2ReflectorHelper>(
+                platformStore->getParamReflector());
+    }
     return new InputSurface(
             this,
+            reflector,
             new B2HGBP(source->getIGraphicBufferProducer()),
             source);
 }
@@ -257,6 +269,10 @@ Return<void> ComponentStore::getStructDescriptors(
         if (item == mStructDescriptors.end()) {
             // not in the cache, and not known to be unsupported, query local reflector
             if (!mUnsupportedStructDescriptors.count(coreIndex)) {
+                if (!mParamReflector) {
+                    mUnsupportedStructDescriptors.emplace(coreIndex);
+                    continue;
+                }
                 std::shared_ptr<C2StructDescriptor> structDesc =
                     mParamReflector->describe(coreIndex);
                 if (!structDesc) {
