@@ -28,6 +28,20 @@
 #include "CCodecConfig.h"
 #include "Codec2Mapper.h"
 
+#define DRC_DEFAULT_MOBILE_REF_LEVEL 64  /* 64*-0.25dB = -16 dB below full scale for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_CUT   127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_BOOST 127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_HEAVY 1   /* switch for heavy compression for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_EFFECT 3  /* MPEG-D DRC effect type; 3 => Limited playback range */
+#define DRC_DEFAULT_MOBILE_ENC_LEVEL (-1) /* encoder target level; -1 => the value is unknown, otherwise dB step value (e.g. 64 for -16 dB) */
+// names of properties that can be used to override the default DRC settings
+#define PROP_DRC_OVERRIDE_REF_LEVEL  "aac_drc_reference_level"
+#define PROP_DRC_OVERRIDE_CUT        "aac_drc_cut"
+#define PROP_DRC_OVERRIDE_BOOST      "aac_drc_boost"
+#define PROP_DRC_OVERRIDE_HEAVY      "aac_drc_heavy"
+#define PROP_DRC_OVERRIDE_ENC_LEVEL  "aac_drc_enc_target_level"
+#define PROP_DRC_OVERRIDE_EFFECT     "ro.aac_drc_effect_type"
+
 namespace android {
 
 // CCodecConfig
@@ -508,13 +522,77 @@ void CCodecConfig::initializeStandardParams() {
             return LEVEL_UNUSED;
         }));
 
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_DRC_TARGET_REFERENCE_LEVEL, C2_PARAMKEY_DRC_TARGET_REFERENCE_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_REF_LEVEL, DRC_DEFAULT_MOBILE_REF_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
+
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_ATTENUATION_FACTOR, C2_PARAMKEY_DRC_ATTENUATION_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_CUT, DRC_DEFAULT_MOBILE_DRC_CUT);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_BOOST_FACTOR, C2_PARAMKEY_DRC_BOOST_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_BOOST, DRC_DEFAULT_MOBILE_DRC_BOOST);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to compression type and add default
+    add(ConfigMapper(KEY_AAC_DRC_HEAVY_COMPRESSION, C2_PARAMKEY_DRC_COMPRESSION_MODE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_HEAVY, DRC_DEFAULT_MOBILE_DRC_HEAVY);
+            }
+            return value == 1 ? C2Config::DRC_COMPRESSION_HEAVY : C2Config::DRC_COMPRESSION_LIGHT;
+        }));
+
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_ENCODED_TARGET_LEVEL, C2_PARAMKEY_DRC_ENCODED_TARGET_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_ENC_LEVEL, DRC_DEFAULT_MOBILE_ENC_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
+
+    // convert to effect type (these map to SDK values) and add default
+    add(ConfigMapper(KEY_AAC_DRC_EFFECT_TYPE, C2_PARAMKEY_DRC_EFFECT_TYPE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < -1 || value > 8) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_EFFECT, DRC_DEFAULT_MOBILE_DRC_EFFECT);
+                // ensure value is within range
+                if (value < -1 || value > 8) {
+                    value = DRC_DEFAULT_MOBILE_DRC_EFFECT;
+                }
+            }
+            return value;
+        }));
+
     /* still to do
-    constexpr char KEY_AAC_DRC_ATTENUATION_FACTOR[] = "aac-drc-cut-level";
-    constexpr char KEY_AAC_DRC_BOOST_FACTOR[] = "aac-drc-boost-level";
-    constexpr char KEY_AAC_DRC_EFFECT_TYPE[] = "aac-drc-effect-type";
-    constexpr char KEY_AAC_DRC_HEAVY_COMPRESSION[] = "aac-drc-heavy-compression";
-    constexpr char KEY_AAC_DRC_TARGET_REFERENCE_LEVEL[] = "aac-target-ref-level";
-    constexpr char KEY_AAC_ENCODED_TARGET_LEVEL[] = "aac-encoded-target-level";
     constexpr char KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT[] = "aac-max-output-channel_count";
 
     constexpr char KEY_AAC_SBR_MODE[] = "aac-sbr-mode";
@@ -541,7 +619,6 @@ void CCodecConfig::initializeStandardParams() {
     constexpr char KEY_TILE_HEIGHT[] = "tile-height";
     constexpr char KEY_TILE_WIDTH[] = "tile-width";
     constexpr char KEY_TRACK_ID[] = "track-id";
-
     */
 }
 
