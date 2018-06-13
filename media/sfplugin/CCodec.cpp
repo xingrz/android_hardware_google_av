@@ -1300,7 +1300,21 @@ void CCodec::signalEndOfInputStream() {
 }
 
 void CCodec::signalRequestIDRFrame() {
-    // TODO
+    std::shared_ptr<Codec2Client::Component> comp;
+    {
+        Mutexed<State>::Locked state(mState);
+        if (state->get() == RELEASED) {
+            ALOGD("no IDR request sent since component is released");
+            return;
+        }
+        comp = state->comp;
+    }
+    ALOGV("request IDR");
+    Mutexed<Config>::Locked config(mConfig);
+    std::vector<std::unique_ptr<C2Param>> params;
+    params.push_back(
+            std::make_unique<C2StreamRequestSyncFrameTuning::output>(0u, true));
+    config->setParameters(comp, params, C2_MAY_BLOCK);
 }
 
 void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
