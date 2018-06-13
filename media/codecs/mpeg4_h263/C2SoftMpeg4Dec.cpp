@@ -167,6 +167,9 @@ public:
         return C2R::Ok();
     }
 
+    uint32_t getWidth() const { return mSize->width; }
+    uint32_t getHeight() const { return mSize->height; }
+
 private:
     std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
     std::shared_ptr<C2VideoSizeStreamInfo::output> mSize;
@@ -427,6 +430,8 @@ static void copyOutputBufferToYV12Frame(uint8_t *dst, uint8_t *src, size_t dstYS
 void C2SoftMpeg4Dec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    mWidth = mIntf->getWidth();
+    mHeight = mIntf->getHeight();
     work->result = C2_OK;
     work->workletsProcessed = 0u;
     work->worklets.front()->output.configUpdate.clear();
