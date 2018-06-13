@@ -127,6 +127,13 @@ public:
                 })
                 .withSetter(ProfileLevelSetter, mSize, mFrameRate, mBitrate)
                 .build());
+
+        addParameter(
+                DefineParam(mSyncRequest, C2_PARAMKEY_REQUEST_SYNC_FRAME)
+                .withDefault(new C2StreamRequestSyncFrameTuning::output(0u, false))
+                .withFields({C2F(mSyncRequest, value).any()})
+                .withSetter(Setter<decltype(*mSyncRequest)>::StrictValueWithNoDeps)
+                .build());
     }
 
     static C2R SizeSetter(bool mayBlock, C2P<C2VideoSizeStreamTuning::input> &me) {
@@ -262,6 +269,7 @@ public:
         ALOGD("Unrecognized level: %x", mProfileLevel->level);
         return 41;
     }
+    bool getSyncRequest() const { return mSyncRequest->value; }
 
 private:
     std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
@@ -273,6 +281,7 @@ private:
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
+    std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mSyncRequest;
 };
 
 #define ive_api_function  ih264e_api_function
@@ -1248,12 +1257,17 @@ void C2SoftAvcEnc::process(
                 mOutFile, csd->m.value, csd->flexCount());
     }
 
+    if (mIntf->getSyncRequest()) {
+        ALOGV("Got sync request");
+        setFrameType(IV_IDR_FRAME);
+        C2StreamRequestSyncFrameTuning::output unset(0u, false);
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        (void)mIntf->config({&unset}, C2_MAY_BLOCK, &failures);
+    }
+
     if (mUpdateFlag) {
         if (mUpdateFlag & kUpdateBitrate) {
             setBitRate();
-        }
-        if (mUpdateFlag & kRequestKeyFrame) {
-            setFrameType(IV_IDR_FRAME);
         }
         if (mUpdateFlag & kUpdateAIRMode) {
             setAirParams();
@@ -1379,6 +1393,7 @@ void C2SoftAvcEnc::process(
     work->workletsProcessed = 1u;
 
     if (IV_IDR_FRAME == s_encode_op.u4_encoded_frame_type) {
+        ALOGV("IDR frame produced");
         buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
                 0u /* stream id */, C2PictureTypeKeyFrame));
     }
