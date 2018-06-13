@@ -1605,11 +1605,12 @@ sp<GraphicBuffer> createGraphicBuffer(const C2ConstGraphicBlock& block) {
     uint32_t format;
     uint64_t usage;
     uint32_t stride;
+    uint32_t generation;
     uint64_t bqId;
     int32_t bqSlot;
     _UnwrapNativeCodec2GrallocMetadata(
             block.handle(), &width, &height, &format, &usage,
-            &stride, &bqId, reinterpret_cast<uint32_t*>(&bqSlot));
+            &stride, &generation, &bqId, reinterpret_cast<uint32_t*>(&bqSlot));
     native_handle_t *grallocHandle =
             UnwrapNativeCodec2GrallocHandle(block.handle());
     sp<GraphicBuffer> graphicBuffer =
@@ -1701,11 +1702,12 @@ status_t attachToBufferQueue(const C2ConstGraphicBlock& block,
 }
 
 bool getBufferQueueAssignment(const C2ConstGraphicBlock& block,
+                              uint32_t* generation,
                               uint64_t* bqId,
                               int32_t* bqSlot) {
     return _C2BlockFactory::GetBufferQueueData(
             _C2BlockFactory::GetGraphicBlockPoolData(block),
-            bqId, bqSlot);
+            generation, bqId, bqSlot);
 }
 
 bool yieldBufferQueueBlock(const C2ConstGraphicBlock& block) {
@@ -1734,16 +1736,18 @@ bool holdBufferQueueBlock(const C2ConstGraphicBlock& block,
         return false;
     }
 
+    uint32_t oldGeneration;
     uint64_t oldId;
     int32_t oldSlot;
     // If the block is not bufferqueue-based, do nothing.
-    if (!_C2BlockFactory::GetBufferQueueData(data, &oldId, &oldSlot) ||
+    if (!_C2BlockFactory::GetBufferQueueData(
+            data, &oldGeneration, &oldId, &oldSlot) ||
             (oldId == 0)) {
         return false;
     }
 
     // If the block's bqId is the same as the desired bqId, just hold.
-    if (oldId == bqId) {
+    if ((oldId == bqId) && (oldGeneration == generation)) {
         ALOGV("holdBufferQueueBlock -- import without attaching: "
                 "bqId %llu, bqSlot %d, generation %u.",
                 static_cast<long long unsigned>(oldId),
