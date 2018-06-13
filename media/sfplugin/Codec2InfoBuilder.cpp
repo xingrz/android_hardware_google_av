@@ -148,7 +148,7 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
         std::unique_ptr<MediaCodecInfoWriter> codecInfo = writer->addMediaCodecInfo();
         codecInfo->setName(trait.name.c_str());
         codecInfo->setOwner("dummy");
-        bool encoder = trait.kind == C2Component::KIND_DECODER;
+        bool encoder = trait.kind == C2Component::KIND_ENCODER;
         codecInfo->setEncoder(encoder);
         codecInfo->setRank(rank);
         for (auto typeIt = codec.typeMap.begin(); typeIt != codec.typeMap.end(); ++typeIt) {
