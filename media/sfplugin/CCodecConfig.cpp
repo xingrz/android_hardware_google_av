@@ -319,7 +319,11 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_MIME,     C2_PARAMKEY_OUTPUT_MEDIA_TYPE,   "value")
         .limitTo(D::OUTPUT & D::READ));
 
-    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value").limitTo(D::ENCODER));
+    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::OUTPUT));
+    // we also need to put the bitrate in the max bitrate field
+    add(ConfigMapper(KEY_MAX_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::READ & D::OUTPUT));
     add(ConfigMapper(PARAMETER_KEY_VIDEO_BITRATE, C2_PARAMKEY_BITRATE, "value")
         .limitTo(D::ENCODER & D::VIDEO & D::PARAM));
     add(ConfigMapper(KEY_BITRATE_MODE, C2_PARAMKEY_BITRATE_MODE, "value")
@@ -392,7 +396,7 @@ void CCodecConfig::initializeStandardParams() {
             return C2Value();
         }));
     add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
-    add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
+    deprecated(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      "coding.request-sync", "value")
         .limitTo(D::PARAM & D::ENCODER));
     add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
@@ -592,33 +596,56 @@ void CCodecConfig::initializeStandardParams() {
             return value;
         }));
 
-    /* still to do
-    constexpr char KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT[] = "aac-max-output-channel_count";
+    add(ConfigMapper(KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT, C2_PARAMKEY_MAX_CHANNEL_COUNT, "value")
+        .limitTo(D::AUDIO));
 
-    constexpr char KEY_AAC_SBR_MODE[] = "aac-sbr-mode";
-    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";
+    add(ConfigMapper(KEY_AAC_SBR_MODE, C2_PARAMKEY_AAC_SBR_MODE, "value")
+        .limitTo(D::AUDIO & D::ENCODER & D::CONFIG)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                return C2Config::AAC_SBR_AUTO;
+            }
+            switch (value) {
+                case 0: return C2Config::AAC_SBR_OFF;
+                case 1: return C2Config::AAC_SBR_SINGLE_RATE;
+                case 2: return C2Config::AAC_SBR_DUAL_RATE;
+                default: return C2Config::AAC_SBR_AUTO + 1; // invalid value
+            }
+        }));
+
+    add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
+    add(ConfigMapper(KEY_FLAC_COMPRESSION_LEVEL, C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::AUDIO & D::ENCODER));
+    add(ConfigMapper("complexity", C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::ENCODER));
+
+    add(ConfigMapper(KEY_GRID_COLUMNS, C2_PARAMKEY_TILE_LAYOUT, "columns")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_GRID_ROWS, C2_PARAMKEY_TILE_LAYOUT, "rows")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_WIDTH, C2_PARAMKEY_TILE_LAYOUT, "tile.width")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_HEIGHT, C2_PARAMKEY_TILE_LAYOUT, "tile.height")
+        .limitTo(D::IMAGE));
+
+    add(ConfigMapper(KEY_LATENCY, C2_PARAMKEY_PIPELINE_DELAY_REQUEST, "value")
+        .limitTo(D::VIDEO & D::ENCODER));
+
+    /* still to do
+
+    // not yet supported in Codec 2.0
+    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";  // we actually used "audio-hw-sync"
 
     constexpr char KEY_CAPTURE_RATE[] = "capture-rate";
     constexpr char KEY_CHANNEL_MASK[] = "channel-mask";
     constexpr char KEY_COLOR_RANGE[] = "color-range";
     constexpr char KEY_COLOR_STANDARD[] = "color-standard";
     constexpr char KEY_COLOR_TRANSFER[] = "color-transfer";
-    constexpr char KEY_FLAC_COMPRESSION_LEVEL[] = "flac-compression-level";
-    constexpr char KEY_GRID_COLUMNS[] = "grid-cols";
-    constexpr char KEY_GRID_ROWS[] = "grid-rows";
     constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
-    constexpr char KEY_LATENCY[] = "latency";
-    constexpr char KEY_MAX_BIT_RATE[] = "max-bitrate";
-    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth";
+    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth"; // not yet used
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
-    constexpr char KEY_QUALITY[] = "quality";
-    constexpr char KEY_REPEAT_PREVIOUS_FRAME_AFTER[] = "repeat-previous-frame-after";
-    constexpr char KEY_SLICE_HEIGHT[] = "slice-height";
-    constexpr char KEY_STRIDE[] = "stride";
     constexpr char KEY_TEMPORAL_LAYERING[] = "ts-schema";
-    constexpr char KEY_TILE_HEIGHT[] = "tile-height";
-    constexpr char KEY_TILE_WIDTH[] = "tile-width";
-    constexpr char KEY_TRACK_ID[] = "track-id";
     */
 }
 
