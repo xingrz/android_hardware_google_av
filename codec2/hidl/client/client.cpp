@@ -1058,9 +1058,11 @@ status_t Codec2Client::Component::queueToOutputSurface(
         const C2ConstGraphicBlock& block,
         const QueueBufferInput& input,
         QueueBufferOutput* output) {
+    uint32_t generation;
     uint64_t bqId;
     int32_t bqSlot;
-    if (!getBufferQueueAssignment(block, &bqId, &bqSlot) || bqId == 0) {
+    if (!getBufferQueueAssignment(block, &generation, &bqId, &bqSlot) ||
+            bqId == 0) {
         // Block not from bufferqueue -- it must be attached before queuing.
 
         mOutputBufferQueueMutex.lock();
@@ -1092,29 +1094,35 @@ status_t Codec2Client::Component::queueToOutputSurface(
     mOutputBufferQueueMutex.lock();
     sp<IGraphicBufferProducer> outputIgbp = mOutputIgbp;
     uint64_t outputBqId = mOutputBqId;
+    uint32_t outputGeneration = mOutputGeneration;
     mOutputBufferQueueMutex.unlock();
 
     if (!outputIgbp) {
-        ALOGE("queueToOutputSurface -- output surface is null.");
+        ALOGV("queueToOutputSurface -- output surface is null.");
         return NO_INIT;
     }
 
     if (bqId != outputBqId) {
-        ALOGE("queueToOutputSurface -- bufferqueue ids mismatch.");
+        ALOGV("queueToOutputSurface -- bufferqueue ids mismatch.");
+        return DEAD_OBJECT;
+    }
+
+    if (generation != outputGeneration) {
+        ALOGV("queueToOutputSurface -- generation numbers mismatch.");
         return DEAD_OBJECT;
     }
 
     status_t status = outputIgbp->queueBuffer(static_cast<int>(bqSlot),
                                               input, output);
     if (status != OK) {
-        ALOGE("queueToOutputSurface -- queueBuffer() failed "
+        ALOGD("queueToOutputSurface -- queueBuffer() failed "
                 "on bufferqueue-based block. "
                 "Error code = %d.",
                 static_cast<int>(status));
         return status;
     }
     if (!yieldBufferQueueBlock(block)) {
-        ALOGE("queueToOutputSurface -- cannot yield bufferqueue-based block "
+        ALOGD("queueToOutputSurface -- cannot yield bufferqueue-based block "
                 "to the bufferqueue.");
         return UNKNOWN_ERROR;
     }

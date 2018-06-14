@@ -368,7 +368,15 @@ void CCodecConfig::initializeStandardParams() {
     deprecated(ConfigMapper(C2_PARAMKEY_SYNC_FRAME_PERIOD, "coding.gop", "intra-period")
                .limitTo(D::ENCODER & D::VIDEO));
     add(ConfigMapper(KEY_INTRA_REFRESH_PERIOD, C2_PARAMKEY_INTRA_REFRESH, "period")
-        .limitTo(D::VIDEO & D::ENCODER));
+        .limitTo(D::VIDEO & D::ENCODER)
+        .withMappers(makeFloat, [](C2Value v) -> C2Value {
+            // read back always as int
+            float value;
+            if (v.get(&value)) {
+                return (int32_t)value;
+            }
+            return C2Value();
+        }));
     add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
     add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      "coding.request-sync", "value")
