@@ -179,9 +179,6 @@ struct C2SoftVpxEnc : public SimpleC2Component {
      // is enabled in encoder
      bool mErrorResilience;
 
-     // Key frame interval in frames
-     uint32_t mKeyFrameInterval;
-
      // Minimum (best quality) quantizer
      uint32_t mMinQuantizer;
 
@@ -288,6 +285,13 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
                 .build());
 
         addParameter(
+                DefineParam(mSyncFramePeriod, C2_PARAMKEY_SYNC_FRAME_INTERVAL)
+                .withDefault(new C2StreamSyncFrameIntervalTuning::output(0u, 1000000))
+                .withFields({C2F(mSyncFramePeriod, value).any()})
+                .withSetter(Setter<decltype(*mSyncFramePeriod)>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
             DefineParam(mBitrate, C2_NAME_STREAM_BITRATE_SETTING)
                 .withDefault(new C2BitrateTuning::output(0u, 64000))
                 .withFields({C2F(mBitrate, value).inRange(1, 40000000)})
@@ -313,6 +317,13 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     uint32_t getWidth() const { return mSize->width; }
     uint32_t getHeight() const { return mSize->height; }
     float getFrameRate() const { return mFrameRate->value; }
+    uint32_t getSyncFramePeriod() const {
+        if (mSyncFramePeriod->value < 0 || mSyncFramePeriod->value == INT64_MAX) {
+            return 0;
+        }
+        double period = mSyncFramePeriod->value / 1e6 * mFrameRate->value;
+        return (uint32_t)c2_max(c2_min(period + 0.5, double(UINT32_MAX)), 1.);
+    }
     uint32_t getBitrate() const { return mBitrate->value; }
 
    private:
@@ -323,6 +334,7 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamUsageTuning::input> mUsage;
     std::shared_ptr<C2VideoSizeStreamTuning::input> mSize;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
+    std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
 };
 
