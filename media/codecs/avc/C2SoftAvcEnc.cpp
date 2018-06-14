@@ -93,8 +93,20 @@ public:
         addParameter(
                 DefineParam(mBitrate, C2_NAME_STREAM_BITRATE_SETTING)
                 .withDefault(new C2BitrateTuning::output(0u, 64000))
-                .withFields({C2F(mBitrate, value).inRange(1, 12000000)})
-                .withSetter(Setter<decltype(*mBitrate)>::NonStrictValueWithNoDeps)
+                .withFields({C2F(mBitrate, value).inRange(4096, 12000000)})
+                .withSetter(BitrateSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mIntraRefresh, C2_PARAMKEY_INTRA_REFRESH)
+                .withDefault(new C2StreamIntraRefreshTuning::output(
+                        0u, C2Config::INTRA_REFRESH_DISABLED, 0.))
+                .withFields({
+                    C2F(mIntraRefresh, mode).oneOf({
+                        C2Config::INTRA_REFRESH_DISABLED, C2Config::INTRA_REFRESH_ARBITRARY }),
+                    C2F(mIntraRefresh, period).any()
+                })
+                .withSetter(IntraRefreshSetter)
                 .build());
 
         addParameter(
@@ -129,22 +141,33 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mSyncRequest, C2_PARAMKEY_REQUEST_SYNC_FRAME)
-                .withDefault(new C2StreamRequestSyncFrameTuning::output(0u, false))
-                .withFields({C2F(mSyncRequest, value).any()})
-                .withSetter(Setter<decltype(*mSyncRequest)>::StrictValueWithNoDeps)
+                DefineParam(mRequestSync, C2_PARAMKEY_REQUEST_SYNC_FRAME)
+                .withDefault(new C2StreamRequestSyncFrameTuning::output(0u, C2_FALSE))
+                .withFields({C2F(mRequestSync, value).oneOf({ C2_FALSE, C2_TRUE }) })
+                .withSetter(Setter<decltype(*mRequestSync)>::NonStrictValueWithNoDeps)
                 .build());
     }
 
-    static C2R SizeSetter(bool mayBlock, C2P<C2VideoSizeStreamTuning::input> &me) {
+    static C2R BitrateSetter(bool mayBlock, C2P<C2StreamBitrateInfo::output> &me) {
         (void)mayBlock;
-        // TODO: maybe apply block limit?
+        C2R res = C2R::Ok();
+        if (me.v.value <= 4096) {
+            me.set().value = 4096;
+        }
+        return res;
+    }
+
+    static C2R SizeSetter(bool mayBlock, const C2P<C2StreamPictureSizeInfo::input> &oldMe,
+                          C2P<C2StreamPictureSizeInfo::input> &me) {
+        (void)mayBlock;
         C2R res = C2R::Ok();
         if (!me.F(me.v.width).supportsAtAll(me.v.width)) {
             res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.width)));
+            me.set().width = oldMe.v.width;
         }
         if (!me.F(me.v.height).supportsAtAll(me.v.height)) {
             res = res.plus(C2SettingResultBuilder::BadValue(me.F(me.v.height)));
+            me.set().height = oldMe.v.height;
         }
         return res;
     }
@@ -225,11 +248,20 @@ public:
         return C2R::Ok();
     }
 
-    uint32_t getWidth() const { return mSize->width; }
-    uint32_t getHeight() const { return mSize->height; }
-    float getFrameRate() const { return mFrameRate->value; }
-    uint32_t getBitrate() const { return mBitrate->value; }
-    IV_PROFILE_T getProfile() const {
+    static C2R IntraRefreshSetter(bool mayBlock, C2P<C2StreamIntraRefreshTuning::output> &me) {
+        (void)mayBlock;
+        C2R res = C2R::Ok();
+        if (me.v.period < 1) {
+            me.set().mode = C2Config::INTRA_REFRESH_DISABLED;
+            me.set().period = 0;
+        } else {
+            // only support arbitrary mode (cyclic in our case)
+            me.set().mode = C2Config::INTRA_REFRESH_ARBITRARY;
+        }
+        return res;
+    }
+
+    IV_PROFILE_T getProfile_l() const {
         switch (mProfileLevel->profile) {
         case PROFILE_AVC_CONSTRAINED_BASELINE:  // fall-through
         case PROFILE_AVC_BASELINE: return IV_PROFILE_BASE;
@@ -239,7 +271,8 @@ public:
             return IV_PROFILE_DEFAULT;
         }
     }
-    UWORD32 getLevel() const {
+
+    UWORD32 getLevel_l() const {
         struct Level {
             C2Config::level_t c2Level;
             UWORD32 avcLevel;
@@ -269,7 +302,13 @@ public:
         ALOGD("Unrecognized level: %x", mProfileLevel->level);
         return 41;
     }
-    bool getSyncRequest() const { return mSyncRequest->value; }
+
+    // unsafe getters
+    std::shared_ptr<C2StreamPictureSizeInfo::input> getSize_l() const { return mSize; }
+    std::shared_ptr<C2StreamIntraRefreshTuning::output> getIntraRefresh_l() const { return mIntraRefresh; }
+    std::shared_ptr<C2StreamFrameRateInfo::output> getFrameRate_l() const { return mFrameRate; }
+    std::shared_ptr<C2StreamBitrateInfo::output> getBitrate_l() const { return mBitrate; }
+    std::shared_ptr<C2StreamRequestSyncFrameTuning::output> getRequestSync_l() const { return mRequestSync; }
 
 private:
     std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
@@ -279,9 +318,10 @@ private:
     std::shared_ptr<C2StreamUsageTuning::input> mUsage;
     std::shared_ptr<C2VideoSizeStreamTuning::input> mSize;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
+    std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mRequestSync;
+    std::shared_ptr<C2StreamIntraRefreshTuning::output> mIntraRefresh;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
-    std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mSyncRequest;
 };
 
 #define ive_api_function  ih264e_api_function
@@ -312,7 +352,6 @@ C2SoftAvcEnc::C2SoftAvcEnc(
         const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl)
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
-      mUpdateFlag(0),
       mIvVideoColorFormat(IV_YUV_420P),
       mAVCEncProfile(IV_PROFILE_BASE),
       mAVCEncLevel(41),
@@ -395,8 +434,8 @@ c2_status_t C2SoftAvcEnc::setDimensions() {
 
     s_dimensions_ip.e_cmd = IVE_CMD_VIDEO_CTL;
     s_dimensions_ip.e_sub_cmd = IVE_CMD_CTL_SET_DIMENSIONS;
-    s_dimensions_ip.u4_ht = mIntf->getHeight();
-    s_dimensions_ip.u4_wd = mIntf->getWidth();
+    s_dimensions_ip.u4_ht = mSize->height;
+    s_dimensions_ip.u4_wd = mSize->width;
 
     s_dimensions_ip.u4_timestamp_high = -1;
     s_dimensions_ip.u4_timestamp_low = -1;
@@ -444,8 +483,8 @@ c2_status_t C2SoftAvcEnc::setFrameRate() {
     s_frame_rate_ip.e_cmd = IVE_CMD_VIDEO_CTL;
     s_frame_rate_ip.e_sub_cmd = IVE_CMD_CTL_SET_FRAMERATE;
 
-    s_frame_rate_ip.u4_src_frame_rate = mIntf->getFrameRate();
-    s_frame_rate_ip.u4_tgt_frame_rate = mIntf->getFrameRate();
+    s_frame_rate_ip.u4_src_frame_rate = mFrameRate->value + 0.5;
+    s_frame_rate_ip.u4_tgt_frame_rate = mFrameRate->value + 0.5;
 
     s_frame_rate_ip.u4_timestamp_high = -1;
     s_frame_rate_ip.u4_timestamp_low = -1;
@@ -497,7 +536,7 @@ c2_status_t C2SoftAvcEnc::setBitRate() {
     s_bitrate_ip.e_cmd = IVE_CMD_VIDEO_CTL;
     s_bitrate_ip.e_sub_cmd = IVE_CMD_CTL_SET_BITRATE;
 
-    s_bitrate_ip.u4_target_bitrate = mIntf->getBitrate();
+    s_bitrate_ip.u4_target_bitrate = mBitrate->value;
 
     s_bitrate_ip.u4_timestamp_high = -1;
     s_bitrate_ip.u4_timestamp_low = -1;
@@ -629,8 +668,10 @@ c2_status_t C2SoftAvcEnc::setAirParams() {
     s_air_ip.e_cmd = IVE_CMD_VIDEO_CTL;
     s_air_ip.e_sub_cmd = IVE_CMD_CTL_SET_AIR_PARAMS;
 
-    s_air_ip.e_air_mode = mAIRMode;
-    s_air_ip.u4_air_refresh_period = mAIRRefreshPeriod;
+    s_air_ip.e_air_mode =
+        (mIntraRefresh->mode == C2Config::INTRA_REFRESH_DISABLED || mIntraRefresh->period < 1)
+            ? IVE_AIR_MODE_NONE : IVE_AIR_MODE_CYCLIC;
+    s_air_ip.u4_air_refresh_period = mIntraRefresh->period;
 
     s_air_ip.u4_timestamp_high = -1;
     s_air_ip.u4_timestamp_low = -1;
@@ -704,6 +745,8 @@ c2_status_t C2SoftAvcEnc::setGopParams() {
 }
 
 c2_status_t C2SoftAvcEnc::setProfileParams() {
+    IntfImpl::Lock lock = mIntf->lock();
+
     IV_STATUS_T status;
     ive_ctl_set_profile_params_ip_t s_profile_params_ip;
     ive_ctl_set_profile_params_op_t s_profile_params_op;
@@ -711,13 +754,14 @@ c2_status_t C2SoftAvcEnc::setProfileParams() {
     s_profile_params_ip.e_cmd = IVE_CMD_VIDEO_CTL;
     s_profile_params_ip.e_sub_cmd = IVE_CMD_CTL_SET_PROFILE_PARAMS;
 
-    s_profile_params_ip.e_profile = mIntf->getProfile();
+    s_profile_params_ip.e_profile = mIntf->getProfile_l();
     s_profile_params_ip.u4_entropy_coding_mode = mEntropyMode;
     s_profile_params_ip.u4_timestamp_high = -1;
     s_profile_params_ip.u4_timestamp_low = -1;
 
     s_profile_params_ip.u4_size = sizeof(ive_ctl_set_profile_params_ip_t);
     s_profile_params_op.u4_size = sizeof(ive_ctl_set_profile_params_op_t);
+    lock.unlock();
 
     status = ive_api_function(mCodecCtx, &s_profile_params_ip, &s_profile_params_op);
     if (status != IV_SUCCESS) {
@@ -784,9 +828,16 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
 
     c2_status_t errType = C2_OK;
 
-    uint32_t width = mIntf->getWidth();
-    uint32_t height = mIntf->getHeight();
-    mAVCEncLevel = mIntf->getLevel();
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        mSize = mIntf->getSize_l();
+        mBitrate = mIntf->getBitrate_l();
+        mFrameRate = mIntf->getFrameRate_l();
+        mIntraRefresh = mIntf->getIntraRefresh_l();
+        mAVCEncLevel = mIntf->getLevel_l();
+    }
+    uint32_t width = mSize->width;
+    uint32_t height = mSize->height;
 
     mStride = width;
 
@@ -1080,8 +1131,8 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
     int32_t uStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
     int32_t vStride = layout.planes[C2PlanarLayout::PLANE_V].rowInc;
 
-    uint32_t width = mIntf->getWidth();
-    uint32_t height = mIntf->getHeight();
+    uint32_t width = mSize->width;
+    uint32_t height = mSize->height;
     // width and height are always even (as block size is 16x16)
     CHECK_EQ((width & 1u), 0u);
     CHECK_EQ((height & 1u), 0u);
@@ -1257,24 +1308,36 @@ void C2SoftAvcEnc::process(
                 mOutFile, csd->m.value, csd->flexCount());
     }
 
-    if (mIntf->getSyncRequest()) {
-        ALOGV("Got sync request");
-        setFrameType(IV_IDR_FRAME);
-        C2StreamRequestSyncFrameTuning::output unset(0u, false);
-        std::vector<std::unique_ptr<C2SettingResult>> failures;
-        (void)mIntf->config({&unset}, C2_MAY_BLOCK, &failures);
-    }
+    // handle dynamic config parameters
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh = mIntf->getIntraRefresh_l();
+        std::shared_ptr<C2StreamBitrateInfo::output> bitrate = mIntf->getBitrate_l();
+        std::shared_ptr<C2StreamRequestSyncFrameTuning::output> requestSync = mIntf->getRequestSync_l();
+        lock.unlock();
 
-    if (mUpdateFlag) {
-        if (mUpdateFlag & kUpdateBitrate) {
+        if (bitrate != mBitrate) {
+            mBitrate = bitrate;
             setBitRate();
         }
-        if (mUpdateFlag & kUpdateAIRMode) {
+
+        if (intraRefresh != mIntraRefresh) {
+            mIntraRefresh = intraRefresh;
             setAirParams();
-            // notify(OMX_EventPortSettingsChanged, kOutputPortIndex,
-            //         OMX_IndexConfigAndroidIntraRefresh, NULL);
         }
-        mUpdateFlag = 0;
+
+        if (requestSync != mRequestSync) {
+            // we can handle IDR immediately
+            if (requestSync->value) {
+                // unset request
+                C2StreamRequestSyncFrameTuning::output clearSync(0u, C2_FALSE);
+                std::vector<std::unique_ptr<C2SettingResult>> failures;
+                mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
+                ALOGV("Got sync request");
+                setFrameType(IV_IDR_FRAME);
+            }
+            mRequestSync = requestSync;
+        }
     }
 
     if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
