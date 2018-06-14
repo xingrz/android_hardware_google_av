@@ -363,9 +363,21 @@ void CCodecConfig::initializeStandardParams() {
     deprecated(ConfigMapper("prepend-sps-pps-to-idr-frames",
                             "coding.add-csd-to-sync-frames", "value")
                .limitTo(D::ENCODER & D::VIDEO));
-    add(ConfigMapper(C2_PARAMKEY_SYNC_FRAME_PERIOD, C2_PARAMKEY_SYNC_FRAME_PERIOD, "value"));
-    // remove when codecs switch to PARAMKEY
-    deprecated(ConfigMapper(C2_PARAMKEY_SYNC_FRAME_PERIOD, "coding.gop", "intra-period")
+    // convert to timestamp base
+    add(ConfigMapper(KEY_I_FRAME_INTERVAL, C2_PARAMKEY_SYNC_FRAME_INTERVAL, "value")
+        .withMapper([](C2Value v) -> C2Value {
+            // convert from i32 to float
+            int32_t i32Value;
+            float fpValue;
+            if (v.get(&i32Value)) {
+                return int64_t(1000000) * i32Value;
+            } else if (v.get(&fpValue)) {
+                return int64_t(c2_min(1000000 * fpValue + 0.5, (double)INT64_MAX));
+            }
+            return C2Value();
+        }));
+    // remove when codecs switch to proper coding.gop (add support for calculating gop)
+    deprecated(ConfigMapper("i-frame-period", "coding.gop", "intra-period")
                .limitTo(D::ENCODER & D::VIDEO));
     add(ConfigMapper(KEY_INTRA_REFRESH_PERIOD, C2_PARAMKEY_INTRA_REFRESH, "period")
         .limitTo(D::VIDEO & D::ENCODER)
@@ -864,15 +876,16 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
 
     // convert some macro parameters to Codec 2.0 specific expressions
 
-    { // make i-frame-interval time based
-        int32_t iFrameInterval;
-        if (params->findInt32("i-frame-interval", &iFrameInterval)) {
-            int32_t intFrameRate;
+    { // make i-frame-interval frame based
+        float iFrameInterval;
+        if (params->findAsFloat(KEY_I_FRAME_INTERVAL, &iFrameInterval)) {
             float frameRate;
-            if (params->findInt32("frame-rate", &intFrameRate)) {
-                params->setInt32(C2_PARAMKEY_SYNC_FRAME_PERIOD, iFrameInterval * intFrameRate + 0.5);
-            } else if (params->findFloat("frame-rate", &frameRate)) {
-                params->setInt32(C2_PARAMKEY_SYNC_FRAME_PERIOD, iFrameInterval * frameRate + 0.5);
+            if (params->findAsFloat(KEY_FRAME_RATE, &frameRate)) {
+                params->setInt32("i-frame-period",
+                        (frameRate <= 0 || iFrameInterval < 0)
+                                 ? -1 /* no sync frames */
+                                 : (int32_t)c2_min(iFrameInterval * frameRate + 0.5,
+                                                   (float)INT32_MAX));
             }
         }
     }
