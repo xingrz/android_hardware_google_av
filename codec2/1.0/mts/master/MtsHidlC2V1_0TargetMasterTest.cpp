@@ -14,19 +14,13 @@
  * limitations under the License.
  */
 
+//#define LOG_NDEBUG 0
 #define LOG_TAG "codec2_hidl_hal_master_test"
 
 #include <android-base/logging.h>
 #include <gtest/gtest.h>
 
-#include <hardware/google/media/c2/1.0/IComponent.h>
-#include <hardware/google/media/c2/1.0/IComponentStore.h>
-
-using hardware::google::media::c2::V1_0::IComponent;
-using hardware::google::media::c2::V1_0::IComponentStore;
-using ::android::hardware::hidl_vec;
-using ::android::hardware::hidl_string;
-using ::android::sp;
+#include <codec2/hidl/client.h>
 
 #include <VtsHalHidlTargetTestBase.h>
 #include "media_c2_hidl_test_common.h"
@@ -43,8 +37,9 @@ class Codec2MasterHalTest : public ::testing::VtsHalHidlTargetTestBase {
    public:
     virtual void SetUp() override {
         Super::SetUp();
-        mStore = Super::getService<IComponentStore>(gEnv->getInstance());
-        ASSERT_NE(mStore, nullptr);
+        mClient = android::Codec2Client::CreateFromService(
+            gEnv->getInstance().c_str());
+        ASSERT_NE(mClient, nullptr);
     }
 
    protected:
@@ -52,52 +47,43 @@ class Codec2MasterHalTest : public ::testing::VtsHalHidlTargetTestBase {
         RecordProperty("description", description);
     }
 
-    sp<IComponentStore> mStore;
+    std::shared_ptr<android::Codec2Client> mClient;
 };
 
-void displayComponentInfo(
-    hidl_vec<IComponentStore::ComponentTraits>& compList) {
+void displayComponentInfo(const std::vector<C2Component::Traits>& compList) {
     for (size_t i = 0; i < compList.size(); i++) {
-        std::cout << compList[i].name << " | " << toString(compList[i].domain);
-        std::cout << " | " << toString(compList[i].kind) << "\n";
+        std::cout << compList[i].name << " | " << compList[i].domain;
+        std::cout << " | " << compList[i].kind << "\n";
     }
 }
 
 // List Components
 TEST_F(Codec2MasterHalTest, ListComponents) {
     ALOGV("ListComponents Test");
-    mStore->getName([](const ::android::hardware::hidl_string& name) {
-        EXPECT_NE(name.empty(), true) << "Invalid Component Store Name";
-    });
 
-    android::hardware::hidl_vec<IComponentStore::ComponentTraits> listTraits;
-    mStore->listComponents(
-        [&](const android::hardware::hidl_vec<IComponentStore::ComponentTraits>&
-                traits) { listTraits = traits; });
+    C2String name = mClient->getName();
+    EXPECT_NE(name.empty(), true) << "Invalid Codec2Client Name";
 
-    bool isPass = true;
+    // Get List of components from HIDL Codec2Client instance
+    const std::vector<C2Component::Traits> listTraits =
+        mClient->ListComponents();
+
     if (listTraits.size() == 0)
         ALOGE("Warning, ComponentInfo list empty");
     else {
         (void)displayComponentInfo;
-        // displayComponentInfo(listTraits);
         for (size_t i = 0; i < listTraits.size(); i++) {
-            sp<CodecListener> listener = new CodecListener();
+            std::shared_ptr<android::Codec2Client::Listener> listener;
+            std::shared_ptr<android::Codec2Client::Component> component;
+            listener.reset(new CodecListener());
             ASSERT_NE(listener, nullptr);
 
-            mStore->createComponent(
-                listTraits[i].name.c_str(), listener, nullptr,
-                [&](Status _s, const sp<IComponent>& _nl) {
-                    ASSERT_EQ(_s, Status::OK);
-                    if (!_nl) {
-                        isPass = false;
-                        std::cerr << "[    !OK   ] "
-                                  << listTraits[i].name.c_str() << "\n";
-                    }
-                });
+            mClient->createComponent(listTraits[i].name.c_str(), listener,
+                                     &component);
+            ASSERT_NE(component, nullptr) << "Create component failed for "
+                                          << listTraits[i].name.c_str();
         }
     }
-    EXPECT_TRUE(isPass);
 }
 
 }  // anonymous namespace
