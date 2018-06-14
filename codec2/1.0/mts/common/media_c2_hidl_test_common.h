@@ -17,86 +17,79 @@
 #ifndef MEDIA_C2_HIDL_TEST_COMMON_H
 #define MEDIA_C2_HIDL_TEST_COMMON_H
 
-#include <getopt.h>
-#include <media/stagefright/foundation/ALooper.h>
-#include <utils/Condition.h>
-#include <utils/Mutex.h>
+#include <codec2/hidl/client.h>
 
-#include <hardware/google/media/c2/1.0/IComponent.h>
-#include <hardware/google/media/c2/1.0/IComponentListener.h>
-#include <hardware/google/media/c2/1.0/IComponentStore.h>
 #include <hardware/google/media/c2/1.0/types.h>
 
-using ::hardware::google::media::c2::V1_0::WorkBundle;
-using ::hardware::google::media::c2::V1_0::IComponentStore;
-using ::hardware::google::media::c2::V1_0::IComponentListener;
-using ::hardware::google::media::c2::V1_0::SettingResult;
-using ::hardware::google::media::c2::V1_0::Status;
-using ::hardware::google::media::c2::V1_0::Work;
+#include <C2Component.h>
+#include <getopt.h>
+#include <hidl/HidlSupport.h>
+#include <media/stagefright/foundation/ALooper.h>
+#include <media/stagefright/foundation/Mutexed.h>
 
-using ::android::hardware::Return;
+using namespace ::hardware::google::media::c2::V1_0;
+using namespace ::hardware::google::media::c2::V1_0::utils;
+
+using ::android::Mutexed;
 using ::android::hardware::Void;
+using ::android::hardware::Return;
 using ::android::hardware::hidl_vec;
+using ::android::hardware::hidl_string;
 
 #include <VtsHalHidlTargetTestEnvBase.h>
 
 /*
  * Handle Callback functions onWorkDone(), onTripped(),
- * onError()
+ * onError(), onDeath(), onFramesRendered()
  */
-struct CodecListener : public IComponentListener {
+struct CodecListener : public android::Codec2Client::Listener {
    public:
-    CodecListener(std::function<void(Work)> fn = nullptr) : callBack(fn) {}
-    Return<void> onWorkDone(const WorkBundle& workBundle) override {
-        android::Mutex::Autolock autoLock(workLock);
-        for (auto& item : workBundle.works) {
-            processedWork.push_back(std::move(item));
-        }
-        workCondition.signal();
-        return Void();
-    }
-    Return<void> onTripped(
-        const hidl_vec<SettingResult>& settingResults) override {
-        (void)settingResults;
+    CodecListener(
+        std::function<void(std::list<std::unique_ptr<C2Work>>& workItems)> fn =
+            nullptr)
+        : callBack(fn) {}
+    virtual void onWorkDone(
+        const std::weak_ptr<android::Codec2Client::Component>& comp,
+        std::list<std::unique_ptr<C2Work>>& workItems) override {
         /* TODO */
-        /*
-        android::Mutex::Autolock autoLock(workLock);
-        for (hidl_vec<SettingResult>::const_iterator it =
-                 settingResults.begin();
-             it != settingResults.end(); ++it) {
-            processedWork.push_back(*it);
-        }
-        workCondition.signal();
-        */
-        return Void();
-    }
-    Return<void> onError(Status status, uint32_t errorCode) override {
-        /* TODO */
-        (void)status;
-        (void)errorCode;
-        return Void();
-    }
-    Return<void> onFramesRendered(
-        const hidl_vec<RenderedFrame>& renderedFrames) override {
-        /* TODO */
-        (void) renderedFrames;
-        return Void();
+        ALOGD("onWorkDone called");
+        (void)comp;
+        if (callBack) callBack(workItems);
     }
 
-    Status dequeueWork(Work* work) {
-        (void)work;
-        android::Mutex::Autolock autoLock(workLock);
-        android::List<Work>::iterator it = processedWork.begin();
-        while (it != processedWork.end()) {
-            if (callBack) callBack(*it);
-            it = processedWork.erase(it);
-        }
-        return Status::OK;
+    virtual void onTripped(
+        const std::weak_ptr<android::Codec2Client::Component>& comp,
+        const std::vector<std::shared_ptr<C2SettingResult>>& settingResults)
+        override {
+        /* TODO */
+        (void)comp;
+        (void)settingResults;
     }
-    ::android::List<Work> processedWork;
-    android::Mutex workLock;
-    android::Condition workCondition;
-    std::function<void(Work)> callBack;
+
+    virtual void onError(
+        const std::weak_ptr<android::Codec2Client::Component>& comp,
+        uint32_t errorCode) override {
+        /* TODO */
+        (void)comp;
+        ALOGD("onError called");
+        if (errorCode != 0) ALOGE("Error : %u", errorCode);
+    }
+
+    virtual void onDeath(
+        const std::weak_ptr<android::Codec2Client::Component>& comp) override {
+        /* TODO */
+        (void)comp;
+    }
+
+    virtual void onFramesRendered(
+        const std::vector<RenderedFrame>& renderedFrames) override {
+        /* TODO */
+        (void)renderedFrames;
+    }
+    // std::mutex mQueueLock;
+    // std::condition_variable mQueueCondition;
+    // std::list<std::unique_ptr<C2Work>> mWorkQueue;
+    std::function<void(std::list<std::unique_ptr<C2Work>>& workItems)> callBack;
 };
 
 // A class for test environment setup
@@ -117,10 +110,7 @@ class ComponentTestEnvironment : public ::testing::VtsHalHidlTargetTestEnvBase {
 
     void setRes(const char* _res) { res = _res; }
 
-    const hidl_string getInstance() {
-        ALOGV("Calling get instance");
-        return Super::getServiceName<IComponentStore>(instance);
-    }
+    const hidl_string getInstance() const { return instance; }
 
     const hidl_string getComponent() const { return component; }
 
@@ -175,4 +165,8 @@ class ComponentTestEnvironment : public ::testing::VtsHalHidlTargetTestEnvBase {
     hidl_string res;
 };
 
+/*
+ * common functions declarations
+ */
+void dumpFSV(const FieldSupportedValues& sv);
 #endif  // MEDIA_C2_HIDL_TEST_COMMON_H
