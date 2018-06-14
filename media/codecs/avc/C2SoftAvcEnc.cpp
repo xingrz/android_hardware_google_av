@@ -1387,16 +1387,18 @@ void C2SoftAvcEnc::process(
     work->worklets.front()->output.ordinal.timestamp =
         ((uint64_t)s_encode_op.u4_timestamp_high << 32) | s_encode_op.u4_timestamp_low;
     work->worklets.front()->output.buffers.clear();
-    std::shared_ptr<C2Buffer> buffer =
-        createLinearBuffer(block, 0, s_encode_op.s_out_buf.u4_bytes);
-    work->worklets.front()->output.buffers.push_back(buffer);
-    work->workletsProcessed = 1u;
 
-    if (IV_IDR_FRAME == s_encode_op.u4_encoded_frame_type) {
-        ALOGV("IDR frame produced");
-        buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
-                0u /* stream id */, C2PictureTypeKeyFrame));
+    if (s_encode_op.s_out_buf.u4_bytes) {
+        std::shared_ptr<C2Buffer> buffer =
+            createLinearBuffer(block, 0, s_encode_op.s_out_buf.u4_bytes);
+        if (IV_IDR_FRAME == s_encode_op.u4_encoded_frame_type) {
+            ALOGV("IDR frame produced");
+            buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                    0u /* stream id */, C2PictureTypeKeyFrame));
+        }
+        work->worklets.front()->output.buffers.push_back(buffer);
     }
+    work->workletsProcessed = 1u;
 
     if (s_encode_op.u4_is_last) {
         // outputBufferHeader->nFlags |= OMX_BUFFERFLAG_EOS;
