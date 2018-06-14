@@ -87,7 +87,7 @@ private:
     uint32_t mOutputDrainBufferWritePos;
 
     status_t initDecoder();
-    void configflushDecode();
+    int configflushDecode();
     int drainDecoder();
 
     void finishWork(const std::unique_ptr<C2Work>& work,
