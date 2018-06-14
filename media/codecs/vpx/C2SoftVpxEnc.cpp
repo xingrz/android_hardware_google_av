@@ -119,6 +119,8 @@ status_t C2SoftVpxEnc::initEncoder() {
     setCodecSpecificInterface();
     if (!mCodecInterface) goto CleanUp;
 
+    mTemporalLayers = mIntf->getTemporalLayers();
+
     ALOGD("VPx: initEncoder. BRMode: %u. TSLayers: %zu. KF: %u. QP: %u - %u",
           (uint32_t)mBitrateControlMode, mTemporalLayers, mIntf->getSyncFramePeriod(),
           mMinQuantizer, mMaxQuantizer);
