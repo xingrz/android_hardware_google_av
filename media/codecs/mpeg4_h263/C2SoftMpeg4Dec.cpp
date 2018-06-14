@@ -226,8 +226,8 @@ public:
         return C2R::Ok();
     }
 
-    uint32_t getWidth() const { return mSize->width; }
-    uint32_t getHeight() const { return mSize->height; }
+    uint32_t getMaxWidth() const { return mMaxSize->width; }
+    uint32_t getMaxHeight() const { return mMaxSize->height; }
 
 private:
     std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
@@ -385,10 +385,10 @@ c2_status_t C2SoftMpeg4Dec::ensureDecoderState(const std::shared_ptr<C2BlockPool
         return C2_CORRUPTED;
     }
 
-    uint32_t outSize = align(mWidth, 16) * align(mHeight, 16) * 3 / 2;
+    mOutputBufferSize = align(mIntf->getMaxWidth(), 16) * align(mIntf->getMaxHeight(), 16) * 3 / 2;
     for (int32_t i = 0; i < kNumOutputBuffers; ++i) {
         if (!mOutputBuffer[i]) {
-            mOutputBuffer[i] = (uint8_t *)malloc(outSize * sizeof(uint8_t));
+            mOutputBuffer[i] = (uint8_t *)malloc(mOutputBufferSize);
             if (!mOutputBuffer[i]) {
                 return C2_NO_MEMORY;
             }
@@ -444,7 +444,7 @@ bool C2SoftMpeg4Dec::handleResChange(const std::unique_ptr<C2Work> &work) {
             int32_t vol_size = 0;
 
             if (!PVInitVideoDecoder(
-                    mDecHandle, vol_data, &vol_size, 1, mWidth, mHeight, H263_MODE)) {
+                    mDecHandle, vol_data, &vol_size, 1, mIntf->getMaxWidth(), mIntf->getMaxHeight(), H263_MODE)) {
                 ALOGE("Error in PVInitVideoDecoder H263_MODE while resChanged was set to true");
                 work->result = C2_CORRUPTED;
                 mSignalledError = true;
@@ -491,8 +491,6 @@ static void copyOutputBufferToYV12Frame(uint8_t *dst, uint8_t *src, size_t dstYS
 void C2SoftMpeg4Dec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
-    mWidth = mIntf->getWidth();
-    mHeight = mIntf->getHeight();
     work->result = C2_OK;
     work->workletsProcessed = 0u;
     work->worklets.front()->output.configUpdate.clear();
@@ -545,10 +543,9 @@ void C2SoftMpeg4Dec::process(
             vol_size = inSize;
         }
         MP4DecodingMode mode = (mIsMpeg4) ? MPEG4_MODE : H263_MODE;
-
         if (!PVInitVideoDecoder(
                 mDecHandle, vol_data, &vol_size, 1,
-                mWidth, mHeight, mode)) {
+                mIntf->getMaxWidth(), mIntf->getMaxHeight(), mode)) {
             ALOGE("PVInitVideoDecoder failed. Unsupported content?");
             work->result = C2_CORRUPTED;
             mSignalledError = true;
@@ -600,10 +597,9 @@ void C2SoftMpeg4Dec::process(
             return;
         }
 
-        uint32_t outSize = align(mWidth, 16) * align(mHeight, 16) * 3 / 2;
         uint32_t yFrameSize = sizeof(uint8) * mDecHandle->size;
-        if (outSize < yFrameSize * 3 / 2){
-            ALOGE("Too small output buffer: %d bytes", outSize);
+        if (mOutputBufferSize < yFrameSize * 3 / 2){
+            ALOGE("Too small output buffer: %zu bytes", mOutputBufferSize);
             work->result = C2_NO_MEMORY;
             mSignalledError = true;
             return;
