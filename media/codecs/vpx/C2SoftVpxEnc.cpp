@@ -406,13 +406,6 @@ void C2SoftVpxEnc::process(
         return;
     }
 
-    if (mNumInputFrames < 0) {
-        ++mNumInputFrames;
-        std::unique_ptr<C2StreamCsdInfo::output> csd =
-            C2StreamCsdInfo::output::AllocUnique(0, 0u);
-        work->worklets.front()->output.configUpdate.push_back(std::move(csd));
-    }
-
     std::shared_ptr<const C2GraphicView> rView;
     std::shared_ptr<C2Buffer> inputBuffer;
     if (!work->input.buffers.empty()) {
@@ -587,7 +580,12 @@ void C2SoftVpxEnc::process(
             }
             work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
             work->worklets.front()->output.buffers.clear();
-            work->worklets.front()->output.buffers.push_back(createLinearBuffer(block));
+            std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block);
+            if (encoded_packet->data.frame.flags & VPX_FRAME_IS_KEY) {
+                buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                        0u /* stream id */, C2PictureTypeKeyFrame));
+            }
+            work->worklets.front()->output.buffers.push_back(buffer);
             work->worklets.front()->output.ordinal = work->input.ordinal;
             work->worklets.front()->output.ordinal.timestamp = encoded_packet->data.frame.pts;
             work->workletsProcessed = 1u;
