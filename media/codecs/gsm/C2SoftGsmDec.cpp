@@ -179,7 +179,7 @@ void C2SoftGsmDec::process(
     C2ReadView rView = mDummyReadView;
     size_t inOffset = 0u;
     size_t inSize = 0u;
-    if (work->input.buffers.empty()) {
+    if (!work->input.buffers.empty()) {
         rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
         inSize = rView.capacity();
         if (inSize && rView.error()) {

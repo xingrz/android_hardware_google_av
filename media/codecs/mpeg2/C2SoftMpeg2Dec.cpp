@@ -796,7 +796,7 @@ void C2SoftMpeg2Dec::process(
     size_t inSize = 0u;
     uint32_t workIndex = work->input.ordinal.frameIndex.peeku() & 0xFFFFFFFF;
     C2ReadView rView = mDummyReadView;
-    if (work->input.buffers.empty()) {
+    if (!work->input.buffers.empty()) {
         rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
         inSize = rView.capacity();
         if (inSize && rView.error()) {
