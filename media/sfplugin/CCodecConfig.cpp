@@ -138,7 +138,7 @@ struct ConfigMapper {
 
     Domain domain() const { return mDomain; }
     std::string mediaKey() const { return mMediaKey; }
-    std::string path() const { return mStruct + '.' + mField; }
+    std::string path() const { return mField.size() ? mStruct + '.' + mField : mStruct; }
     Mapper mapper() const { return mMapper; }
     Mapper reverse() const { return mReverse; }
 
@@ -446,6 +446,9 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper("csd-0",           C2_PARAMKEY_INIT_DATA,       "value")
         .limitTo(D::OUTPUT & D::READ));
 
+    add(ConfigMapper(C2_PARAMKEY_TEMPORAL_LAYERING, C2_PARAMKEY_TEMPORAL_LAYERING, "")
+        .limitTo(D::ENCODER & D::VIDEO & D::OUTPUT));
+
     // Pixel Format (use local key for actual pixel format as we don't distinguish between
     // SDK layouts for flexible format and we need the actual SDK color format in the media format)
     add(ConfigMapper("android._color-format",  C2_PARAMKEY_PIXEL_FORMAT, "value")
@@ -735,6 +738,8 @@ status_t CCodecConfig::initialize(
     // enumerate all fields
     mParamUpdater = std::make_shared<ReflectedParamUpdater>();
     mParamUpdater->clear();
+    mParamUpdater->supportWholeParam(
+            C2_PARAMKEY_TEMPORAL_LAYERING, C2StreamTemporalLayeringTuning::CORE_INDEX);
     mParamUpdater->addParamDesc(mReflector, mParamDescs);
 
     // TEMP: add some standard fields even if not reflected
@@ -990,6 +995,50 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
                                  ? -1 /* no sync frames */
                                  : (int32_t)c2_min(iFrameInterval * frameRate + 0.5,
                                                    (float)INT32_MAX));
+            }
+        }
+    }
+
+    {   // reflect temporal layering into a binary blob
+        AString schema;
+        if (params->findString(KEY_TEMPORAL_LAYERING, &schema)) {
+            unsigned int numLayers = 0;
+            unsigned int numBLayers = 0;
+            int tags;
+            char dummy;
+            std::unique_ptr<C2StreamTemporalLayeringTuning::output> layering;
+            if (sscanf(schema.c_str(), "webrtc.vp8.%u-layer%c", &numLayers, &dummy) == 1
+                && numLayers > 0) {
+                switch (numLayers) {
+                    case 1:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                {}, 0u, 1u, 0u);
+                        break;
+                    case 2:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .6f }, 0u, 2u, 0u);
+                        break;
+                    case 3:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .4f, .6f }, 0u, 3u, 0u);
+                        break;
+                    default:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .25f, .4f, .6f }, 0u, 4u, 0u);
+                        break;
+                }
+            } else if ((tags = sscanf(schema.c_str(), "android.generic.%u%c%u%c",
+                        &numLayers, &dummy, &numBLayers, &dummy))
+                && (tags == 1 || (tags == 3 && dummy == '+'))
+                && numLayers > 0 && numLayers < UINT32_MAX - numBLayers) {
+                layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                        {}, 0u, numLayers, numBLayers);
+            } else {
+                ALOGD("Ignoring unsupported ts-schema [%s]", schema.c_str());
+            }
+            if (layering) {
+                params->setBuffer(C2_PARAMKEY_TEMPORAL_LAYERING,
+                                  ABuffer::CreateAsCopy(layering.get(), layering->size()));
             }
         }
     }
