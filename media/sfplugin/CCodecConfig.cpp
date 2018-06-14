@@ -28,6 +28,20 @@
 #include "CCodecConfig.h"
 #include "Codec2Mapper.h"
 
+#define DRC_DEFAULT_MOBILE_REF_LEVEL 64  /* 64*-0.25dB = -16 dB below full scale for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_CUT   127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_BOOST 127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_HEAVY 1   /* switch for heavy compression for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_EFFECT 3  /* MPEG-D DRC effect type; 3 => Limited playback range */
+#define DRC_DEFAULT_MOBILE_ENC_LEVEL (-1) /* encoder target level; -1 => the value is unknown, otherwise dB step value (e.g. 64 for -16 dB) */
+// names of properties that can be used to override the default DRC settings
+#define PROP_DRC_OVERRIDE_REF_LEVEL  "aac_drc_reference_level"
+#define PROP_DRC_OVERRIDE_CUT        "aac_drc_cut"
+#define PROP_DRC_OVERRIDE_BOOST      "aac_drc_boost"
+#define PROP_DRC_OVERRIDE_HEAVY      "aac_drc_heavy"
+#define PROP_DRC_OVERRIDE_ENC_LEVEL  "aac_drc_enc_target_level"
+#define PROP_DRC_OVERRIDE_EFFECT     "ro.aac_drc_effect_type"
+
 namespace android {
 
 // CCodecConfig
@@ -305,7 +319,11 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_MIME,     C2_PARAMKEY_OUTPUT_MEDIA_TYPE,   "value")
         .limitTo(D::OUTPUT & D::READ));
 
-    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value").limitTo(D::ENCODER));
+    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::OUTPUT));
+    // we also need to put the bitrate in the max bitrate field
+    add(ConfigMapper(KEY_MAX_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::READ & D::OUTPUT));
     add(ConfigMapper(PARAMETER_KEY_VIDEO_BITRATE, C2_PARAMKEY_BITRATE, "value")
         .limitTo(D::ENCODER & D::VIDEO & D::PARAM));
     add(ConfigMapper(KEY_BITRATE_MODE, C2_PARAMKEY_BITRATE_MODE, "value")
@@ -390,7 +408,7 @@ void CCodecConfig::initializeStandardParams() {
             return C2Value();
         }));
     add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
-    add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
+    deprecated(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      "coding.request-sync", "value")
         .limitTo(D::PARAM & D::ENCODER));
     add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
@@ -520,40 +538,126 @@ void CCodecConfig::initializeStandardParams() {
             return LEVEL_UNUSED;
         }));
 
-    /* still to do
-    constexpr char KEY_AAC_DRC_ATTENUATION_FACTOR[] = "aac-drc-cut-level";
-    constexpr char KEY_AAC_DRC_BOOST_FACTOR[] = "aac-drc-boost-level";
-    constexpr char KEY_AAC_DRC_EFFECT_TYPE[] = "aac-drc-effect-type";
-    constexpr char KEY_AAC_DRC_HEAVY_COMPRESSION[] = "aac-drc-heavy-compression";
-    constexpr char KEY_AAC_DRC_TARGET_REFERENCE_LEVEL[] = "aac-target-ref-level";
-    constexpr char KEY_AAC_ENCODED_TARGET_LEVEL[] = "aac-encoded-target-level";
-    constexpr char KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT[] = "aac-max-output-channel_count";
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_DRC_TARGET_REFERENCE_LEVEL, C2_PARAMKEY_DRC_TARGET_REFERENCE_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_REF_LEVEL, DRC_DEFAULT_MOBILE_REF_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
 
-    constexpr char KEY_AAC_SBR_MODE[] = "aac-sbr-mode";
-    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_ATTENUATION_FACTOR, C2_PARAMKEY_DRC_ATTENUATION_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_CUT, DRC_DEFAULT_MOBILE_DRC_CUT);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_BOOST_FACTOR, C2_PARAMKEY_DRC_BOOST_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_BOOST, DRC_DEFAULT_MOBILE_DRC_BOOST);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to compression type and add default
+    add(ConfigMapper(KEY_AAC_DRC_HEAVY_COMPRESSION, C2_PARAMKEY_DRC_COMPRESSION_MODE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_HEAVY, DRC_DEFAULT_MOBILE_DRC_HEAVY);
+            }
+            return value == 1 ? C2Config::DRC_COMPRESSION_HEAVY : C2Config::DRC_COMPRESSION_LIGHT;
+        }));
+
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_ENCODED_TARGET_LEVEL, C2_PARAMKEY_DRC_ENCODED_TARGET_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_ENC_LEVEL, DRC_DEFAULT_MOBILE_ENC_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
+
+    // convert to effect type (these map to SDK values) and add default
+    add(ConfigMapper(KEY_AAC_DRC_EFFECT_TYPE, C2_PARAMKEY_DRC_EFFECT_TYPE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < -1 || value > 8) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_EFFECT, DRC_DEFAULT_MOBILE_DRC_EFFECT);
+                // ensure value is within range
+                if (value < -1 || value > 8) {
+                    value = DRC_DEFAULT_MOBILE_DRC_EFFECT;
+                }
+            }
+            return value;
+        }));
+
+    add(ConfigMapper(KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT, C2_PARAMKEY_MAX_CHANNEL_COUNT, "value")
+        .limitTo(D::AUDIO));
+
+    add(ConfigMapper(KEY_AAC_SBR_MODE, C2_PARAMKEY_AAC_SBR_MODE, "value")
+        .limitTo(D::AUDIO & D::ENCODER & D::CONFIG)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                return C2Config::AAC_SBR_AUTO;
+            }
+            switch (value) {
+                case 0: return C2Config::AAC_SBR_OFF;
+                case 1: return C2Config::AAC_SBR_SINGLE_RATE;
+                case 2: return C2Config::AAC_SBR_DUAL_RATE;
+                default: return C2Config::AAC_SBR_AUTO + 1; // invalid value
+            }
+        }));
+
+    add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
+    add(ConfigMapper(KEY_FLAC_COMPRESSION_LEVEL, C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::AUDIO & D::ENCODER));
+    add(ConfigMapper("complexity", C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::ENCODER));
+
+    add(ConfigMapper(KEY_GRID_COLUMNS, C2_PARAMKEY_TILE_LAYOUT, "columns")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_GRID_ROWS, C2_PARAMKEY_TILE_LAYOUT, "rows")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_WIDTH, C2_PARAMKEY_TILE_LAYOUT, "tile.width")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_HEIGHT, C2_PARAMKEY_TILE_LAYOUT, "tile.height")
+        .limitTo(D::IMAGE));
+
+    add(ConfigMapper(KEY_LATENCY, C2_PARAMKEY_PIPELINE_DELAY_REQUEST, "value")
+        .limitTo(D::VIDEO & D::ENCODER));
+
+    /* still to do
+
+    // not yet supported in Codec 2.0
+    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";  // we actually used "audio-hw-sync"
 
     constexpr char KEY_CAPTURE_RATE[] = "capture-rate";
     constexpr char KEY_CHANNEL_MASK[] = "channel-mask";
     constexpr char KEY_COLOR_RANGE[] = "color-range";
     constexpr char KEY_COLOR_STANDARD[] = "color-standard";
     constexpr char KEY_COLOR_TRANSFER[] = "color-transfer";
-    constexpr char KEY_FLAC_COMPRESSION_LEVEL[] = "flac-compression-level";
-    constexpr char KEY_GRID_COLUMNS[] = "grid-cols";
-    constexpr char KEY_GRID_ROWS[] = "grid-rows";
     constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
-    constexpr char KEY_LATENCY[] = "latency";
-    constexpr char KEY_MAX_BIT_RATE[] = "max-bitrate";
-    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth";
+    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth"; // not yet used
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
-    constexpr char KEY_QUALITY[] = "quality";
-    constexpr char KEY_REPEAT_PREVIOUS_FRAME_AFTER[] = "repeat-previous-frame-after";
-    constexpr char KEY_SLICE_HEIGHT[] = "slice-height";
-    constexpr char KEY_STRIDE[] = "stride";
     constexpr char KEY_TEMPORAL_LAYERING[] = "ts-schema";
-    constexpr char KEY_TILE_HEIGHT[] = "tile-height";
-    constexpr char KEY_TILE_WIDTH[] = "tile-width";
-    constexpr char KEY_TRACK_ID[] = "track-id";
-
     */
 }
 
