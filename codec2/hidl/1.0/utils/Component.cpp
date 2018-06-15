@@ -278,7 +278,9 @@ namespace /* unnamed */ {
 
 struct BlockPoolIntf : public ConfigurableC2Intf {
     BlockPoolIntf(const std::shared_ptr<C2BlockPool>& pool) :
-        ConfigurableC2Intf("C2BlockPool:" + std::to_string(pool->getLocalId())),
+        ConfigurableC2Intf("C2BlockPool:" +
+                           (pool ? std::to_string(pool->getLocalId()) :
+                           "null")),
         mPool(pool) {
     }
 
