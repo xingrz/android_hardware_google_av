@@ -146,6 +146,13 @@ public:
                 .withFields({C2F(mRequestSync, value).oneOf({ C2_FALSE, C2_TRUE }) })
                 .withSetter(Setter<decltype(*mRequestSync)>::NonStrictValueWithNoDeps)
                 .build());
+
+        addParameter(
+                DefineParam(mSyncFramePeriod, C2_PARAMKEY_SYNC_FRAME_INTERVAL)
+                .withDefault(new C2StreamSyncFrameIntervalTuning::output(0u, 1000000))
+                .withFields({C2F(mSyncFramePeriod, value).any()})
+                .withSetter(Setter<decltype(*mSyncFramePeriod)>::StrictValueWithNoDeps)
+                .build());
     }
 
     static C2R BitrateSetter(bool mayBlock, C2P<C2StreamBitrateInfo::output> &me) {
@@ -302,6 +309,13 @@ public:
         ALOGD("Unrecognized level: %x", mProfileLevel->level);
         return 41;
     }
+    uint32_t getSyncFramePeriod_l() const {
+        if (mSyncFramePeriod->value < 0 || mSyncFramePeriod->value == INT64_MAX) {
+            return 0;
+        }
+        double period = mSyncFramePeriod->value / 1e6 * mFrameRate->value;
+        return (uint32_t)c2_max(c2_min(period + 0.5, double(UINT32_MAX)), 1.);
+    }
 
     // unsafe getters
     std::shared_ptr<C2StreamPictureSizeInfo::input> getSize_l() const { return mSize; }
@@ -322,6 +336,7 @@ private:
     std::shared_ptr<C2StreamIntraRefreshTuning::output> mIntraRefresh;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
+    std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
 };
 
 #define ive_api_function  ih264e_api_function
@@ -416,8 +431,6 @@ void  C2SoftAvcEnc::initEncParams() {
     mEncSpeed = DEFAULT_ENC_SPEED;
     mIntra4x4 = DEFAULT_INTRA4x4;
     mConstrainedIntraFlag = DEFAULT_CONSTRAINED_INTRA;
-    mAIRMode = DEFAULT_AIR;
-    mAIRRefreshPeriod = DEFAULT_AIR_REFRESH_PERIOD;
     mPSNREnable = DEFAULT_PSNR_ENABLE;
     mReconEnable = DEFAULT_RECON_ENABLE;
     mEntropyMode = DEFAULT_ENTROPY_MODE;
@@ -835,6 +848,8 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
         mFrameRate = mIntf->getFrameRate_l();
         mIntraRefresh = mIntf->getIntraRefresh_l();
         mAVCEncLevel = mIntf->getLevel_l();
+        mIInterval = mIntf->getSyncFramePeriod_l();
+        mIDRInterval = mIntf->getSyncFramePeriod_l();
     }
     uint32_t width = mSize->width;
     uint32_t height = mSize->height;
