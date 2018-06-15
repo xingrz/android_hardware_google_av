@@ -95,6 +95,11 @@ public:
     status_t signalEndOfInputStream();
 
     /**
+     * Set parameters.
+     */
+    status_t setParameters(std::vector<std::unique_ptr<C2Param>> &params);
+
+    /**
      * Start queueing buffers to the component. This object should never queue
      * buffers before this call has completed.
      */
@@ -205,6 +210,7 @@ private:
     std::shared_ptr<CCodecCallback> mCCodecCallback;
     std::shared_ptr<C2BlockPool> mInputAllocator;
     QueueSync mQueueSync;
+    std::vector<std::unique_ptr<C2Param>> mParamsToBeSet;
 
     Mutexed<std::unique_ptr<InputBuffers>> mInputBuffers;
     Mutexed<std::unique_ptr<OutputBuffers>> mOutputBuffers;
