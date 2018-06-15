@@ -930,6 +930,44 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
         }
     }
 
+    { // convert temporal layering to schema
+        sp<ABuffer> tmp;
+        if (msg->findBuffer(C2_PARAMKEY_TEMPORAL_LAYERING, &tmp) && tmp != nullptr) {
+            C2StreamTemporalLayeringTuning *layering =
+                C2StreamTemporalLayeringTuning::From(C2Param::From(tmp->data(), tmp->size()));
+            if (layering && layering->m.layerCount > 0
+                    && layering->m.bLayerCount < layering->m.layerCount) {
+                // check if this is webrtc compatible
+                if (layering->m.bLayerCount == 0 &&
+                        (layering->m.layerCount == 1
+                                || (layering->m.layerCount == 2
+                                        && layering->flexCount() >= 1
+                                        && layering->m.bitrateRatios[0] == .6f)
+                                || (layering->m.layerCount == 3
+                                        && layering->flexCount() >= 2
+                                        && layering->m.bitrateRatios[0] == .4f
+                                        && layering->m.bitrateRatios[1] == .6f)
+                                || (layering->m.layerCount == 4
+                                        && layering->flexCount() >= 3
+                                        && layering->m.bitrateRatios[0] == .25f
+                                        && layering->m.bitrateRatios[1] == .4f
+                                        && layering->m.bitrateRatios[2] == .6f))) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "webrtc.vp8.%u-layer", layering->m.layerCount));
+                } else if (layering->m.bLayerCount) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "android.generic.%u+%u",
+                            layering->m.layerCount - layering->m.bLayerCount,
+                            layering->m.bLayerCount));
+                } else if (layering->m.bLayerCount) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "android.generic.%u", layering->m.layerCount));
+                }
+            }
+            msg->removeEntryAt(msg->findEntryByName(C2_PARAMKEY_TEMPORAL_LAYERING));
+        }
+    }
+
     ALOGV("converted to SDK values as %s", msg->debugString().c_str());
     return msg;
 }
@@ -1032,7 +1070,7 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
                 && (tags == 1 || (tags == 3 && dummy == '+'))
                 && numLayers > 0 && numLayers < UINT32_MAX - numBLayers) {
                 layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
-                        {}, 0u, numLayers, numBLayers);
+                        {}, 0u, numLayers + numBLayers, numBLayers);
             } else {
                 ALOGD("Ignoring unsupported ts-schema [%s]", schema.c_str());
             }
