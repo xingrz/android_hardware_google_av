@@ -80,6 +80,25 @@ public:
                 .withSetter(ProfileLevelSetter, mSize)
                 .build());
 
+        addParameter(
+                DefineParam(mMaxSize, C2_PARAMKEY_MAX_PICTURE_SIZE)
+                .withDefault(new C2StreamMaxPictureSizeTuning::output(0u, 320, 240))
+                .withFields({
+                    C2F(mSize, width).inRange(2, 1920, 2),
+                    C2F(mSize, height).inRange(2, 1088, 2),
+                })
+                .withSetter(MaxPictureSizeSetter, mSize)
+                .build());
+
+        addParameter(
+                DefineParam(mMaxInputSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
+                .withDefault(new C2StreamMaxBufferSizeInfo::input(0u, 320 * 240 * 3 / 2))
+                .withFields({
+                    C2F(mMaxInputSize, value).any(),
+                })
+                .calculatedAs(MaxInputSizeSetter, mMaxSize)
+                .build());
+
         C2ChromaOffsetStruct locations[1] = { C2ChromaOffsetStruct::ITU_YUV_420_0() };
         std::shared_ptr<C2StreamColorInfo::output> defaultColorInfo =
             C2StreamColorInfo::output::AllocShared(
@@ -159,7 +178,7 @@ public:
                 .build());
     }
 
-    static C2R SizeSetter(bool mayBlock, const C2P<C2VideoSizeStreamInfo::output> &oldMe,
+    static C2R SizeSetter(bool mayBlock, const C2P<C2StreamPictureSizeInfo::output> &oldMe,
                           C2P<C2VideoSizeStreamInfo::output> &me) {
         (void)mayBlock;
         C2R res = C2R::Ok();
@@ -172,6 +191,23 @@ public:
             me.set().height = oldMe.v.height;
         }
         return res;
+    }
+
+    static C2R MaxPictureSizeSetter(bool mayBlock, C2P<C2StreamMaxPictureSizeTuning::output> &me,
+                                    const C2P<C2StreamPictureSizeInfo::output> &size) {
+        (void)mayBlock;
+        // TODO: get max width/height from the size's field helpers vs. hardcoding
+        me.set().width = c2_min(c2_max(me.v.width, size.v.width), 1920u);
+        me.set().height = c2_min(c2_max(me.v.height, size.v.height), 1088u);
+        return C2R::Ok();
+    }
+
+    static C2R MaxInputSizeSetter(bool mayBlock, C2P<C2StreamMaxBufferSizeInfo::input> &me,
+                                  const C2P<C2StreamMaxPictureSizeTuning::output> &maxSize) {
+        (void)mayBlock;
+        // assume compression ratio of 1
+        me.set().value = (((maxSize.v.width + 15) / 16) * ((maxSize.v.height + 15) / 16) * 384);
+        return C2R::Ok();
     }
 
     static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::input> &me,
@@ -211,7 +247,9 @@ public:
 
 private:
     std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
-    std::shared_ptr<C2VideoSizeStreamInfo::output> mSize;
+    std::shared_ptr<C2StreamPictureSizeInfo::output> mSize;
+    std::shared_ptr<C2StreamMaxPictureSizeTuning::output> mMaxSize;
+    std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mMaxInputSize;
     std::shared_ptr<C2StreamColorInfo::output> mColorInfo;
     std::shared_ptr<C2StreamColorAspectsTuning::input> mDefaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::input> mCodedColorAspects;
@@ -796,7 +834,7 @@ void C2SoftMpeg2Dec::process(
     size_t inSize = 0u;
     uint32_t workIndex = work->input.ordinal.frameIndex.peeku() & 0xFFFFFFFF;
     C2ReadView rView = mDummyReadView;
-    if (work->input.buffers.empty()) {
+    if (!work->input.buffers.empty()) {
         rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
         inSize = rView.capacity();
         if (inSize && rView.error()) {

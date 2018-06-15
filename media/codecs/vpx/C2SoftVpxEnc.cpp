@@ -57,7 +57,6 @@ C2SoftVpxEnc::C2SoftVpxEnc(const char* name, c2_node_id_t id,
       mBitrateUpdated(false),
       mBitrateControlMode(VPX_VBR),
       mErrorResilience(false),
-      mKeyFrameInterval(0),
       mMinQuantizer(0),
       mMaxQuantizer(0),
       mTemporalLayers(0),
@@ -120,8 +119,10 @@ status_t C2SoftVpxEnc::initEncoder() {
     setCodecSpecificInterface();
     if (!mCodecInterface) goto CleanUp;
 
+    mTemporalLayers = mIntf->getTemporalLayers();
+
     ALOGD("VPx: initEncoder. BRMode: %u. TSLayers: %zu. KF: %u. QP: %u - %u",
-          (uint32_t)mBitrateControlMode, mTemporalLayers, mKeyFrameInterval,
+          (uint32_t)mBitrateControlMode, mTemporalLayers, mIntf->getSyncFramePeriod(),
           mMinQuantizer, mMaxQuantizer);
 
     mCodecConfiguration = new vpx_codec_enc_cfg_t;
@@ -236,9 +237,9 @@ status_t C2SoftVpxEnc::initEncoder() {
             mCodecConfiguration->rc_target_bitrate *
             mTemporalLayerBitrateRatio[i] / 100;
     }
-    if (mKeyFrameInterval > 0) {
-        mCodecConfiguration->kf_max_dist = mKeyFrameInterval;
-        mCodecConfiguration->kf_min_dist = mKeyFrameInterval;
+    if (mIntf->getSyncFramePeriod() >= 0) {
+        mCodecConfiguration->kf_max_dist = mIntf->getSyncFramePeriod();
+        mCodecConfiguration->kf_min_dist = mIntf->getSyncFramePeriod();
         mCodecConfiguration->kf_mode = VPX_KF_AUTO;
     }
     if (mMinQuantizer > 0) {
@@ -406,13 +407,6 @@ void C2SoftVpxEnc::process(
         return;
     }
 
-    if (mNumInputFrames < 0) {
-        ++mNumInputFrames;
-        std::unique_ptr<C2StreamCsdInfo::output> csd =
-            C2StreamCsdInfo::output::AllocUnique(0, 0u);
-        work->worklets.front()->output.configUpdate.push_back(std::move(csd));
-    }
-
     std::shared_ptr<const C2GraphicView> rView;
     std::shared_ptr<C2Buffer> inputBuffer;
     if (!work->input.buffers.empty()) {
@@ -424,6 +418,13 @@ void C2SoftVpxEnc::process(
             work->result = C2_CORRUPTED;
             return;
         }
+    } else if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
+        ALOGV("Empty input Buffer with EOS");
+        work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
+        work->worklets.front()->output.buffers.clear();
+        work->worklets.front()->output.ordinal = work->input.ordinal;
+        work->workletsProcessed = 1u;
+        return;
     } else {
         ALOGE("Empty input Buffer");
         work->result = C2_BAD_VALUE;
@@ -580,7 +581,12 @@ void C2SoftVpxEnc::process(
             }
             work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
             work->worklets.front()->output.buffers.clear();
-            work->worklets.front()->output.buffers.push_back(createLinearBuffer(block));
+            std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block);
+            if (encoded_packet->data.frame.flags & VPX_FRAME_IS_KEY) {
+                buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                        0u /* stream id */, C2PictureTypeKeyFrame));
+            }
+            work->worklets.front()->output.buffers.push_back(buffer);
             work->worklets.front()->output.ordinal = work->input.ordinal;
             work->worklets.front()->output.ordinal.timestamp = encoded_packet->data.frame.pts;
             work->workletsProcessed = 1u;

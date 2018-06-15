@@ -59,19 +59,24 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
     //
     // debug.stagefright.ccodec supports 5 values.
     //   0 - Only OMX components are available.
-    //   1 - Codec2.0 software audio decoders/encoders are available and
-    //       ranked 1st.
-    //       Components with "c2.vda." prefix are available with their normal
+    //   1 - Audio decoders and encoders with prefix "c2.android." are available
+    //       and ranked first.
+    //       All other components with prefix "c2.android." are available but
+    //       ranked last.
+    //       Components with prefix "c2.vda." are available with their normal
     //       ranks.
-    //       Other components with ".avc.decoder" or ".avc.encoder" suffix are
-    //       available, but ranked last.
-    //   2 - All Codec2.0 components are available.
-    //       Codec2.0 software audio decoders are ranked 1st.
-    //       The other Codec2.0 components have their normal ranks.
-    //   3 - All Codec2.0 components are available.
-    //       Codec2.0 software components are ranked 1st.
-    //       The other Codec2.0 components have their normal ranks.
-    //   4 - All Codec2.0 components are available with their normal ranks.
+    //       All other components with suffix ".avc.decoder" or ".avc.encoder"
+    //       are available but ranked last.
+    //   2 - Components with prefix "c2.android." are available and ranked
+    //       first.
+    //       Components with prefix "c2.vda." are available with their normal
+    //       ranks.
+    //       All other components with suffix ".avc.decoder" or ".avc.encoder"
+    //       are available but ranked last.
+    //   3 - Components with prefix "c2.android." are available and ranked
+    //       first.
+    //       All other components are available with their normal ranks.
+    //   4 - All components are available with their normal ranks.
     //
     // The default value (boot time) is 1.
     //
@@ -109,7 +114,8 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
                     rank = 1;
                     break;
                 }
-                continue;
+                rank = std::numeric_limits<decltype(rank)>::max();
+                break;
             }
             if (hasSuffix(trait.name, ".avc.decoder") ||
                     hasSuffix(trait.name, ".avc.encoder")) {
@@ -118,12 +124,22 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
             }
             continue;
         case 2:
-            if (trait.domain == C2Component::DOMAIN_AUDIO &&
-                    trait.kind == C2Component::KIND_DECODER) {
+            if (hasPrefix(trait.name, "c2.vda.")) {
+                break;
+            }
+            if (hasPrefix(trait.name, "c2.android.")) {
+                rank = 1;
+                break;
+            }
+            if (hasSuffix(trait.name, ".avc.decoder") ||
+                    hasSuffix(trait.name, ".avc.encoder")) {
+                rank = std::numeric_limits<decltype(rank)>::max();
+                break;
+            }
+            continue;
         case 3:
-                if (hasPrefix(trait.name, "c2.android.")) {
-                    rank = 1;
-                }
+            if (hasPrefix(trait.name, "c2.android.")) {
+                rank = 1;
             }
             break;
         }
@@ -132,8 +148,7 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
         std::unique_ptr<MediaCodecInfoWriter> codecInfo = writer->addMediaCodecInfo();
         codecInfo->setName(trait.name.c_str());
         codecInfo->setOwner("dummy");
-        // TODO: get this from trait.kind
-        bool encoder = (trait.name.find("encoder") != std::string::npos);
+        bool encoder = trait.kind == C2Component::KIND_ENCODER;
         codecInfo->setEncoder(encoder);
         codecInfo->setRank(rank);
         for (auto typeIt = codec.typeMap.begin(); typeIt != codec.typeMap.end(); ++typeIt) {

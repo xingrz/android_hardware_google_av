@@ -110,7 +110,13 @@ c2_status_t C2PlatformAllocatorStoreImpl::fetchAllocator(
         break;
 
     default:
-        return C2_NOT_FOUND;
+        // Try to create allocator from platform store plugins.
+        c2_status_t res =
+                C2PlatformStorePluginLoader::GetInstance()->createAllocator(id, allocator);
+        if (res != C2_OK) {
+            return res;
+        }
+        break;
     }
     if (*allocator == nullptr) {
         return C2_NO_MEMORY;

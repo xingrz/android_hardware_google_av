@@ -28,6 +28,20 @@
 #include "CCodecConfig.h"
 #include "Codec2Mapper.h"
 
+#define DRC_DEFAULT_MOBILE_REF_LEVEL 64  /* 64*-0.25dB = -16 dB below full scale for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_CUT   127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_BOOST 127 /* maximum compression of dynamic range for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_HEAVY 1   /* switch for heavy compression for mobile conf */
+#define DRC_DEFAULT_MOBILE_DRC_EFFECT 3  /* MPEG-D DRC effect type; 3 => Limited playback range */
+#define DRC_DEFAULT_MOBILE_ENC_LEVEL (-1) /* encoder target level; -1 => the value is unknown, otherwise dB step value (e.g. 64 for -16 dB) */
+// names of properties that can be used to override the default DRC settings
+#define PROP_DRC_OVERRIDE_REF_LEVEL  "aac_drc_reference_level"
+#define PROP_DRC_OVERRIDE_CUT        "aac_drc_cut"
+#define PROP_DRC_OVERRIDE_BOOST      "aac_drc_boost"
+#define PROP_DRC_OVERRIDE_HEAVY      "aac_drc_heavy"
+#define PROP_DRC_OVERRIDE_ENC_LEVEL  "aac_drc_enc_target_level"
+#define PROP_DRC_OVERRIDE_EFFECT     "ro.aac_drc_effect_type"
+
 namespace android {
 
 // CCodecConfig
@@ -124,7 +138,7 @@ struct ConfigMapper {
 
     Domain domain() const { return mDomain; }
     std::string mediaKey() const { return mMediaKey; }
-    std::string path() const { return mStruct + '.' + mField; }
+    std::string path() const { return mField.size() ? mStruct + '.' + mField : mStruct; }
     Mapper mapper() const { return mMapper; }
     Mapper reverse() const { return mReverse; }
 
@@ -137,7 +151,47 @@ private:
     Mapper mReverse;        ///< optional Codec 2.0 => SDK value mapper
 };
 
+template <typename PORT, typename STREAM>
+AString QueryMediaTypeImpl(
+        const std::shared_ptr<Codec2Client::Component> &component) {
+    AString mediaType;
+    std::vector<std::unique_ptr<C2Param>> queried;
+    c2_status_t c2err = component->query(
+            {}, { PORT::PARAM_TYPE, STREAM::PARAM_TYPE }, C2_DONT_BLOCK, &queried);
+    if (c2err != C2_OK && queried.size() == 0) {
+        ALOGD("Query media type failed => %s", asString(c2err));
+    } else {
+        PORT *portMediaType =
+            PORT::From(queried[0].get());
+        if (portMediaType) {
+            mediaType = AString(
+                    portMediaType->m.value,
+                    strnlen(portMediaType->m.value, portMediaType->flexCount()));
+        } else {
+            STREAM *streamMediaType = STREAM::From(queried[0].get());
+            if (streamMediaType) {
+                mediaType = AString(
+                        streamMediaType->m.value,
+                        strnlen(streamMediaType->m.value, streamMediaType->flexCount()));
+            }
+        }
+        ALOGD("read media type: %s", mediaType.c_str());
+    }
+    return mediaType;
 }
+
+AString QueryMediaType(
+        bool input, const std::shared_ptr<Codec2Client::Component> &component) {
+    typedef C2PortMediaTypeSetting P;
+    typedef C2StreamMediaTypeSetting S;
+    if (input) {
+        return QueryMediaTypeImpl<P::input, S::input>(component);
+    } else {
+        return QueryMediaTypeImpl<P::output, S::output>(component);
+    }
+}
+
+}  // namespace
 
 /**
  * Set of standard parameters used by CCodec that are exposed to MediaCodec.
@@ -265,7 +319,11 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_MIME,     C2_PARAMKEY_OUTPUT_MEDIA_TYPE,   "value")
         .limitTo(D::OUTPUT & D::READ));
 
-    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value").limitTo(D::ENCODER));
+    add(ConfigMapper(KEY_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::OUTPUT));
+    // we also need to put the bitrate in the max bitrate field
+    add(ConfigMapper(KEY_MAX_BIT_RATE, C2_PARAMKEY_BITRATE, "value")
+        .limitTo(D::ENCODER & D::READ & D::OUTPUT));
     add(ConfigMapper(PARAMETER_KEY_VIDEO_BITRATE, C2_PARAMKEY_BITRATE, "value")
         .limitTo(D::ENCODER & D::VIDEO & D::PARAM));
     add(ConfigMapper(KEY_BITRATE_MODE, C2_PARAMKEY_BITRATE_MODE, "value")
@@ -323,14 +381,34 @@ void CCodecConfig::initializeStandardParams() {
     deprecated(ConfigMapper("prepend-sps-pps-to-idr-frames",
                             "coding.add-csd-to-sync-frames", "value")
                .limitTo(D::ENCODER & D::VIDEO));
-    add(ConfigMapper(C2_PARAMKEY_SYNC_FRAME_PERIOD, C2_PARAMKEY_SYNC_FRAME_PERIOD, "value"));
-    // remove when codecs switch to PARAMKEY
-    deprecated(ConfigMapper(C2_PARAMKEY_SYNC_FRAME_PERIOD, "coding.gop", "intra-period")
+    // convert to timestamp base
+    add(ConfigMapper(KEY_I_FRAME_INTERVAL, C2_PARAMKEY_SYNC_FRAME_INTERVAL, "value")
+        .withMapper([](C2Value v) -> C2Value {
+            // convert from i32 to float
+            int32_t i32Value;
+            float fpValue;
+            if (v.get(&i32Value)) {
+                return int64_t(1000000) * i32Value;
+            } else if (v.get(&fpValue)) {
+                return int64_t(c2_min(1000000 * fpValue + 0.5, (double)INT64_MAX));
+            }
+            return C2Value();
+        }));
+    // remove when codecs switch to proper coding.gop (add support for calculating gop)
+    deprecated(ConfigMapper("i-frame-period", "coding.gop", "intra-period")
                .limitTo(D::ENCODER & D::VIDEO));
     add(ConfigMapper(KEY_INTRA_REFRESH_PERIOD, C2_PARAMKEY_INTRA_REFRESH, "period")
-        .limitTo(D::VIDEO & D::ENCODER));
+        .limitTo(D::VIDEO & D::ENCODER)
+        .withMappers(makeFloat, [](C2Value v) -> C2Value {
+            // read back always as int
+            float value;
+            if (v.get(&value)) {
+                return (int32_t)value;
+            }
+            return C2Value();
+        }));
     add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
-    add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
+    deprecated(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      "coding.request-sync", "value")
         .limitTo(D::PARAM & D::ENCODER));
     add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
@@ -367,6 +445,9 @@ void CCodecConfig::initializeStandardParams() {
 
     add(ConfigMapper("csd-0",           C2_PARAMKEY_INIT_DATA,       "value")
         .limitTo(D::OUTPUT & D::READ));
+
+    add(ConfigMapper(C2_PARAMKEY_TEMPORAL_LAYERING, C2_PARAMKEY_TEMPORAL_LAYERING, "")
+        .limitTo(D::ENCODER & D::VIDEO & D::OUTPUT));
 
     // Pixel Format (use local key for actual pixel format as we don't distinguish between
     // SDK layouts for flexible format and we need the actual SDK color format in the media format)
@@ -437,42 +518,149 @@ void CCodecConfig::initializeStandardParams() {
             return C2Value();
         }));
 
-    /* still to do
-    constexpr char KEY_AAC_DRC_ATTENUATION_FACTOR[] = "aac-drc-cut-level";
-    constexpr char KEY_AAC_DRC_BOOST_FACTOR[] = "aac-drc-boost-level";
-    constexpr char KEY_AAC_DRC_EFFECT_TYPE[] = "aac-drc-effect-type";
-    constexpr char KEY_AAC_DRC_HEAVY_COMPRESSION[] = "aac-drc-heavy-compression";
-    constexpr char KEY_AAC_DRC_TARGET_REFERENCE_LEVEL[] = "aac-target-ref-level";
-    constexpr char KEY_AAC_ENCODED_TARGET_LEVEL[] = "aac-encoded-target-level";
-    constexpr char KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT[] = "aac-max-output-channel_count";
+    std::shared_ptr<C2Mapper::ProfileLevelMapper> mapper =
+        C2Mapper::GetProfileLevelMapper(mCodingMediaType);
 
-    constexpr char KEY_AAC_SBR_MODE[] = "aac-sbr-mode";
-    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";
+    add(ConfigMapper(KEY_PROFILE, C2_PARAMKEY_PROFILE_LEVEL, "profile")
+        .withMapper([mapper](C2Value v) -> C2Value {
+            C2Config::profile_t c2 = PROFILE_UNUSED;
+            int32_t sdk;
+            if (mapper && v.get(&sdk) && mapper->mapProfile(sdk, &c2)) {
+                return c2;
+            }
+            return PROFILE_UNUSED;
+        }));
+
+    add(ConfigMapper(KEY_LEVEL, C2_PARAMKEY_PROFILE_LEVEL, "level")
+        .withMapper([mapper](C2Value v) -> C2Value {
+            C2Config::level_t c2 = LEVEL_UNUSED;
+            int32_t sdk;
+            if (mapper && v.get(&sdk) && mapper->mapLevel(sdk, &c2)) {
+                return c2;
+            }
+            return LEVEL_UNUSED;
+        }));
+
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_DRC_TARGET_REFERENCE_LEVEL, C2_PARAMKEY_DRC_TARGET_REFERENCE_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_REF_LEVEL, DRC_DEFAULT_MOBILE_REF_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
+
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_ATTENUATION_FACTOR, C2_PARAMKEY_DRC_ATTENUATION_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_CUT, DRC_DEFAULT_MOBILE_DRC_CUT);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to 0-1 (%) and add default
+    add(ConfigMapper(KEY_AAC_DRC_BOOST_FACTOR, C2_PARAMKEY_DRC_BOOST_FACTOR, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_BOOST, DRC_DEFAULT_MOBILE_DRC_BOOST);
+            }
+            return float(c2_min(value, 127) / 127.);
+        }));
+
+    // convert to compression type and add default
+    add(ConfigMapper(KEY_AAC_DRC_HEAVY_COMPRESSION, C2_PARAMKEY_DRC_COMPRESSION_MODE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_HEAVY, DRC_DEFAULT_MOBILE_DRC_HEAVY);
+            }
+            return value == 1 ? C2Config::DRC_COMPRESSION_HEAVY : C2Config::DRC_COMPRESSION_LIGHT;
+        }));
+
+    // convert to dBFS and add default
+    add(ConfigMapper(KEY_AAC_ENCODED_TARGET_LEVEL, C2_PARAMKEY_DRC_ENCODED_TARGET_LEVEL, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_ENC_LEVEL, DRC_DEFAULT_MOBILE_ENC_LEVEL);
+            }
+            return float(-0.25 * c2_min(value, 127));
+        }));
+
+    // convert to effect type (these map to SDK values) and add default
+    add(ConfigMapper(KEY_AAC_DRC_EFFECT_TYPE, C2_PARAMKEY_DRC_EFFECT_TYPE, "value")
+        .limitTo(D::AUDIO & D::DECODER)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < -1 || value > 8) {
+                value = property_get_int32(PROP_DRC_OVERRIDE_EFFECT, DRC_DEFAULT_MOBILE_DRC_EFFECT);
+                // ensure value is within range
+                if (value < -1 || value > 8) {
+                    value = DRC_DEFAULT_MOBILE_DRC_EFFECT;
+                }
+            }
+            return value;
+        }));
+
+    add(ConfigMapper(KEY_AAC_MAX_OUTPUT_CHANNEL_COUNT, C2_PARAMKEY_MAX_CHANNEL_COUNT, "value")
+        .limitTo(D::AUDIO));
+
+    add(ConfigMapper(KEY_AAC_SBR_MODE, C2_PARAMKEY_AAC_SBR_MODE, "value")
+        .limitTo(D::AUDIO & D::ENCODER & D::CONFIG)
+        .withMapper([](C2Value v) -> C2Value {
+            int32_t value;
+            if (!v.get(&value) || value < 0) {
+                return C2Config::AAC_SBR_AUTO;
+            }
+            switch (value) {
+                case 0: return C2Config::AAC_SBR_OFF;
+                case 1: return C2Config::AAC_SBR_SINGLE_RATE;
+                case 2: return C2Config::AAC_SBR_DUAL_RATE;
+                default: return C2Config::AAC_SBR_AUTO + 1; // invalid value
+            }
+        }));
+
+    add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
+    add(ConfigMapper(KEY_FLAC_COMPRESSION_LEVEL, C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::AUDIO & D::ENCODER));
+    add(ConfigMapper("complexity", C2_PARAMKEY_COMPLEXITY, "value")
+        .limitTo(D::ENCODER));
+
+    add(ConfigMapper(KEY_GRID_COLUMNS, C2_PARAMKEY_TILE_LAYOUT, "columns")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_GRID_ROWS, C2_PARAMKEY_TILE_LAYOUT, "rows")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_WIDTH, C2_PARAMKEY_TILE_LAYOUT, "tile.width")
+        .limitTo(D::IMAGE));
+    add(ConfigMapper(KEY_TILE_HEIGHT, C2_PARAMKEY_TILE_LAYOUT, "tile.height")
+        .limitTo(D::IMAGE));
+
+    add(ConfigMapper(KEY_LATENCY, C2_PARAMKEY_PIPELINE_DELAY_REQUEST, "value")
+        .limitTo(D::VIDEO & D::ENCODER));
+
+    /* still to do
+
+    // not yet supported in Codec 2.0
+    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";  // we actually used "audio-hw-sync"
 
     constexpr char KEY_CAPTURE_RATE[] = "capture-rate";
     constexpr char KEY_CHANNEL_MASK[] = "channel-mask";
     constexpr char KEY_COLOR_RANGE[] = "color-range";
     constexpr char KEY_COLOR_STANDARD[] = "color-standard";
     constexpr char KEY_COLOR_TRANSFER[] = "color-transfer";
-    constexpr char KEY_FLAC_COMPRESSION_LEVEL[] = "flac-compression-level";
-    constexpr char KEY_GRID_COLUMNS[] = "grid-cols";
-    constexpr char KEY_GRID_ROWS[] = "grid-rows";
     constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
-    constexpr char KEY_LATENCY[] = "latency";
-    constexpr char KEY_LEVEL[] = "level";
-    constexpr char KEY_MAX_BIT_RATE[] = "max-bitrate";
-    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth";
-    constexpr char KEY_PROFILE[] = "profile";
+    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth"; // not yet used
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
-    constexpr char KEY_QUALITY[] = "quality";
-    constexpr char KEY_REPEAT_PREVIOUS_FRAME_AFTER[] = "repeat-previous-frame-after";
-    constexpr char KEY_SLICE_HEIGHT[] = "slice-height";
-    constexpr char KEY_STRIDE[] = "stride";
     constexpr char KEY_TEMPORAL_LAYERING[] = "ts-schema";
-    constexpr char KEY_TILE_HEIGHT[] = "tile-height";
-    constexpr char KEY_TILE_WIDTH[] = "tile-width";
-    constexpr char KEY_TRACK_ID[] = "track-id";
-
     */
 }
 
@@ -497,32 +685,13 @@ status_t CCodecConfig::initialize(
 
         // TEMP: determine domain from media type (port (preferred) or stream #0)
         if (domain.value == C2Component::DOMAIN_OTHER) {
-            c2err = component->query(
-                    {}, { C2PortMediaTypeSetting::input::PARAM_TYPE,
-                          C2StreamMediaTypeSetting::input::PARAM_TYPE }, C2_DONT_BLOCK, &queried);
-            if (c2err != C2_OK && queried.size() == 0) {
-                ALOGD("Query media type failed => %s", asString(c2err));
-            } else {
-                AString mediaType;
-                C2PortMediaTypeSetting::input *portMediaType =
-                    C2PortMediaTypeSetting::input::From(queried[0].get());
-                if (portMediaType) {
-                    mediaType = AString(portMediaType->m.value, portMediaType->flexCount());
-                } else {
-                    C2StreamMediaTypeSetting::input *streamMediaType =
-                        C2StreamMediaTypeSetting::input::From(queried[0].get());
-                    if (streamMediaType) {
-                        mediaType = AString(streamMediaType->m.value, streamMediaType->flexCount());
-                    }
-                }
-                ALOGD("read media type: %s", mediaType.c_str());
-                if (mediaType.startsWith("audio/")) {
-                    domain.value = C2Component::DOMAIN_AUDIO;
-                } else if (mediaType.startsWith("video/")) {
-                    domain.value = C2Component::DOMAIN_VIDEO;
-                } else if (mediaType.startsWith("image/")) {
-                    domain.value = C2Component::DOMAIN_IMAGE;
-                }
+            AString mediaType = QueryMediaType(true /* input */, component);
+            if (mediaType.startsWith("audio/")) {
+                domain.value = C2Component::DOMAIN_AUDIO;
+            } else if (mediaType.startsWith("video/")) {
+                domain.value = C2Component::DOMAIN_VIDEO;
+            } else if (mediaType.startsWith("image/")) {
+                domain.value = C2Component::DOMAIN_IMAGE;
             }
         }
     }
@@ -538,11 +707,22 @@ status_t CCodecConfig::initialize(
 
     ALOGV("domain is %#x (%u %u)", mDomain, domain.value, kind.value);
 
+    std::vector<C2Param::Index> paramIndices;
+    switch (kind.value) {
+    case C2Component::KIND_DECODER:
+        mCodingMediaType = QueryMediaType(true /* input */, component).c_str();
+        break;
+    case C2Component::KIND_ENCODER:
+        mCodingMediaType = QueryMediaType(false /* input */, component).c_str();
+        break;
+    default:
+        mCodingMediaType = "";
+    }
+
     c2err = component->querySupportedParams(&mParamDescs);
     if (c2err != C2_OK) {
         ALOGD("Query supported params failed after returning %zu values => %s",
                 mParamDescs.size(), asString(c2err));
-        // TODO: return error once we complete implementation.
         return UNKNOWN_ERROR;
     }
     for (const std::shared_ptr<C2ParamDescriptor> &desc : mParamDescs) {
@@ -552,13 +732,14 @@ status_t CCodecConfig::initialize(
     mReflector = client->getParamReflector();
     if (mReflector == nullptr) {
         ALOGE("Failed to get param reflector");
-        // TODO: report error once we complete implementation.
         return UNKNOWN_ERROR;
     }
 
     // enumerate all fields
     mParamUpdater = std::make_shared<ReflectedParamUpdater>();
     mParamUpdater->clear();
+    mParamUpdater->supportWholeParam(
+            C2_PARAMKEY_TEMPORAL_LAYERING, C2StreamTemporalLayeringTuning::CORE_INDEX);
     mParamUpdater->addParamDesc(mReflector, mParamDescs);
 
     // TEMP: add some standard fields even if not reflected
@@ -749,6 +930,44 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
         }
     }
 
+    { // convert temporal layering to schema
+        sp<ABuffer> tmp;
+        if (msg->findBuffer(C2_PARAMKEY_TEMPORAL_LAYERING, &tmp) && tmp != nullptr) {
+            C2StreamTemporalLayeringTuning *layering =
+                C2StreamTemporalLayeringTuning::From(C2Param::From(tmp->data(), tmp->size()));
+            if (layering && layering->m.layerCount > 0
+                    && layering->m.bLayerCount < layering->m.layerCount) {
+                // check if this is webrtc compatible
+                if (layering->m.bLayerCount == 0 &&
+                        (layering->m.layerCount == 1
+                                || (layering->m.layerCount == 2
+                                        && layering->flexCount() >= 1
+                                        && layering->m.bitrateRatios[0] == .6f)
+                                || (layering->m.layerCount == 3
+                                        && layering->flexCount() >= 2
+                                        && layering->m.bitrateRatios[0] == .4f
+                                        && layering->m.bitrateRatios[1] == .6f)
+                                || (layering->m.layerCount == 4
+                                        && layering->flexCount() >= 3
+                                        && layering->m.bitrateRatios[0] == .25f
+                                        && layering->m.bitrateRatios[1] == .4f
+                                        && layering->m.bitrateRatios[2] == .6f))) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "webrtc.vp8.%u-layer", layering->m.layerCount));
+                } else if (layering->m.bLayerCount) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "android.generic.%u+%u",
+                            layering->m.layerCount - layering->m.bLayerCount,
+                            layering->m.bLayerCount));
+                } else if (layering->m.bLayerCount) {
+                    msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                            "android.generic.%u", layering->m.layerCount));
+                }
+            }
+            msg->removeEntryAt(msg->findEntryByName(C2_PARAMKEY_TEMPORAL_LAYERING));
+        }
+    }
+
     ALOGV("converted to SDK values as %s", msg->debugString().c_str());
     return msg;
 }
@@ -804,15 +1023,60 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
 
     // convert some macro parameters to Codec 2.0 specific expressions
 
-    { // make i-frame-interval time based
-        int32_t iFrameInterval;
-        if (params->findInt32("i-frame-interval", &iFrameInterval)) {
-            int32_t intFrameRate;
+    { // make i-frame-interval frame based
+        float iFrameInterval;
+        if (params->findAsFloat(KEY_I_FRAME_INTERVAL, &iFrameInterval)) {
             float frameRate;
-            if (params->findInt32("frame-rate", &intFrameRate)) {
-                params->setInt32(C2_PARAMKEY_SYNC_FRAME_PERIOD, iFrameInterval * intFrameRate + 0.5);
-            } else if (params->findFloat("frame-rate", &frameRate)) {
-                params->setInt32(C2_PARAMKEY_SYNC_FRAME_PERIOD, iFrameInterval * frameRate + 0.5);
+            if (params->findAsFloat(KEY_FRAME_RATE, &frameRate)) {
+                params->setInt32("i-frame-period",
+                        (frameRate <= 0 || iFrameInterval < 0)
+                                 ? -1 /* no sync frames */
+                                 : (int32_t)c2_min(iFrameInterval * frameRate + 0.5,
+                                                   (float)INT32_MAX));
+            }
+        }
+    }
+
+    {   // reflect temporal layering into a binary blob
+        AString schema;
+        if (params->findString(KEY_TEMPORAL_LAYERING, &schema)) {
+            unsigned int numLayers = 0;
+            unsigned int numBLayers = 0;
+            int tags;
+            char dummy;
+            std::unique_ptr<C2StreamTemporalLayeringTuning::output> layering;
+            if (sscanf(schema.c_str(), "webrtc.vp8.%u-layer%c", &numLayers, &dummy) == 1
+                && numLayers > 0) {
+                switch (numLayers) {
+                    case 1:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                {}, 0u, 1u, 0u);
+                        break;
+                    case 2:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .6f }, 0u, 2u, 0u);
+                        break;
+                    case 3:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .4f, .6f }, 0u, 3u, 0u);
+                        break;
+                    default:
+                        layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                                { .25f, .4f, .6f }, 0u, 4u, 0u);
+                        break;
+                }
+            } else if ((tags = sscanf(schema.c_str(), "android.generic.%u%c%u%c",
+                        &numLayers, &dummy, &numBLayers, &dummy))
+                && (tags == 1 || (tags == 3 && dummy == '+'))
+                && numLayers > 0 && numLayers < UINT32_MAX - numBLayers) {
+                layering = C2StreamTemporalLayeringTuning::output::AllocUnique(
+                        {}, 0u, numLayers + numBLayers, numBLayers);
+            } else {
+                ALOGD("Ignoring unsupported ts-schema [%s]", schema.c_str());
+            }
+            if (layering) {
+                params->setBuffer(C2_PARAMKEY_TEMPORAL_LAYERING,
+                                  ABuffer::CreateAsCopy(layering.get(), layering->size()));
             }
         }
     }
@@ -1009,4 +1273,3 @@ const C2Param *CCodecConfig::getConfigParameterValue(C2Param::Index index) const
 }
 
 }  // namespace android
-

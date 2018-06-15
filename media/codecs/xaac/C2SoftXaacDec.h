@@ -16,7 +16,7 @@
 
 #ifndef ANDROID_C2_SOFT_XAAC_DEC_H_
 #define ANDROID_C2_SOFT_XAAC_DEC_H_
-
+#include <utils/Vector.h>
 #include <SimpleC2Component.h>
 
 #include "ixheaacd_type_def.h"
@@ -26,7 +26,6 @@
 #include "ixheaacd_memory_standards.h"
 #include "ixheaacd_aac_config.h"
 
-#define MAX_MEM_ALLOCS              100
 #define MAX_CHANNEL_COUNT           8  /* maximum number of audio channels that can be decoded */
 #define MAX_NUM_BLOCKS              8  /* maximum number of audio blocks that can be decoded */
 
@@ -76,8 +75,7 @@ private:
     bool mIsCodecInitialized;
     bool mIsCodecConfigFlushRequired;
 
-    void* mMemoryArray[MAX_MEM_ALLOCS];
-    int32_t mMallocCount;
+    Vector<void*> mMemoryVec;
 
     size_t mInputBufferCount __unused;
     size_t mOutputBufferCount __unused;
@@ -86,18 +84,18 @@ private:
     short* mOutputDrainBuffer;
     uint32_t mOutputDrainBufferWritePos;
 
-    status_t initDecoder();
-    void configflushDecode();
-    int drainDecoder();
+    IA_ERRORCODE initDecoder();
+    IA_ERRORCODE configflushDecode();
+    IA_ERRORCODE drainDecoder();
 
     void finishWork(const std::unique_ptr<C2Work>& work,
                     const std::shared_ptr<C2BlockPool>& pool);
 
-    status_t initXAACDrc();
-    int initXAACDecoder();
-    int deInitXAACDecoder();
-    int configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength);
-    int decodeXAACStream(uint8_t* inBuffer,
+    IA_ERRORCODE initXAACDrc();
+    IA_ERRORCODE initXAACDecoder();
+    IA_ERRORCODE deInitXAACDecoder();
+    IA_ERRORCODE configXAACDecoder(uint8_t* inBuffer, uint32_t inBufferLength);
+    IA_ERRORCODE decodeXAACStream(uint8_t* inBuffer,
                          uint32_t inBufferLength,
                          int32_t* bytesConsumed,
                          int32_t* outBytes);
