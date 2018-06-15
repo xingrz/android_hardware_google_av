@@ -175,6 +175,7 @@ C2SoftXaacDec::~C2SoftXaacDec() {
 }
 
 c2_status_t C2SoftXaacDec::onInit() {
+    mOutputFrameLength = 1024;
     mInputBuffer = nullptr;
     mOutputBuffer = nullptr;
     mSampFreq = 0;
@@ -195,10 +196,9 @@ c2_status_t C2SoftXaacDec::onInit() {
 }
 
 c2_status_t C2SoftXaacDec::onStop() {
+    mOutputFrameLength = 1024;
     drainDecoder();
     // reset the "configured" state
-    mInputBuffer = nullptr;
-    mOutputBuffer = nullptr;
     mSampFreq = 0;
     mNumChannels = 0;
     mPcmWdSz = 0;
@@ -206,9 +206,6 @@ c2_status_t C2SoftXaacDec::onStop() {
     mNumOutBytes = 0;
     mCurFrameIndex = 0;
     mCurTimestamp = 0;
-    mIsCodecInitialized = false;
-    mIsCodecConfigFlushRequired = false;
-    mMemoryVec.clear();
     mSignalledOutputEos = false;
     mSignalledError = false;
     mOutputDrainBufferWritePos = 0;
@@ -573,6 +570,8 @@ c2_status_t C2SoftXaacDec::onFlush_sm() {
         }
     }
     drainDecoder();
+    mSignalledOutputEos = false;
+    mSignalledError = false;
 
     return C2_OK;
 }
