@@ -42,10 +42,6 @@ public:
             const std::shared_ptr<C2ReflectorHelper> &helper)
         : C2InterfaceHelper(helper) {
 
-        if (!helper) {
-            return;
-        }
-
         setDerivedInstance(this);
 
         addParameter(
@@ -291,13 +287,13 @@ Return<void> InputSurface::getUniqueId(
 // Constructor is exclusive to ComponentStore.
 InputSurface::InputSurface(
         const sp<ComponentStore>& store,
-        const std::shared_ptr<C2ReflectorHelper>& reflector,
         const sp<HGraphicBufferProducer>& base,
         const sp<GraphicBufferSource>& source) :
     mStore(store),
     mBase(base),
     mSource(source),
-    mHelper(std::make_shared<ConfigurableImpl>(reflector)),
+    mHelper(std::make_shared<ConfigurableImpl>(
+            std::static_pointer_cast<C2ReflectorHelper>(store->mParamReflector))),
     mConfigurable(new CachedConfigurable(
             std::make_unique<ConfigurableWrapper>(mHelper, source))) {
 

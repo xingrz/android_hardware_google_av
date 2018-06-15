@@ -214,13 +214,6 @@ struct Codec2Client : public Codec2ConfigurableClient {
     // List traits from all known IComponentStore services.
     static const std::vector<C2Component::Traits>& ListComponents();
 
-    // Try to call createInputSurface on a list of known clients, returning the
-    // first non-null value.
-    // There are two list of known clients: preferred and backup.
-    // useBackupClients determines which list of known clients will be used.
-    static std::shared_ptr<InputSurface> CreateInputSurface(
-            bool useBackupClients = false);
-
     // base cannot be null.
     Codec2Client(const sp<Base>& base, std::string instanceName);
 
@@ -399,9 +392,6 @@ public:
     std::shared_ptr<Configurable> getConfigurable() const;
 
     const sp<IGraphicBufferProducer>& getGraphicBufferProducer() const;
-
-    // Return the underlying IInputSurface.
-    const sp<Base>& getHalInterface() const;
 
     // base cannot be null.
     InputSurface(const sp<Base>& base);
