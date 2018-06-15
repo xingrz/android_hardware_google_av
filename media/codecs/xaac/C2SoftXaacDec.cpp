@@ -119,11 +119,34 @@ public:
                 })})
                 .withSetter(Setter<decltype(*mAacFormat)>::StrictValueWithNoDeps)
                 .build());
+
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withDefault(new C2StreamProfileLevelInfo::input(0u,
+                        C2Config::PROFILE_AAC_LC, C2Config::LEVEL_UNUSED))
+                .withFields({
+                    C2F(mProfileLevel, profile).oneOf({
+                            C2Config::PROFILE_AAC_LC,
+                            C2Config::PROFILE_AAC_HE,
+                            C2Config::PROFILE_AAC_HE_PS,
+                            C2Config::PROFILE_AAC_LD,
+                            C2Config::PROFILE_AAC_ELD,
+                            C2Config::PROFILE_AAC_XHE}),
+                    C2F(mProfileLevel, level).oneOf({
+                            C2Config::LEVEL_UNUSED
+                    })
+                })
+                .withSetter(ProfileLevelSetter)
+                .build());
     }
 
     bool isAdts() const { return mAacFormat->value == C2AacStreamFormatAdts; }
     uint32_t getBitrate() const { return mBitrate->value; }
-
+    static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::input> &me) {
+        (void)mayBlock;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
+    }
 private:
     std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
     std::shared_ptr<C2StreamFormatConfig::output> mOutputFormat;
@@ -134,6 +157,7 @@ private:
     std::shared_ptr<C2BitrateTuning::input> mBitrate;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
     std::shared_ptr<C2StreamAacFormatInfo::input> mAacFormat;
+    std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
 };
 
 C2SoftXaacDec::C2SoftXaacDec(
