@@ -62,22 +62,22 @@ namespace /* unnamed */ {
 // c2_status_t value that corresponds to hwbinder transaction failure.
 constexpr c2_status_t C2_TRANSACTION_FAILED = C2_CORRUPTED;
 
-// List of known IComponentStore services.
+// List of known IComponentStore services in the decreasing order of preference.
 constexpr const char* kClientNames[] = {
         "default",
         "software",
     };
 
-typedef std::array<
-        std::shared_ptr<Codec2Client>,
-        std::extent<decltype(kClientNames)>::value> ClientList;
+// Number of known IComponentStore services.
+constexpr size_t kNumClients = std::extent<decltype(kClientNames)>::value;
+
+// Start index of the clients in the above list that are considered "backup" by
+// Codec2Client::CreateInputSurface().
+constexpr size_t kBackupClientStartIndex = 1;
+
+typedef std::array<std::shared_ptr<Codec2Client>, kNumClients> ClientList;
 
 // Convenience methods to obtain known clients.
-size_t getClientCount() {
-    // TODO: this may not work if there is no default service
-    return std::extent<decltype(kClientNames)>::value;
-}
-
 std::shared_ptr<Codec2Client> getClient(size_t index) {
     return Codec2Client::CreateFromService(kClientNames[index]);
 }
@@ -508,10 +508,14 @@ c2_status_t Codec2Client::createInputSurface(
         ALOGE("createInputSurface -- failed transaction.");
         return C2_TRANSACTION_FAILED;
     }
-    *inputSurface = std::make_shared<InputSurface>(
-            static_cast<sp<IInputSurface>>(transResult));
+    sp<IInputSurface> result = static_cast<sp<IInputSurface>>(transResult);
+    if (!result) {
+        *inputSurface = nullptr;
+        return C2_OK;
+    }
+    *inputSurface = std::make_shared<InputSurface>(result);
     if (!*inputSurface) {
-        ALOGE("createInputSurface -- failed to create client.");
+        ALOGE("createInputSurface -- unknown error.");
         return C2_CORRUPTED;
     }
     return C2_OK;
@@ -631,7 +635,7 @@ c2_status_t Codec2Client::ForAllStores(
     // client fails, retry once. We do this by pushing the last known client in front of the
     // list of all clients.
     std::deque<size_t> indices;
-    for (size_t index = getClientCount(); index > 0; ) {
+    for (size_t index = kNumClients; index > 0; ) {
         indices.push_front(--index);
     }
 
@@ -713,6 +717,31 @@ std::shared_ptr<Codec2Client::Interface>
         ALOGI("Could not create interface '%s' (%s)", interfaceName, asString(status));
     }
     return interface;
+}
+
+std::shared_ptr<Codec2Client::InputSurface> Codec2Client::CreateInputSurface(
+        bool useBackupClients) {
+    size_t i;
+    size_t endIndex;
+    if (useBackupClients) {
+        i = kBackupClientStartIndex;
+        endIndex = kNumClients;
+    } else {
+        i = 0;
+        endIndex = kBackupClientStartIndex;
+    }
+    for (; i < endIndex; ++i) {
+        std::shared_ptr<Codec2Client> client = getClient(i);
+        std::shared_ptr<Codec2Client::InputSurface> inputSurface;
+        if (client &&
+                client->createInputSurface(&inputSurface) == C2_OK &&
+                inputSurface) {
+            return inputSurface;
+        }
+    }
+    ALOGW("Could not create an input surface from any %s Codec2.0 services.",
+            useBackupClients ? "backup" : "preferred");
+    return nullptr;
 }
 
 const std::vector<C2Component::Traits>& Codec2Client::ListComponents() {
@@ -1254,6 +1283,10 @@ std::shared_ptr<Codec2Client::Configurable>
 const sp<IGraphicBufferProducer>&
         Codec2Client::InputSurface::getGraphicBufferProducer() const {
     return mGraphicBufferProducer;
+}
+
+const sp<IInputSurface>& Codec2Client::InputSurface::getHalInterface() const {
+    return mBase;
 }
 
 // Codec2Client::InputSurfaceConnection
