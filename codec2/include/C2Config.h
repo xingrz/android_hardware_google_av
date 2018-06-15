@@ -710,6 +710,12 @@ struct C2SupplementalDataStruct {
     C2SupplementalDataStruct()
         : type_(INFO_NONE) { }
 
+    C2SupplementalDataStruct(
+            size_t flexCount, C2Config::supplemental_info_t type, std::vector<uint8_t> data_)
+        : type_(type) {
+            memcpy(data, &data_[0], c2_min(data_.size(), flexCount));
+    }
+
     C2Config::supplemental_info_t type_;
     uint8_t data[];
 
@@ -1705,8 +1711,20 @@ struct C2TemporalLayeringStruct {
     C2TemporalLayeringStruct()
         : layerCount(0), bLayerCount(0) { }
 
-    C2TemporalLayeringStruct(uint32_t layerCount_, uint32_t bLayerCount_)
+    C2TemporalLayeringStruct(size_t /* flexCount */, uint32_t layerCount_, uint32_t bLayerCount_)
         : layerCount(layerCount_), bLayerCount(c2_min(layerCount_, bLayerCount_)) { }
+
+    C2TemporalLayeringStruct(size_t flexCount, uint32_t layerCount_, uint32_t bLayerCount_,
+                             std::initializer_list<float> ratios)
+        : layerCount(layerCount_), bLayerCount(c2_min(layerCount_, bLayerCount_)) {
+        size_t ix = 0;
+        for (float ratio : ratios) {
+            if (ix == flexCount) {
+                break;
+            }
+            bitrateRatios[ix++] = ratio;
+        }
+    }
 
     uint32_t layerCount;     ///< total number of layers (0 means no temporal layering)
     uint32_t bLayerCount;    ///< total number of bidirectional layers (<= num layers)
