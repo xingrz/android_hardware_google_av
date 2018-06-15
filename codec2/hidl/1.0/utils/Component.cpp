@@ -249,7 +249,7 @@ Return<Status> Component::setOutputSurface(
                 hidl_vec<IComponentListener::RenderedFrame> rendered;
                 rendered.resize(1);
                 rendered[0] = { producer, slot, nsecs };
-                mListener->onFramesRendered(rendered);
+                (void)mListener->onFramesRendered(rendered).isOk();
         };
         if (bqPool) {
             bqPool->setRenderCallback(cb);
