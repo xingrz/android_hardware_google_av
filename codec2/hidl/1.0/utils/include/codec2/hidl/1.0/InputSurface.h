@@ -33,8 +33,6 @@
 #include <hidl/HidlSupport.h>
 #include <hidl/Status.h>
 
-class C2ReflectorHelper;
-
 namespace hardware {
 namespace google {
 namespace media {
@@ -180,7 +178,6 @@ protected:
 
     InputSurface(
             const sp<ComponentStore>& store,
-            const std::shared_ptr<C2ReflectorHelper>& reflector,
             const sp<HGraphicBufferProducer>& base,
             const sp<GraphicBufferSource>& source);
 
