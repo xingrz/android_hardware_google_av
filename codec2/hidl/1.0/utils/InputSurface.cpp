@@ -129,15 +129,15 @@ Return<void> InputSurface::connectToComponent(
     } else {
         std::shared_ptr<C2Component> comp = mStore->findC2Component(component);
         if (!comp) {
-            status = Status::BAD_VALUE;
+            conn = new InputSurfaceConnection(mSource, component);
         } else {
             conn = new InputSurfaceConnection(mSource, comp);
-            if (!conn->init()) {
-                conn = nullptr;
-                status = Status::BAD_VALUE;
-            } else {
-                status = Status::OK;
-            }
+        }
+        if (!conn->init()) {
+            conn = nullptr;
+            status = Status::BAD_VALUE;
+        } else {
+            status = Status::OK;
         }
     }
     _hidl_cb(status, conn);

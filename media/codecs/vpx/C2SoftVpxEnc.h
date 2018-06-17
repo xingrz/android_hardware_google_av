@@ -179,9 +179,6 @@ struct C2SoftVpxEnc : public SimpleC2Component {
      // is enabled in encoder
      bool mErrorResilience;
 
-     // Key frame interval in frames
-     uint32_t mKeyFrameInterval;
-
      // Minimum (best quality) quantizer
      uint32_t mMinQuantizer;
 
@@ -288,6 +285,24 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
                 .build());
 
         addParameter(
+            DefineParam(mLayering, C2_PARAMKEY_TEMPORAL_LAYERING)
+                .withDefault(C2StreamTemporalLayeringTuning::output::AllocShared(0u, 0, 0, 0))
+                .withFields({
+                    C2F(mLayering, m.layerCount).inRange(0, 4),
+                    C2F(mLayering, m.bLayerCount).inRange(0, 0),
+                    C2F(mLayering, m.bitrateRatios).inRange(0., 1.)
+                })
+                .withSetter(LayeringSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mSyncFramePeriod, C2_PARAMKEY_SYNC_FRAME_INTERVAL)
+                .withDefault(new C2StreamSyncFrameIntervalTuning::output(0u, 1000000))
+                .withFields({C2F(mSyncFramePeriod, value).any()})
+                .withSetter(Setter<decltype(*mSyncFramePeriod)>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
             DefineParam(mBitrate, C2_NAME_STREAM_BITRATE_SETTING)
                 .withDefault(new C2BitrateTuning::output(0u, 64000))
                 .withFields({C2F(mBitrate, value).inRange(1, 40000000)})
@@ -310,9 +325,33 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
         return res;
     }
 
+    static C2R LayeringSetter(bool mayBlock, C2P<C2StreamTemporalLayeringTuning::output>& me) {
+        (void)mayBlock;
+        C2R res = C2R::Ok();
+        if (me.v.m.layerCount > 4) {
+            me.set().m.layerCount = 4;
+        }
+        me.set().m.bLayerCount = 0;
+        // ensure ratios are monotonic and clamped between 0 and 1
+        for (size_t ix = 0; ix < me.v.flexCount(); ++ix) {
+            me.set().m.bitrateRatios[ix] = c2_clamp(
+                ix > 0 ? me.v.m.bitrateRatios[ix - 1] : 0, me.v.m.bitrateRatios[ix], 1.);
+        }
+        ALOGI("setting temporal layering %u + %u", me.v.m.layerCount, me.v.m.bLayerCount);
+        return res;
+    }
+
     uint32_t getWidth() const { return mSize->width; }
     uint32_t getHeight() const { return mSize->height; }
     float getFrameRate() const { return mFrameRate->value; }
+    uint32_t getTemporalLayers() const { return mLayering->m.layerCount; }
+    uint32_t getSyncFramePeriod() const {
+        if (mSyncFramePeriod->value < 0 || mSyncFramePeriod->value == INT64_MAX) {
+            return 0;
+        }
+        double period = mSyncFramePeriod->value / 1e6 * mFrameRate->value;
+        return (uint32_t)c2_max(c2_min(period + 0.5, double(UINT32_MAX)), 1.);
+    }
     uint32_t getBitrate() const { return mBitrate->value; }
 
    private:
@@ -323,6 +362,8 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamUsageTuning::input> mUsage;
     std::shared_ptr<C2VideoSizeStreamTuning::input> mSize;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
+    std::shared_ptr<C2StreamTemporalLayeringTuning::output> mLayering;
+    std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
 };
 

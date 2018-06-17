@@ -57,7 +57,6 @@ C2SoftVpxEnc::C2SoftVpxEnc(const char* name, c2_node_id_t id,
       mBitrateUpdated(false),
       mBitrateControlMode(VPX_VBR),
       mErrorResilience(false),
-      mKeyFrameInterval(0),
       mMinQuantizer(0),
       mMaxQuantizer(0),
       mTemporalLayers(0),
@@ -120,8 +119,10 @@ status_t C2SoftVpxEnc::initEncoder() {
     setCodecSpecificInterface();
     if (!mCodecInterface) goto CleanUp;
 
+    mTemporalLayers = mIntf->getTemporalLayers();
+
     ALOGD("VPx: initEncoder. BRMode: %u. TSLayers: %zu. KF: %u. QP: %u - %u",
-          (uint32_t)mBitrateControlMode, mTemporalLayers, mKeyFrameInterval,
+          (uint32_t)mBitrateControlMode, mTemporalLayers, mIntf->getSyncFramePeriod(),
           mMinQuantizer, mMaxQuantizer);
 
     mCodecConfiguration = new vpx_codec_enc_cfg_t;
@@ -236,9 +237,9 @@ status_t C2SoftVpxEnc::initEncoder() {
             mCodecConfiguration->rc_target_bitrate *
             mTemporalLayerBitrateRatio[i] / 100;
     }
-    if (mKeyFrameInterval > 0) {
-        mCodecConfiguration->kf_max_dist = mKeyFrameInterval;
-        mCodecConfiguration->kf_min_dist = mKeyFrameInterval;
+    if (mIntf->getSyncFramePeriod() >= 0) {
+        mCodecConfiguration->kf_max_dist = mIntf->getSyncFramePeriod();
+        mCodecConfiguration->kf_min_dist = mIntf->getSyncFramePeriod();
         mCodecConfiguration->kf_mode = VPX_KF_AUTO;
     }
     if (mMinQuantizer > 0) {
