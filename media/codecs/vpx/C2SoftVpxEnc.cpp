@@ -54,7 +54,6 @@ C2SoftVpxEnc::C2SoftVpxEnc(const char* name, c2_node_id_t id,
       mCodecInterface(nullptr),
       mStrideAlign(2),
       mColorFormat(VPX_IMG_FMT_I420),
-      mBitrateUpdated(false),
       mBitrateControlMode(VPX_VBR),
       mErrorResilience(false),
       mMinQuantizer(0),
@@ -64,7 +63,6 @@ C2SoftVpxEnc::C2SoftVpxEnc(const char* name, c2_node_id_t id,
       mTemporalPatternLength(0),
       mTemporalPatternIdx(0),
       mLastTimestamp(0x7FFFFFFFFFFFFFFFull),
-      mKeyFrameRequested(false),
       mSignalledOutputEos(false),
       mSignalledError(false) {
     memset(mTemporalLayerBitrateRatio, 0, sizeof(mTemporalLayerBitrateRatio));
@@ -115,11 +113,18 @@ c2_status_t C2SoftVpxEnc::onFlush_sm() {
 status_t C2SoftVpxEnc::initEncoder() {
     vpx_codec_err_t codec_return;
     status_t result = UNKNOWN_ERROR;
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        mSize = mIntf->getSize_l();
+        mBitrate = mIntf->getBitrate_l();
+        mFrameRate = mIntf->getFrameRate_l();
+        mIntraRefresh = mIntf->getIntraRefresh_l();
+        mRequestSync = mIntf->getRequestSync_l();
+    }
 
+    mTemporalLayers = mIntf->getTemporalLayers_l()->m.layerCount;
     setCodecSpecificInterface();
     if (!mCodecInterface) goto CleanUp;
-
-    mTemporalLayers = mIntf->getTemporalLayers();
 
     ALOGD("VPx: initEncoder. BRMode: %u. TSLayers: %zu. KF: %u. QP: %u - %u",
           (uint32_t)mBitrateControlMode, mTemporalLayers, mIntf->getSyncFramePeriod(),
@@ -135,8 +140,8 @@ status_t C2SoftVpxEnc::initEncoder() {
         goto CleanUp;
     }
 
-    mCodecConfiguration->g_w = mIntf->getWidth();
-    mCodecConfiguration->g_h = mIntf->getHeight();
+    mCodecConfiguration->g_w = mSize->width;
+    mCodecConfiguration->g_h = mSize->height;
     mCodecConfiguration->g_threads = getCpuCoreCount();
     mCodecConfiguration->g_error_resilient = mErrorResilience;
 
@@ -145,7 +150,7 @@ status_t C2SoftVpxEnc::initEncoder() {
     mCodecConfiguration->g_timebase.num = 1;
     mCodecConfiguration->g_timebase.den = 1000000;
     // rc_target_bitrate is in kbps, mBitrate in bps
-    mCodecConfiguration->rc_target_bitrate = (mIntf->getBitrate() + 500) / 1000;
+    mCodecConfiguration->rc_target_bitrate = (mBitrate->value + 500) / 1000;
     mCodecConfiguration->rc_end_usage = mBitrateControlMode;
     // Disable frame drop - not allowed in MediaCodec now.
     mCodecConfiguration->rc_dropframe_thresh = 0;
@@ -268,7 +273,7 @@ status_t C2SoftVpxEnc::initEncoder() {
         if (codec_return == VPX_CODEC_OK) {
             uint32_t rc_max_intra_target =
                 mCodecConfiguration->rc_buf_optimal_sz *
-                ((uint32_t)mIntf->getFrameRate() >> 1) / 10;
+                ((uint32_t)(mFrameRate->value + 0.5) >> 1) / 10;
             // Don't go below 3 times per frame bandwidth.
             if (rc_max_intra_target < 300) {
                 rc_max_intra_target = 300;
@@ -292,8 +297,8 @@ status_t C2SoftVpxEnc::initEncoder() {
     if (codec_return != VPX_CODEC_OK) goto CleanUp;
 
     {
-        uint32_t width = mIntf->getWidth();
-        uint32_t height = mIntf->getHeight();
+        uint32_t width = mSize->width;
+        uint32_t height = mSize->height;
         if (((uint64_t)width * height) >
             ((uint64_t)INT32_MAX / 3)) {
             ALOGE("b/25812794, Buffer size is too big, width=%u, height=%u.", width, height);
@@ -433,11 +438,11 @@ void C2SoftVpxEnc::process(
 
     const C2ConstGraphicBlock inBuffer =
         inputBuffer->data().graphicBlocks().front();
-    if (inBuffer.width() != mIntf->getWidth() ||
-        inBuffer.height() != mIntf->getHeight()) {
+    if (inBuffer.width() != mSize->width ||
+        inBuffer.height() != mSize->height) {
         ALOGE("unexpected Input buffer attributes %d(%d) x %d(%d)",
-              inBuffer.width(), mIntf->getWidth(), inBuffer.height(),
-              mIntf->getHeight());
+              inBuffer.width(), mSize->width, inBuffer.height(),
+              mSize->height);
         work->result = C2_BAD_VALUE;
         return;
     }
@@ -509,9 +514,45 @@ void C2SoftVpxEnc::process(
     }
 
     vpx_enc_frame_flags_t flags = getEncodeFlags();
-    if (mKeyFrameRequested) {
-        flags |= VPX_EFLAG_FORCE_KF;
-        mKeyFrameRequested = false;
+    // handle dynamic config parameters
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh = mIntf->getIntraRefresh_l();
+        std::shared_ptr<C2StreamBitrateInfo::output> bitrate = mIntf->getBitrate_l();
+        std::shared_ptr<C2StreamRequestSyncFrameTuning::output> requestSync = mIntf->getRequestSync_l();
+        lock.unlock();
+
+        if (intraRefresh != mIntraRefresh) {
+            mIntraRefresh = intraRefresh;
+            ALOGV("Got mIntraRefresh request");
+        }
+
+        if (requestSync != mRequestSync) {
+            // we can handle IDR immediately
+            if (requestSync->value) {
+                // unset request
+                C2StreamRequestSyncFrameTuning::output clearSync(0u, C2_FALSE);
+                std::vector<std::unique_ptr<C2SettingResult>> failures;
+                mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
+                ALOGV("Got sync request");
+                flags |= VPX_EFLAG_FORCE_KF;
+            }
+            mRequestSync = requestSync;
+        }
+
+        if (bitrate != mBitrate) {
+            mBitrate = bitrate;
+            mCodecConfiguration->rc_target_bitrate =
+                (mBitrate->value + 500) / 1000;
+            vpx_codec_err_t res = vpx_codec_enc_config_set(mCodecContext,
+                                                           mCodecConfiguration);
+            if (res != VPX_CODEC_OK) {
+                ALOGE("vpx encoder failed to update bitrate: %s",
+                      vpx_codec_err_to_string(res));
+                work->result = C2_CORRUPTED;
+                return;
+            }
+        }
     }
 
     uint64_t inputTimeStamp = work->input.ordinal.timestamp.peekull();
@@ -520,25 +561,10 @@ void C2SoftVpxEnc::process(
         frameDuration = (uint32_t)(inputTimeStamp - mLastTimestamp);
     } else {
         // Use default of 30 fps in case of 0 frame rate.
-        uint32_t framerate = mIntf->getFrameRate() ?: 30;
+        uint32_t framerate = mFrameRate->value + 0.5 ?: 30;
         frameDuration = (uint32_t)((uint64_t)1000000 / framerate);
     }
     mLastTimestamp = inputTimeStamp;
-
-
-    if (mBitrateUpdated) {
-        mCodecConfiguration->rc_target_bitrate =
-            (mIntf->getBitrate() + 500) / 1000;
-        vpx_codec_err_t res = vpx_codec_enc_config_set(mCodecContext,
-                                                       mCodecConfiguration);
-        if (res != VPX_CODEC_OK) {
-            ALOGE("vpx encoder failed to update bitrate: %s",
-                  vpx_codec_err_to_string(res));
-            work->result = C2_CORRUPTED;
-            return;
-        }
-        mBitrateUpdated = false;
-    }
 
     vpx_codec_err_t codec_return = vpx_codec_encode(mCodecContext, &raw_frame,
                                                     inputTimeStamp,
