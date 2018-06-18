@@ -1307,6 +1307,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     work->input.flags = (C2FrameData::flags_t)flags;
     // TODO: fill info's
 
+    work->input.configUpdate = std::move(mParamsToBeSet);
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
 
@@ -1328,6 +1329,19 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
 
     feedInputBufferIfAvailableInternal();
     return err;
+}
+
+status_t CCodecBufferChannel::setParameters(std::vector<std::unique_ptr<C2Param>> &params) {
+    QueueGuard guard(mSync);
+    if (!guard.isRunning()) {
+        ALOGD("[%s] setParameters is only supported in the running state.", mName);
+        return -ENOSYS;
+    }
+    mParamsToBeSet.insert(mParamsToBeSet.end(),
+                          std::make_move_iterator(params.begin()),
+                          std::make_move_iterator(params.end()));
+    params.clear();
+    return OK;
 }
 
 status_t CCodecBufferChannel::queueInputBuffer(const sp<MediaCodecBuffer> &buffer) {
