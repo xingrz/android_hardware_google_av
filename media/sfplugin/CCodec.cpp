@@ -1288,8 +1288,9 @@ void CCodec::setParameters(const sp<AMessage> &params) {
 
     std::vector<std::unique_ptr<C2Param>> configUpdate;
     (void)config->getConfigUpdateFromSdkParams(comp, params, Config::PARAM, C2_MAY_BLOCK, &configUpdate);
-    if (property_get_bool("debug.stagefright.ccodec_delayed_params", false)) {
-        // mChannel->queueConfigUpdate(configUpdate);
+    if (property_get_bool("debug.stagefright.ccodec_delayed_params", false)
+            || comp->getName().find("c2.android.") == 0) {
+        mChannel->setParameters(configUpdate);
     } else {
         (void)config->setParameters(comp, configUpdate, C2_MAY_BLOCK);
     }
