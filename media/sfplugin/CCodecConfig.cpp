@@ -410,10 +410,12 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_QUALITY, C2_PARAMKEY_QUALITY, "value"));
     deprecated(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      "coding.request-sync", "value")
-        .limitTo(D::PARAM & D::ENCODER));
+        .limitTo(D::PARAM & D::ENCODER)
+        .withMapper([](C2Value) -> C2Value { return uint32_t(1); }));
     add(ConfigMapper(PARAMETER_KEY_REQUEST_SYNC_FRAME,
                      C2_PARAMKEY_REQUEST_SYNC_FRAME, "value")
-        .limitTo(D::PARAM & D::ENCODER));
+        .limitTo(D::PARAM & D::ENCODER)
+        .withMapper([](C2Value) -> C2Value { return uint32_t(1); }));
 
     add(ConfigMapper(KEY_OPERATING_RATE,   C2_PARAMKEY_OPERATING_RATE,     "value"));
     // C2 priorities are inverted
