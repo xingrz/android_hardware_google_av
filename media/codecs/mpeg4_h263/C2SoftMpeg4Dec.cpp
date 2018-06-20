@@ -72,11 +72,11 @@ public:
                 .withDefault(new C2StreamPictureSizeInfo::output(0u, 176, 144))
                 .withFields({
 #ifdef MPEG4
-                    C2F(mSize, width).inRange(16, 1920, 2),
-                    C2F(mSize, height).inRange(16, 1088, 2),
+                    C2F(mSize, width).inRange(2, 1920, 2),
+                    C2F(mSize, height).inRange(2, 1088, 2),
 #else
-                    C2F(mSize, width).inRange(16, 352, 16),
-                    C2F(mSize, height).inRange(16, 288, 16),
+                    C2F(mSize, width).inRange(2, 352, 2),
+                    C2F(mSize, height).inRange(2, 288, 2),
 #endif
                 })
                 .withSetter(SizeSetter)

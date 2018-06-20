@@ -216,6 +216,7 @@ struct C2SoftVpxEnc : public SimpleC2Component {
     std::shared_ptr<C2StreamIntraRefreshTuning::output> mIntraRefresh;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
+    std::shared_ptr<C2StreamBitrateModeTuning::output> mBitrateMode;
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mRequestSync;
 
      C2_DO_NOT_COPY(C2SoftVpxEnc);
@@ -269,6 +270,18 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
                     C2F(mSize, height).inRange(2, 2048, 2),
                 })
                 .withSetter(SizeSetter)
+                .build());
+
+        addParameter(
+            DefineParam(mBitrateMode, C2_PARAMKEY_BITRATE_MODE)
+                .withDefault(new C2StreamBitrateModeTuning::output(
+                        0u, C2Config::BITRATE_CONST))
+                .withFields({
+                    C2F(mBitrateMode, value).oneOf({
+                        C2Config::BITRATE_CONST, C2Config::BITRATE_VARIABLE })
+                })
+                .withSetter(
+                    Setter<decltype(*mBitrateMode)>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
@@ -391,6 +404,7 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamIntraRefreshTuning::output> getIntraRefresh_l() const { return mIntraRefresh; }
     std::shared_ptr<C2StreamFrameRateInfo::output> getFrameRate_l() const { return mFrameRate; }
     std::shared_ptr<C2StreamBitrateInfo::output> getBitrate_l() const { return mBitrate; }
+    std::shared_ptr<C2StreamBitrateModeTuning::output> getBitrateMode_l() const { return mBitrateMode; }
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> getRequestSync_l() const { return mRequestSync; }
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> getTemporalLayers_l() const { return mLayering; }
     uint32_t getSyncFramePeriod() const {
@@ -414,6 +428,7 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mRequestSync;
     std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
+    std::shared_ptr<C2StreamBitrateModeTuning::output> mBitrateMode;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
 };
 
