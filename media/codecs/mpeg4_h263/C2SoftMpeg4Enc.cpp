@@ -514,7 +514,9 @@ void C2SoftMpeg4Enc::process(
 
             if (layout.planes[layout.PLANE_Y].colInc == 1
                     && layout.planes[layout.PLANE_U].colInc == 1
-                    && layout.planes[layout.PLANE_V].colInc == 1) {
+                    && layout.planes[layout.PLANE_V].colInc == 1
+                    && uStride == vStride
+                    && yStride == 2 * vStride) {
                 // I420 compatible - planes are already set up above
                 break;
             }

@@ -1176,7 +1176,9 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
 
             if (layout.planes[layout.PLANE_Y].colInc == 1
                     && layout.planes[layout.PLANE_U].colInc == 1
-                    && layout.planes[layout.PLANE_V].colInc == 1) {
+                    && layout.planes[layout.PLANE_V].colInc == 1
+                    && uStride == vStride
+                    && yStride == 2 * vStride) {
                 // I420 compatible - already set up above
                 break;
             }
