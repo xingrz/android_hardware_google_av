@@ -307,14 +307,8 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
 
         addParameter(
                 DefineParam(mIntraRefresh, C2_PARAMKEY_INTRA_REFRESH)
-                .withDefault(new C2StreamIntraRefreshTuning::output(
-                        0u, C2Config::INTRA_REFRESH_DISABLED, 0.))
-                .withFields({
-                    C2F(mIntraRefresh, mode).oneOf({
-                        C2Config::INTRA_REFRESH_DISABLED, C2Config::INTRA_REFRESH_ARBITRARY }),
-                    C2F(mIntraRefresh, period).any()
-                })
-                .withSetter(IntraRefreshSetter)
+                .withConstValue(new C2StreamIntraRefreshTuning::output(
+                             0u, C2Config::INTRA_REFRESH_DISABLED, 0.))
                 .build());
 
         addParameter(
@@ -375,20 +369,6 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
         }
         return C2R::Ok();
     }
-
-    static C2R IntraRefreshSetter(bool mayBlock, C2P<C2StreamIntraRefreshTuning::output> &me) {
-        (void)mayBlock;
-        C2R res = C2R::Ok();
-        if (me.v.period < 1) {
-            me.set().mode = C2Config::INTRA_REFRESH_DISABLED;
-            me.set().period = 0;
-        } else {
-            // only support arbitrary mode (cyclic in our case)
-            me.set().mode = C2Config::INTRA_REFRESH_ARBITRARY;
-        }
-        return res;
-    }
-
 
     static C2R LayeringSetter(bool mayBlock, C2P<C2StreamTemporalLayeringTuning::output>& me) {
         (void)mayBlock;
