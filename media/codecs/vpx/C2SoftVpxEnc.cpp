@@ -117,10 +117,22 @@ status_t C2SoftVpxEnc::initEncoder() {
         IntfImpl::Lock lock = mIntf->lock();
         mSize = mIntf->getSize_l();
         mBitrate = mIntf->getBitrate_l();
+        mBitrateMode = mIntf->getBitrateMode_l();
         mFrameRate = mIntf->getFrameRate_l();
         mIntraRefresh = mIntf->getIntraRefresh_l();
         mRequestSync = mIntf->getRequestSync_l();
         mTemporalLayers = mIntf->getTemporalLayers_l()->m.layerCount;
+    }
+
+    switch (mBitrateMode->value) {
+        case C2Config::BITRATE_VARIABLE:
+            mBitrateControlMode = VPX_VBR;
+            break;
+        case C2Config::BITRATE_CONST:
+        default:
+            mBitrateControlMode = VPX_CBR;
+            break;
+        break;
     }
 
     setCodecSpecificInterface();
