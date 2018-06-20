@@ -364,7 +364,14 @@ c2_status_t C2AllocationGralloc::map(
                 generation, igbp_id, igbp_slot);
     }
 
-    switch (mInfo.mapperInfo.format) {
+    // UGLY HACK: assume YCbCr 4:2:0 8-bit format (and lockable via lockYCbCr) if we don't
+    // recognize the format
+    PixelFormat format = mInfo.mapperInfo.format;
+    if (format != PixelFormat::RGBA_8888 && format != PixelFormat::RGBX_8888) {
+        format = PixelFormat::YCBCR_420_888;
+    }
+
+    switch (format) {
         case PixelFormat::YCBCR_420_888:
         case PixelFormat::YV12: {
             YCbCrLayout ycbcrLayout;
