@@ -201,8 +201,6 @@ private:
     UWORD32 mIInterval;
     UWORD32 mIDRInterval;
     UWORD32 mDisableDeblkLevel;
-    IVE_AIR_MODE_T mAIRMode;
-    UWORD32 mAIRRefreshPeriod;
     std::map<const void *, std::shared_ptr<C2Buffer>> mBuffers;
     MemoryBlockPool mConversionBuffers;
     std::map<const void *, MemoryBlock> mConversionBuffersInUse;

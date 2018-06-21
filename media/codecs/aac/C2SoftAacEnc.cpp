@@ -85,11 +85,34 @@ public:
                 DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
                 .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 8192))
                 .build());
+
+        addParameter(
+                DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                .withDefault(new C2StreamProfileLevelInfo::output(0u,
+                        C2Config::PROFILE_AAC_LC, C2Config::LEVEL_UNUSED))
+                .withFields({
+                    C2F(mProfileLevel, profile).oneOf({
+                            C2Config::PROFILE_AAC_LC,
+                            C2Config::PROFILE_AAC_HE,
+                            C2Config::PROFILE_AAC_HE_PS,
+                            C2Config::PROFILE_AAC_LD,
+                            C2Config::PROFILE_AAC_ELD}),
+                    C2F(mProfileLevel, level).oneOf({
+                            C2Config::LEVEL_UNUSED
+                    })
+                })
+                .withSetter(ProfileLevelSetter)
+                .build());
     }
 
     uint32_t getSampleRate() const { return mSampleRate->value; }
     uint32_t getChannelCount() const { return mChannelCount->value; }
     uint32_t getBitrate() const { return mBitrate->value; }
+    static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::output> &me) {
+        (void)mayBlock;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
+    }
 
 private:
     std::shared_ptr<C2StreamFormatConfig::input> mInputFormat;
@@ -100,6 +123,7 @@ private:
     std::shared_ptr<C2StreamChannelCountInfo::input> mChannelCount;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mInputMaxBufSize;
+    std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
 };
 
 constexpr char COMPONENT_NAME[] = "c2.android.aac.encoder";
