@@ -214,6 +214,30 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
                                         caps->addProfileLevel(pl.profile, pl.level);
                                         gotProfileLevels = true;
                                     }
+
+                                    // for H.263 also advertise the second highest level if the
+                                    // codec supports level 45, as level 45 only covers level 10
+                                    // TODO: move this to some form of a setting so it does not
+                                    // have to be here
+                                    if (mediaType == MIMETYPE_VIDEO_H263) {
+                                        C2Config::level_t nextLevel = C2Config::LEVEL_UNUSED;
+                                        for (C2Value::Primitive v : levelQuery[0].values.values) {
+                                            C2Config::level_t level =
+                                                (C2Config::level_t)v.ref<uint32_t>();
+                                            if (level < C2Config::LEVEL_H263_45
+                                                    && level > nextLevel) {
+                                                nextLevel = level;
+                                            }
+                                        }
+                                        if (nextLevel != C2Config::LEVEL_UNUSED
+                                                && nextLevel != pl.level
+                                                && mapper
+                                                && mapper->mapProfile(pl.profile, &sdkProfile)
+                                                && mapper->mapLevel(nextLevel, &sdkLevel)) {
+                                            caps->addProfileLevel(
+                                                    (uint32_t)sdkProfile, (uint32_t)sdkLevel);
+                                        }
+                                    }
                                 }
                             }
                         }

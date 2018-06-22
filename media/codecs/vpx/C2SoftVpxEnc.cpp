@@ -117,12 +117,24 @@ status_t C2SoftVpxEnc::initEncoder() {
         IntfImpl::Lock lock = mIntf->lock();
         mSize = mIntf->getSize_l();
         mBitrate = mIntf->getBitrate_l();
+        mBitrateMode = mIntf->getBitrateMode_l();
         mFrameRate = mIntf->getFrameRate_l();
         mIntraRefresh = mIntf->getIntraRefresh_l();
         mRequestSync = mIntf->getRequestSync_l();
+        mTemporalLayers = mIntf->getTemporalLayers_l()->m.layerCount;
     }
 
-    mTemporalLayers = mIntf->getTemporalLayers_l()->m.layerCount;
+    switch (mBitrateMode->value) {
+        case C2Config::BITRATE_VARIABLE:
+            mBitrateControlMode = VPX_VBR;
+            break;
+        case C2Config::BITRATE_CONST:
+        default:
+            mBitrateControlMode = VPX_CBR;
+            break;
+        break;
+    }
+
     setCodecSpecificInterface();
     if (!mCodecInterface) goto CleanUp;
 
@@ -272,8 +284,7 @@ status_t C2SoftVpxEnc::initEncoder() {
                                          1);
         if (codec_return == VPX_CODEC_OK) {
             uint32_t rc_max_intra_target =
-                mCodecConfiguration->rc_buf_optimal_sz *
-                ((uint32_t)(mFrameRate->value + 0.5) >> 1) / 10;
+                (uint32_t)(mCodecConfiguration->rc_buf_optimal_sz * mFrameRate->value / 20 + 0.5);
             // Don't go below 3 times per frame bandwidth.
             if (rc_max_intra_target < 300) {
                 rc_max_intra_target = 300;
@@ -561,8 +572,11 @@ void C2SoftVpxEnc::process(
         frameDuration = (uint32_t)(inputTimeStamp - mLastTimestamp);
     } else {
         // Use default of 30 fps in case of 0 frame rate.
-        uint32_t framerate = mFrameRate->value + 0.5 ?: 30;
-        frameDuration = (uint32_t)((uint64_t)1000000 / framerate);
+        float frameRate = mFrameRate->value;
+        if (frameRate < 0.001) {
+            frameRate = 30;
+        }
+        frameDuration = (uint32_t)(1000000 / frameRate + 0.5);
     }
     mLastTimestamp = inputTimeStamp;
 

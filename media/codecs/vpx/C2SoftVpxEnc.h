@@ -216,6 +216,7 @@ struct C2SoftVpxEnc : public SimpleC2Component {
     std::shared_ptr<C2StreamIntraRefreshTuning::output> mIntraRefresh;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
+    std::shared_ptr<C2StreamBitrateModeTuning::output> mBitrateMode;
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mRequestSync;
 
      C2_DO_NOT_COPY(C2SoftVpxEnc);
@@ -272,6 +273,18 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
                 .build());
 
         addParameter(
+            DefineParam(mBitrateMode, C2_PARAMKEY_BITRATE_MODE)
+                .withDefault(new C2StreamBitrateModeTuning::output(
+                        0u, C2Config::BITRATE_CONST))
+                .withFields({
+                    C2F(mBitrateMode, value).oneOf({
+                        C2Config::BITRATE_CONST, C2Config::BITRATE_VARIABLE })
+                })
+                .withSetter(
+                    Setter<decltype(*mBitrateMode)>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
             DefineParam(mFrameRate, C2_NAME_STREAM_FRAME_RATE_SETTING)
                 .withDefault(new C2StreamFrameRateInfo::output(0u, 30.))
                 // TODO: More restriction?
@@ -307,14 +320,8 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
 
         addParameter(
                 DefineParam(mIntraRefresh, C2_PARAMKEY_INTRA_REFRESH)
-                .withDefault(new C2StreamIntraRefreshTuning::output(
-                        0u, C2Config::INTRA_REFRESH_DISABLED, 0.))
-                .withFields({
-                    C2F(mIntraRefresh, mode).oneOf({
-                        C2Config::INTRA_REFRESH_DISABLED, C2Config::INTRA_REFRESH_ARBITRARY }),
-                    C2F(mIntraRefresh, period).any()
-                })
-                .withSetter(IntraRefreshSetter)
+                .withConstValue(new C2StreamIntraRefreshTuning::output(
+                             0u, C2Config::INTRA_REFRESH_DISABLED, 0.))
                 .build());
 
         addParameter(
@@ -376,20 +383,6 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
         return C2R::Ok();
     }
 
-    static C2R IntraRefreshSetter(bool mayBlock, C2P<C2StreamIntraRefreshTuning::output> &me) {
-        (void)mayBlock;
-        C2R res = C2R::Ok();
-        if (me.v.period < 1) {
-            me.set().mode = C2Config::INTRA_REFRESH_DISABLED;
-            me.set().period = 0;
-        } else {
-            // only support arbitrary mode (cyclic in our case)
-            me.set().mode = C2Config::INTRA_REFRESH_ARBITRARY;
-        }
-        return res;
-    }
-
-
     static C2R LayeringSetter(bool mayBlock, C2P<C2StreamTemporalLayeringTuning::output>& me) {
         (void)mayBlock;
         C2R res = C2R::Ok();
@@ -411,6 +404,7 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamIntraRefreshTuning::output> getIntraRefresh_l() const { return mIntraRefresh; }
     std::shared_ptr<C2StreamFrameRateInfo::output> getFrameRate_l() const { return mFrameRate; }
     std::shared_ptr<C2StreamBitrateInfo::output> getBitrate_l() const { return mBitrate; }
+    std::shared_ptr<C2StreamBitrateModeTuning::output> getBitrateMode_l() const { return mBitrateMode; }
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> getRequestSync_l() const { return mRequestSync; }
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> getTemporalLayers_l() const { return mLayering; }
     uint32_t getSyncFramePeriod() const {
@@ -434,6 +428,7 @@ class C2SoftVpxEnc::IntfImpl : public C2InterfaceHelper {
     std::shared_ptr<C2StreamRequestSyncFrameTuning::output> mRequestSync;
     std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
     std::shared_ptr<C2BitrateTuning::output> mBitrate;
+    std::shared_ptr<C2StreamBitrateModeTuning::output> mBitrateMode;
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
 };
 
