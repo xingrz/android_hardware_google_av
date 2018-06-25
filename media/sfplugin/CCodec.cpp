@@ -143,8 +143,8 @@ public:
         if (mConnection != nullptr) {
             return ALREADY_EXISTS;
         }
-        return static_cast<status_t>(
-                mSurface->connectToComponent(comp, &mConnection));
+        return toStatusT(mSurface->connectToComponent(comp, &mConnection),
+                         C2_OPERATION_InputSurface_connectToComponent);
     }
 
     void disconnect() override {
@@ -870,7 +870,8 @@ void CCodec::createInputSurface() {
     if (property_get_bool("debug.stagefright.c2inputsurface", false)) {
         std::shared_ptr<Codec2Client::InputSurface> surface;
 
-        err = static_cast<status_t>(mClient->createInputSurface(&surface));
+        err = toStatusT(mClient->createInputSurface(&surface),
+                        C2_OPERATION_ComponentStore_createInputSurface);
         if (err != OK) {
             ALOGE("Failed to create input surface: %d", static_cast<int>(err));
             mCallback->onInputSurfaceCreationFailed(err);
@@ -998,8 +999,8 @@ void CCodec::start() {
 
     c2_status_t err = comp->start();
     if (err != C2_OK) {
-        // TODO: convert err into status_t
-        mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+        mCallback->onError(toStatusT(err, C2_OPERATION_Component_start),
+                           ACTION_CODE_FATAL);
         return;
     }
     sp<AMessage> inputFormat;
