@@ -83,7 +83,8 @@ public:
 
         addParameter(
                 DefineParam(mInputMaxBufSize, C2_PARAMKEY_INPUT_MAX_BUFFER_SIZE)
-                .withConstValue(new C2StreamMaxBufferSizeInfo::input(0u, 8192))
+                .withDefault(new C2StreamMaxBufferSizeInfo::input(0u, 8192))
+                .calculatedAs(MaxBufSizeCalculator, mChannelCount)
                 .build());
 
         addParameter(
@@ -111,6 +112,15 @@ public:
     static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::output> &me) {
         (void)mayBlock;
         (void)me;  // TODO: validate
+        return C2R::Ok();
+    }
+
+    static C2R MaxBufSizeCalculator(
+            bool mayBlock,
+            C2P<C2StreamMaxBufferSizeInfo::input> &me,
+            const C2P<C2StreamChannelCountInfo::input> &channelCount) {
+        (void)mayBlock;
+        me.set().value = 1024 * sizeof(short) * channelCount.v.value;
         return C2R::Ok();
     }
 
