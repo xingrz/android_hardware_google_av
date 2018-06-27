@@ -897,17 +897,20 @@ IA_ERRORCODE C2SoftXaacDec::deInitXAACDecoder() {
     /* Error code */
     IA_ERRORCODE err_code = IA_NO_ERROR;
 
-    /* Tell that the input is over in this buffer */
-    err_code = ixheaacd_dec_api(mXheaacCodecHandle,
-                                IA_API_CMD_INPUT_OVER,
-                                0,
-                                NULL);
+    if (mXheaacCodecHandle) {
+        /* Tell that the input is over in this buffer */
+        err_code = ixheaacd_dec_api(mXheaacCodecHandle,
+                                    IA_API_CMD_INPUT_OVER,
+                                    0,
+                                    NULL);
+    }
 
     /* Irrespective of error returned in IA_API_CMD_INPUT_OVER, free allocated memory */
     for (void* buf : mMemoryVec) {
         free(buf);
     }
     mMemoryVec.clear();
+    mXheaacCodecHandle = nullptr;
 
     return err_code;
 }
