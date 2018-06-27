@@ -432,6 +432,7 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
             work->result = C2_CORRUPTED;
             return;
         }
+        work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
         work->workletsProcessed = 1u;

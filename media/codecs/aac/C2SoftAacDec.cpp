@@ -570,10 +570,10 @@ void C2SoftAacDec::process(
             // TODO: error
             return;
         }
-
+        work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
-
+        work->workletsProcessed = 1u;
         return;
     }
 
