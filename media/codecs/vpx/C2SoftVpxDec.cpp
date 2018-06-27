@@ -408,6 +408,7 @@ void C2SoftVpxDec::process(
         if (err != VPX_CODEC_OK) {
             ALOGE("on2 decoder failed to decode frame. err: %d", err);
             work->result = C2_CORRUPTED;
+            work->workletsProcessed = 1u;
             mSignalledError = true;
             return;
         }
@@ -477,6 +478,7 @@ bool C2SoftVpxDec::outputBuffer(
             ALOGE("Config update size failed");
             mSignalledError = true;
             work->result = C2_CORRUPTED;
+            work->workletsProcessed = 1u;
             return false;
         }
 
