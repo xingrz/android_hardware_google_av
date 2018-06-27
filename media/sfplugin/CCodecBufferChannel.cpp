@@ -2232,4 +2232,54 @@ void CCodecBufferChannel::setMetaMode(MetaMode mode) {
     mMetaMode = mode;
 }
 
+status_t toStatusT(c2_status_t c2s, c2_operation_t c2op) {
+    // C2_OK is always translated to OK.
+    if (c2s == C2_OK) {
+        return OK;
+    }
+
+    // Operation-dependent translation
+    // TODO: Add as necessary
+    switch (c2op) {
+    case C2_OPERATION_Component_start:
+        switch (c2s) {
+        case C2_NO_MEMORY:
+            return NO_MEMORY;
+        default:
+            return UNKNOWN_ERROR;
+        }
+    default:
+        break;
+    }
+
+    // Backup operation-agnostic translation
+    switch (c2s) {
+    case C2_BAD_INDEX:
+        return BAD_INDEX;
+    case C2_BAD_VALUE:
+        return BAD_VALUE;
+    case C2_BLOCKING:
+        return WOULD_BLOCK;
+    case C2_DUPLICATE:
+        return ALREADY_EXISTS;
+    case C2_NO_INIT:
+        return NO_INIT;
+    case C2_NO_MEMORY:
+        return NO_MEMORY;
+    case C2_NOT_FOUND:
+        return NAME_NOT_FOUND;
+    case C2_TIMED_OUT:
+        return TIMED_OUT;
+    case C2_BAD_STATE:
+    case C2_CANCELED:
+    case C2_CANNOT_DO:
+    case C2_CORRUPTED:
+    case C2_OMITTED:
+    case C2_REFUSED:
+        return UNKNOWN_ERROR;
+    default:
+        return -static_cast<status_t>(c2s);
+    }
+}
+
 }  // namespace android
