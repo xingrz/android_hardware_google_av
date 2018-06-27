@@ -1316,6 +1316,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     c2_status_t err = mComponent->queue(&items);
 
     if (err == C2_OK && eos && buffer->size() > 0u) {
+        mCCodecCallback->onWorkQueued();
         work.reset(new C2Work);
         work->input.ordinal.timestamp = timeUs;
         work->input.ordinal.frameIndex = mFrameIndex++;
@@ -1325,6 +1326,9 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
         items.clear();
         items.push_back(std::move(work));
         err = mComponent->queue(&items);
+    }
+    if (err == C2_OK) {
+        mCCodecCallback->onWorkQueued();
     }
 
     feedInputBufferIfAvailableInternal();

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #define LOG_TAG "CCodec"
 #include <utils/Log.h>
 
@@ -490,6 +490,10 @@ public:
                 {RenderedFrameInfo(mediaTimeUs, renderTimeNs)});
     }
 
+    void onWorkQueued() override {
+        mCodec->onWorkQueued();
+    }
+
 private:
     CCodec *mCodec;
 };
@@ -497,7 +501,8 @@ private:
 // CCodec
 
 CCodec::CCodec()
-    : mChannel(new CCodecBufferChannel(std::make_shared<CCodecCallbackImpl>(this))) {
+    : mChannel(new CCodecBufferChannel(std::make_shared<CCodecCallbackImpl>(this))),
+      mQueuedWorkCount(0) {
     CCodecWatchdog::getInstance()->registerCodec(this);
 }
 
@@ -543,7 +548,7 @@ void CCodec::allocate(const sp<MediaCodecInfo> &codecInfo) {
         mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
         return;
     }
-    ALOGV("allocate(%s)", codecInfo->getCodecName());
+    ALOGD("allocate(%s)", codecInfo->getCodecName());
     mClientListener.reset(new ClientListener(this));
 
     AString componentName = codecInfo->getCodecName();
@@ -1201,6 +1206,7 @@ void CCodec::flush() {
     }
 
     mChannel->flush(flushedWork);
+    subQueuedWorkCount(flushedWork.size());
 
     {
         Mutexed<State>::Locked state(mState);
@@ -1347,6 +1353,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
             setDeadline(now + 550ms, "start");
+            mQueuedWorkCount = 0;
             start();
             break;
         }
@@ -1354,6 +1361,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             // C2Component::stop() should return within 500ms.
             setDeadline(now + 550ms, "stop");
             stop();
+
+            mQueuedWorkCount = 0;
+            Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+            deadline->set(TimePoint::max(), "none");
             break;
         }
         case kWhatFlush: {
@@ -1398,6 +1409,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 }
             }
 
+            subQueuedWorkCount(1);
             // handle configuration changes in work done
             Mutexed<Config>::Locked config(mConfig);
             bool changed = false;
@@ -1479,16 +1491,42 @@ void CCodec::initiateReleaseIfStuck() {
     std::string name;
     {
         Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
-        if (deadline->get() >= std::chrono::steady_clock::now()) {
-            // We're not stuck.
-            return;
+        if (deadline->get() < std::chrono::steady_clock::now()) {
+            name = deadline->getName();
         }
-        name = deadline->getName();
+    }
+    {
+        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+        if (deadline->get() < std::chrono::steady_clock::now()) {
+            name = deadline->getName();
+        }
+    }
+    if (name.empty()) {
+        // We're not stuck.
+        return;
     }
 
     ALOGW("previous call to %s exceeded timeout", name.c_str());
     initiateRelease(false);
     mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+}
+
+void CCodec::onWorkQueued() {
+    ALOGV("queued work count +1 from %d", mQueuedWorkCount.load());
+    ++mQueuedWorkCount;
+    Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+    deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
+}
+
+void CCodec::subQueuedWorkCount(uint32_t count) {
+    ALOGV("queued work count -%u from %d", count, mQueuedWorkCount.load());
+    if ((mQueuedWorkCount -= count) > 0) {
+        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+        deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
+    } else {
+        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+        deadline->set(TimePoint::max(), "none");
+    }
 }
 
 }  // namespace android
