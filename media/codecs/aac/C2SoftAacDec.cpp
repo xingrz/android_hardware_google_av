@@ -662,6 +662,8 @@ void C2SoftAacDec::process(
             if (outputDelayRingBufferSpaceLeft() <
                     (mStreamInfo->frameSize * mStreamInfo->numChannels)) {
                 ALOGV("skipping decode: not enough space left in ringbuffer");
+                // discard buffer
+                size = 0;
                 break;
             }
 

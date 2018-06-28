@@ -95,6 +95,9 @@ private:
 
     void setDeadline(const TimePoint &deadline, const char *name);
 
+    void onWorkQueued();
+    void subQueuedWorkCount(uint32_t count);
+
     enum {
         kWhatAllocate,
         kWhatConfigure,
@@ -158,6 +161,8 @@ private:
     struct ClientListener;
 
     Mutexed<NamedTimePoint> mDeadline;
+    std::atomic_int32_t mQueuedWorkCount;
+    Mutexed<NamedTimePoint> mQueueDeadline;
     typedef CCodecConfig Config;
     Mutexed<Config> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
