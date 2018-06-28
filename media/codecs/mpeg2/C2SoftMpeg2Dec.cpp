@@ -813,6 +813,29 @@ c2_status_t C2SoftMpeg2Dec::ensureDecoderState(const std::shared_ptr<C2BlockPool
     return C2_OK;
 }
 
+void C2SoftMpeg2Dec::setTimeStampFrameIndexMap(uint64_t frameIndex, uint64_t timeStamp) {
+    mFrameIndices[timeStamp] = frameIndex;
+    return;
+}
+
+uint32_t C2SoftMpeg2Dec::getMinTimeStampFrameIndex() {
+    uint64_t frameIndex = 0;
+    uint64_t minTimeStamp = 0;
+    std::map<uint64_t , uint64_t >::iterator it = mFrameIndices.begin();
+
+    minTimeStamp = it->first;
+    while(it != mFrameIndices.end()) {
+        if(minTimeStamp > it->first) minTimeStamp = it->first;
+        it++;
+    }
+    if (mFrameIndices.count(minTimeStamp) == 0u) {
+        ALOGV("timestamp %d not tracked", (int)minTimeStamp);
+    } else {
+        frameIndex = mFrameIndices[minTimeStamp];
+        mFrameIndices.erase(minTimeStamp);
+    }
+    return frameIndex & 0xFFFFFFFF;
+}
 // TODO: can overall error checking be improved?
 // TODO: allow configuration of color format and usage for graphic buffers instead
 //       of hard coding them to HAL_PIXEL_FORMAT_YV12
@@ -842,6 +865,8 @@ void C2SoftMpeg2Dec::process(
             work->result = C2_CORRUPTED;
             return;
         }
+        setTimeStampFrameIndexMap((uint64_t)work->input.ordinal.frameIndex.peeku(),
+            (uint64_t)work->input.ordinal.timestamp.peeku());
     }
     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
     bool hasPicture = false;
@@ -949,7 +974,7 @@ void C2SoftMpeg2Dec::process(
         }
         hasPicture |= (1 == s_decode_op.u4_frame_decoded_flag);
         if (s_decode_op.u4_output_present) {
-            finishWork(s_decode_op.u4_ts, work);
+            finishWork(getMinTimeStampFrameIndex(), work);
         }
         inPos += s_decode_op.u4_num_bytes_consumed;
         if (hasPicture && (inSize - inPos) != 0) {
@@ -1000,7 +1025,7 @@ c2_status_t C2SoftMpeg2Dec::drainInternal(
         }
         (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         if (s_decode_op.u4_output_present) {
-            finishWork(s_decode_op.u4_ts, work);
+            finishWork(getMinTimeStampFrameIndex(), work);
         } else {
             break;
         }
