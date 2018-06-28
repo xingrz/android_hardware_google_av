@@ -143,7 +143,8 @@ struct C2SoftMpeg2Dec : public SimpleC2Component {
     void resetPlugin();
     status_t deleteDecoder();
     status_t reInitDecoder();
-
+    uint32_t getMinTimeStampFrameIndex();
+    void setTimeStampFrameIndexMap(uint64_t frameIndex, uint64_t timeStamp);
     // TODO:This is not the right place for this enum. These should
     // be part of c2-vndk so that they can be accessed by all video plugins
     // until then, make them feel at home
@@ -176,6 +177,8 @@ struct C2SoftMpeg2Dec : public SimpleC2Component {
     ColorAspects mBitstreamColorAspects;
     ColorAspects mFinalColorAspects;
     bool mUpdateColorAspects;
+
+    std::map<uint64_t , uint64_t > mFrameIndices;
 
     // profile
     struct timeval mTimeStart;
