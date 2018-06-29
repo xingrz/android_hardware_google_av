@@ -1124,7 +1124,9 @@ void CCodec::initiateRelease(bool sendCallback /* = true */) {
     }
 
     mChannel->stop();
-    std::thread([this, sendCallback] { release(sendCallback); }).detach();
+    // thiz holds strong ref to this while the thread is running.
+    sp<CCodec> thiz(this);
+    std::thread([thiz, sendCallback] { thiz->release(sendCallback); }).detach();
 }
 
 void CCodec::release(bool sendCallback) {
