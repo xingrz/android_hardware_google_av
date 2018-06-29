@@ -106,7 +106,7 @@ C2SoftFlacDec::C2SoftFlacDec(
 }
 
 C2SoftFlacDec::~C2SoftFlacDec() {
-    delete mFLACDecoder;
+    onRelease();
 }
 
 c2_status_t C2SoftFlacDec::onInit() {
@@ -120,15 +120,18 @@ c2_status_t C2SoftFlacDec::onStop() {
     mHasStreamInfo = false;
     mSignalledError = false;
     mSignalledOutputEos = false;
-    mInputBufferCount = 0;
     return C2_OK;
 }
 
 void C2SoftFlacDec::onReset() {
+    mInputBufferCount = 0;
     (void)onStop();
 }
 
 void C2SoftFlacDec::onRelease() {
+    mInputBufferCount = 0;
+    if (mFLACDecoder) delete mFLACDecoder;
+    mFLACDecoder = nullptr;
 }
 
 c2_status_t C2SoftFlacDec::onFlush_sm() {
