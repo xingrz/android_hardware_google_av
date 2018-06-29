@@ -42,6 +42,7 @@ public:
     virtual ~CCodecCallback() = default;
     virtual void onError(status_t err, enum ActionCode actionCode) = 0;
     virtual void onOutputFramesRendered(int64_t mediaTimeUs, nsecs_t renderTimeNs) = 0;
+    virtual void onWorkQueued() = 0;
 };
 
 /**
@@ -245,6 +246,36 @@ private:
         return mCrypto != NULL || mDescrambler != NULL;
     }
 };
+
+// Conversion of a c2_status_t value to a status_t value may depend on the
+// operation that returns the c2_status_t value.
+enum c2_operation_t {
+    C2_OPERATION_NONE,
+    C2_OPERATION_Component_connectToOmxInputSurface,
+    C2_OPERATION_Component_createBlockPool,
+    C2_OPERATION_Component_destroyBlockPool,
+    C2_OPERATION_Component_disconnectFromInputSurface,
+    C2_OPERATION_Component_drain,
+    C2_OPERATION_Component_flush,
+    C2_OPERATION_Component_queue,
+    C2_OPERATION_Component_release,
+    C2_OPERATION_Component_reset,
+    C2_OPERATION_Component_setOutputSurface,
+    C2_OPERATION_Component_start,
+    C2_OPERATION_Component_stop,
+    C2_OPERATION_ComponentStore_copyBuffer,
+    C2_OPERATION_ComponentStore_createComponent,
+    C2_OPERATION_ComponentStore_createInputSurface,
+    C2_OPERATION_ComponentStore_createInterface,
+    C2_OPERATION_Configurable_config,
+    C2_OPERATION_Configurable_query,
+    C2_OPERATION_Configurable_querySupportedParams,
+    C2_OPERATION_Configurable_querySupportedValues,
+    C2_OPERATION_InputSurface_connectToComponent,
+    C2_OPERATION_InputSurfaceConnection_disconnect,
+};
+
+status_t toStatusT(c2_status_t c2s, c2_operation_t c2op = C2_OPERATION_NONE);
 
 }  // namespace android
 

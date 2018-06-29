@@ -269,6 +269,8 @@ namespace {
 const static size_t kMinInputBufferArraySize = 8;
 const static size_t kMinOutputBufferArraySize = 16;
 const static size_t kLinearBufferSize = 1048576;
+// This can fit 4K RGBA frame, and most likely client won't need more than this.
+const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
 
 /**
  * Simple local buffer pool backed by std::vector.
@@ -683,6 +685,10 @@ public:
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
         int32_t capacity = kLinearBufferSize;
         (void)mFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+        if ((size_t)capacity > kMaxLinearBufferSize) {
+            ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+            capacity = kMaxLinearBufferSize;
+        }
         // TODO: proper max input size
         // TODO: read usage from intf
         sp<Codec2Buffer> newBuffer = alloc((size_t)capacity);
@@ -1316,6 +1322,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     c2_status_t err = mComponent->queue(&items);
 
     if (err == C2_OK && eos && buffer->size() > 0u) {
+        mCCodecCallback->onWorkQueued();
         work.reset(new C2Work);
         work->input.ordinal.timestamp = timeUs;
         work->input.ordinal.frameIndex = mFrameIndex++;
@@ -1325,6 +1332,9 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
         items.clear();
         items.push_back(std::move(work));
         err = mComponent->queue(&items);
+    }
+    if (err == C2_OK) {
+        mCCodecCallback->onWorkQueued();
     }
 
     feedInputBufferIfAvailableInternal();
@@ -2230,6 +2240,56 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 
 void CCodecBufferChannel::setMetaMode(MetaMode mode) {
     mMetaMode = mode;
+}
+
+status_t toStatusT(c2_status_t c2s, c2_operation_t c2op) {
+    // C2_OK is always translated to OK.
+    if (c2s == C2_OK) {
+        return OK;
+    }
+
+    // Operation-dependent translation
+    // TODO: Add as necessary
+    switch (c2op) {
+    case C2_OPERATION_Component_start:
+        switch (c2s) {
+        case C2_NO_MEMORY:
+            return NO_MEMORY;
+        default:
+            return UNKNOWN_ERROR;
+        }
+    default:
+        break;
+    }
+
+    // Backup operation-agnostic translation
+    switch (c2s) {
+    case C2_BAD_INDEX:
+        return BAD_INDEX;
+    case C2_BAD_VALUE:
+        return BAD_VALUE;
+    case C2_BLOCKING:
+        return WOULD_BLOCK;
+    case C2_DUPLICATE:
+        return ALREADY_EXISTS;
+    case C2_NO_INIT:
+        return NO_INIT;
+    case C2_NO_MEMORY:
+        return NO_MEMORY;
+    case C2_NOT_FOUND:
+        return NAME_NOT_FOUND;
+    case C2_TIMED_OUT:
+        return TIMED_OUT;
+    case C2_BAD_STATE:
+    case C2_CANCELED:
+    case C2_CANNOT_DO:
+    case C2_CORRUPTED:
+    case C2_OMITTED:
+    case C2_REFUSED:
+        return UNKNOWN_ERROR;
+    default:
+        return -static_cast<status_t>(c2s);
+    }
 }
 
 }  // namespace android

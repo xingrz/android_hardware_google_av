@@ -570,10 +570,10 @@ void C2SoftAacDec::process(
             // TODO: error
             return;
         }
-
+        work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
-
+        work->workletsProcessed = 1u;
         return;
     }
 
@@ -662,6 +662,8 @@ void C2SoftAacDec::process(
             if (outputDelayRingBufferSpaceLeft() <
                     (mStreamInfo->frameSize * mStreamInfo->numChannels)) {
                 ALOGV("skipping decode: not enough space left in ringbuffer");
+                // discard buffer
+                size = 0;
                 break;
             }
 
