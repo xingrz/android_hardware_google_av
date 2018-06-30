@@ -57,52 +57,47 @@ namespace {
 class CCodecWatchdog : public AHandler {
 private:
     enum {
-        kWhatRegister,
         kWhatWatch,
     };
-    constexpr static int64_t kWatchIntervalUs = 3000000;  // 3 secs
+    constexpr static int64_t kWatchIntervalUs = 3300000;  // 3.3 secs
 
 public:
     static sp<CCodecWatchdog> getInstance() {
-        Mutexed<sp<CCodecWatchdog>>::Locked instance(sInstance);
-        if (*instance == nullptr) {
-            *instance = new CCodecWatchdog;
-            (*instance)->init();
-        }
-        return *instance;
+        static sp<CCodecWatchdog> instance(new CCodecWatchdog);
+        static std::once_flag flag;
+        // Call Init() only once.
+        std::call_once(flag, Init, instance);
+        return instance;
     }
 
     ~CCodecWatchdog() = default;
 
-    void registerCodec(CCodec *codec) {
-        sp<AMessage> msg = new AMessage(kWhatRegister, this);
-        msg->setPointer("codec", codec);
-        msg->post();
+    void watch(sp<CCodec> codec) {
+        Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
+        // If a watch message is in flight, piggy-back this instance as well.
+        // Otherwise, post a new watch message.
+        bool shouldPost = codecs->empty();
+        codecs->emplace(codec);
+        if (shouldPost) {
+            ALOGV("posting watch message");
+            (new AMessage(kWhatWatch, this))->post(kWatchIntervalUs);
+        }
     }
 
 protected:
     void onMessageReceived(const sp<AMessage> &msg) {
         switch (msg->what()) {
-            case kWhatRegister: {
-                void *ptr = nullptr;
-                CHECK(msg->findPointer("codec", &ptr));
-                Mutexed<std::list<wp<CCodec>>>::Locked codecs(mCodecs);
-                codecs->emplace_back((CCodec *)ptr);
-                break;
-            }
-
             case kWhatWatch: {
-                Mutexed<std::list<wp<CCodec>>>::Locked codecs(mCodecs);
-                for (auto it = codecs->begin(); it != codecs->end(); ) {
+                Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
+                ALOGV("watch for %zu codecs", codecs->size());
+                for (auto it = codecs->begin(); it != codecs->end(); ++it) {
                     sp<CCodec> codec = it->promote();
                     if (codec == nullptr) {
-                        it = codecs->erase(it);
                         continue;
                     }
                     codec->initiateReleaseIfStuck();
-                    ++it;
                 }
-                msg->post(kWatchIntervalUs);
+                codecs->clear();
                 break;
             }
 
@@ -115,20 +110,17 @@ protected:
 private:
     CCodecWatchdog() : mLooper(new ALooper) {}
 
-    void init() {
-        mLooper->setName("CCodecWatchdog");
-        mLooper->registerHandler(this);
-        mLooper->start();
-        (new AMessage(kWhatWatch, this))->post(kWatchIntervalUs);
+    static void Init(const sp<CCodecWatchdog> &thiz) {
+        ALOGV("Init");
+        thiz->mLooper->setName("CCodecWatchdog");
+        thiz->mLooper->registerHandler(thiz);
+        thiz->mLooper->start();
     }
 
-    static Mutexed<sp<CCodecWatchdog>> sInstance;
-
     sp<ALooper> mLooper;
-    Mutexed<std::list<wp<CCodec>>> mCodecs;
-};
 
-Mutexed<sp<CCodecWatchdog>> CCodecWatchdog::sInstance;
+    Mutexed<std::set<wp<CCodec>>> mCodecsToWatch;
+};
 
 class C2InputSurfaceWrapper : public InputSurfaceWrapper {
 public:
@@ -503,7 +495,6 @@ private:
 CCodec::CCodec()
     : mChannel(new CCodecBufferChannel(std::make_shared<CCodecCallbackImpl>(this))),
       mQueuedWorkCount(0) {
-    CCodecWatchdog::getInstance()->registerCodec(this);
 }
 
 CCodec::~CCodec() {
@@ -1124,7 +1115,9 @@ void CCodec::initiateRelease(bool sendCallback /* = true */) {
     }
 
     mChannel->stop();
-    std::thread([this, sendCallback] { release(sendCallback); }).detach();
+    // thiz holds strong ref to this while the thread is running.
+    sp<CCodec> thiz(this);
+    std::thread([thiz, sendCallback] { thiz->release(sendCallback); }).detach();
 }
 
 void CCodec::release(bool sendCallback) {
@@ -1333,6 +1326,7 @@ void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
 
 void CCodec::onMessageReceived(const sp<AMessage> &msg) {
     TimePoint now = std::chrono::steady_clock::now();
+    CCodecWatchdog::getInstance()->watch(this);
     switch (msg->what()) {
         case kWhatAllocate: {
             // C2ComponentStore::createComponent() should return within 100ms.
@@ -1474,6 +1468,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                     initData.hasChanged() ? initData.update().get() : nullptr);
             break;
         }
+        case kWhatWatch: {
+            // watch message already posted; no-op.
+            break;
+        }
         default: {
             ALOGE("unrecognized message");
             break;
@@ -1489,10 +1487,14 @@ void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
 
 void CCodec::initiateReleaseIfStuck() {
     std::string name;
+    bool pendingDeadline = false;
     {
         Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
+        }
+        if (deadline->get() != TimePoint::max()) {
+            pendingDeadline = true;
         }
     }
     {
@@ -1500,9 +1502,17 @@ void CCodec::initiateReleaseIfStuck() {
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
         }
+        if (deadline->get() != TimePoint::max()) {
+            pendingDeadline = true;
+        }
     }
     if (name.empty()) {
         // We're not stuck.
+        if (pendingDeadline) {
+            // If we are not stuck yet but still has deadline coming up,
+            // post watch message to check back later.
+            (new AMessage(kWhatWatch, this))->post();
+        }
         return;
     }
 
@@ -1516,6 +1526,7 @@ void CCodec::onWorkQueued() {
     ++mQueuedWorkCount;
     Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
     deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
+    CCodecWatchdog::getInstance()->watch(this);
 }
 
 void CCodec::subQueuedWorkCount(uint32_t count) {
