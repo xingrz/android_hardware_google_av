@@ -110,6 +110,7 @@ private:
         kWhatSetParameters,
 
         kWhatWorkDone,
+        kWhatWatch,
     };
 
     enum {
