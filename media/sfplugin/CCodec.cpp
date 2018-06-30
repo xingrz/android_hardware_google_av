@@ -59,7 +59,7 @@ private:
     enum {
         kWhatWatch,
     };
-    constexpr static int64_t kWatchIntervalUs = 3000000;  // 3 secs
+    constexpr static int64_t kWatchIntervalUs = 3300000;  // 3.3 secs
 
 public:
     static sp<CCodecWatchdog> getInstance() {
@@ -1468,6 +1468,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                     initData.hasChanged() ? initData.update().get() : nullptr);
             break;
         }
+        case kWhatWatch: {
+            // watch message already posted; no-op.
+            break;
+        }
         default: {
             ALOGE("unrecognized message");
             break;
@@ -1483,10 +1487,14 @@ void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
 
 void CCodec::initiateReleaseIfStuck() {
     std::string name;
+    bool pendingDeadline = false;
     {
         Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
+        }
+        if (deadline->get() != TimePoint::max()) {
+            pendingDeadline = true;
         }
     }
     {
@@ -1494,9 +1502,17 @@ void CCodec::initiateReleaseIfStuck() {
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
         }
+        if (deadline->get() != TimePoint::max()) {
+            pendingDeadline = true;
+        }
     }
     if (name.empty()) {
         // We're not stuck.
+        if (pendingDeadline) {
+            // If we are not stuck yet but still has deadline coming up,
+            // post watch message to check back later.
+            (new AMessage(kWhatWatch, this))->post();
+        }
         return;
     }
 
