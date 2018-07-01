@@ -765,6 +765,15 @@ void C2SoftMpeg2Dec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &w
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(std::move(mOutBlock),
                                                            C2Rect(mWidth, mHeight));
     mOutBlock = nullptr;
+    if (mUpdateColorAspects) {
+        buffer->setInfo(std::make_shared<C2StreamColorAspectsInfo::output>(
+                        0u, (C2Color::range_t)mFinalColorAspects.mRange,
+                        (C2Color::primaries_t)mFinalColorAspects.mPrimaries,
+                        (C2Color::transfer_t)mFinalColorAspects.mTransfer,
+                        (C2Color::matrix_t)mFinalColorAspects.mMatrixCoeffs));
+        mUpdateColorAspects = false;
+    }
+
     auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
         uint32_t flags = 0;
         if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
@@ -969,9 +978,6 @@ void C2SoftMpeg2Dec::process(
         }
 
         (void) getSeqInfo();
-        if (mUpdateColorAspects) {
-            mUpdateColorAspects = false;
-        }
         hasPicture |= (1 == s_decode_op.u4_frame_decoded_flag);
         if (s_decode_op.u4_output_present) {
             finishWork(getMinTimeStampFrameIndex(), work);

@@ -269,6 +269,8 @@ namespace {
 const static size_t kMinInputBufferArraySize = 8;
 const static size_t kMinOutputBufferArraySize = 16;
 const static size_t kLinearBufferSize = 1048576;
+// This can fit 4K RGBA frame, and most likely client won't need more than this.
+const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
 
 /**
  * Simple local buffer pool backed by std::vector.
@@ -683,6 +685,10 @@ public:
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
         int32_t capacity = kLinearBufferSize;
         (void)mFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+        if ((size_t)capacity > kMaxLinearBufferSize) {
+            ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+            capacity = kMaxLinearBufferSize;
+        }
         // TODO: proper max input size
         // TODO: read usage from intf
         sp<Codec2Buffer> newBuffer = alloc((size_t)capacity);
@@ -1316,6 +1322,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     c2_status_t err = mComponent->queue(&items);
 
     if (err == C2_OK && eos && buffer->size() > 0u) {
+        mCCodecCallback->onWorkQueued();
         work.reset(new C2Work);
         work->input.ordinal.timestamp = timeUs;
         work->input.ordinal.frameIndex = mFrameIndex++;
@@ -1325,6 +1332,9 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
         items.clear();
         items.push_back(std::move(work));
         err = mComponent->queue(&items);
+    }
+    if (err == C2_OK) {
+        mCCodecCallback->onWorkQueued();
     }
 
     feedInputBufferIfAvailableInternal();
