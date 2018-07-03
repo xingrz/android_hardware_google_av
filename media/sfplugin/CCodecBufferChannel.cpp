@@ -1993,26 +1993,57 @@ status_t CCodecBufferChannel::start(
 }
 
 status_t CCodecBufferChannel::requestInitialInputBuffers() {
-    if (mInputSurface == nullptr) {
-        // TODO: use proper buffer depth instead of this random value
-        for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
-            size_t index;
-            sp<MediaCodecBuffer> buffer;
-            {
-                Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-                if (!(*buffers)->requestNewBuffer(&index, &buffer)) {
-                    if (i == 0) {
-                        ALOGW("[%s] start: cannot allocate memory at all", mName);
-                        return NO_MEMORY;
+    if (mInputSurface) {
+        return OK;
+    }
+    // TODO: use proper buffer depth instead of this random value
+    for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
+        size_t index;
+        sp<MediaCodecBuffer> buffer;
+        {
+            Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+            if (!(*buffers)->requestNewBuffer(&index, &buffer)) {
+                if (i == 0) {
+                    ALOGW("[%s] start: cannot allocate memory at all", mName);
+                    return NO_MEMORY;
+                } else {
+                    ALOGV("[%s] start: cannot allocate memory, only %zu buffers allocated",
+                            mName, i);
+                }
+                break;
+            }
+        }
+        if (buffer) {
+            Mutexed<std::list<sp<ABuffer>>>::Locked configs(mFlushedConfigs);
+            ALOGV("[%s] input buffer %zu available", mName, index);
+            bool post = true;
+            if (!configs->empty()) {
+                sp<ABuffer> config = configs->front();
+                if (buffer->capacity() >= config->size()) {
+                    memcpy(buffer->base(), config->data(), config->size());
+                    buffer->setRange(0, config->size());
+                    buffer->meta()->clear();
+                    buffer->meta()->setInt64("timeUs", 0);
+                    buffer->meta()->setInt32("csd", 1);
+                    configs.unlock();
+                    if (queueInputBufferInternal(buffer) == OK) {
+                        ALOGV("[%s] queued flushed codec config", mName);
+                        configs.lock();
+
+                        configs->pop_front();
+                        post = false;
                     } else {
-                        ALOGV("[%s] start: cannot allocate memory, only %zu buffers allocated",
-                                mName, i);
+                        ALOGD("[%s] failed to queue flushed codec config", mName);
+                        configs.lock();
+
+                        buffer->setRange(0, buffer->capacity());
                     }
-                    break;
+                } else {
+                    ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
+                            mName, buffer->capacity(), config->size());
                 }
             }
-            if (buffer) {
-                ALOGV("[%s] input buffer %zu available", mName, index);
+            if (post) {
                 mCallback->onInputBufferAvailable(index, buffer);
             }
         }
@@ -2031,6 +2062,27 @@ void CCodecBufferChannel::stop() {
 
 void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) {
     ALOGV("[%s] flush", mName);
+    {
+        Mutexed<std::list<sp<ABuffer>>>::Locked configs(mFlushedConfigs);
+        for (const std::unique_ptr<C2Work> &work : flushedWork) {
+            if (!(work->input.flags & C2FrameData::FLAG_CODEC_CONFIG)) {
+                continue;
+            }
+            if (work->input.buffers.empty()
+                    || work->input.buffers.front()->data().linearBlocks().empty()) {
+                ALOGD("[%s] no linear codec config data found", mName);
+                continue;
+            }
+            C2ReadView view =
+                    work->input.buffers.front()->data().linearBlocks().front().map().get();
+            if (view.error() != C2_OK) {
+                ALOGD("[%s] failed to map flushed codec config data: %d", mName, view.error());
+                continue;
+            }
+            configs->push_back(ABuffer::CreateAsCopy(view.data(), view.capacity()));
+            ALOGV("[%s] stashed flushed codec config data (size=%u)", mName, view.capacity());
+        }
+    }
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         (*buffers)->flush();
