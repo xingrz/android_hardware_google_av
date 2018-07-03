@@ -354,16 +354,16 @@ std::ostream& dump(
 Return<void> ComponentStore::debug(
         const hidl_handle& handle,
         const hidl_vec<hidl_string>& /* args */) {
-   LOG(INFO) << "debug -- dumping...";
-   const native_handle_t *h = handle.getNativeHandle();
-   if (!h || h->numFds != 1) {
-      LOG(ERROR) << "debug -- dumping failed -- "
-              "invalid file descriptor to dump to";
-      return Void();
-   }
-   std::ostringstream out;
+    LOG(INFO) << "debug -- dumping...";
+    const native_handle_t *h = handle.getNativeHandle();
+    if (!h || h->numFds != 1) {
+       LOG(ERROR) << "debug -- dumping failed -- "
+               "invalid file descriptor to dump to";
+       return Void();
+    }
+    std::ostringstream out;
 
-   { // Populate "out".
+    { // Populate "out".
 
         constexpr const char indent[] = "  ";
 
@@ -415,14 +415,14 @@ Return<void> ComponentStore::debug(
 
         out << "End of dump -- C2ComponentStore: "
                 << mStore->getName() << std::endl;
-   }
+    }
 
-   if (!android::base::WriteStringToFd(out.str(), h->data[0])) {
-       PLOG(WARNING) << "debug -- dumping failed -- write()";
-   } else {
-       LOG(INFO) << "debug -- dumping succeeded";
-   }
-   return Void();
+    if (!android::base::WriteStringToFd(out.str(), h->data[0])) {
+        PLOG(WARNING) << "debug -- dumping failed -- write()";
+    } else {
+        LOG(INFO) << "debug -- dumping succeeded";
+    }
+    return Void();
 }
 
 
