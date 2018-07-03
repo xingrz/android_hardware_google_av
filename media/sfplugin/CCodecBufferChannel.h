@@ -214,6 +214,7 @@ private:
     std::vector<std::unique_ptr<C2Param>> mParamsToBeSet;
 
     Mutexed<std::unique_ptr<InputBuffers>> mInputBuffers;
+    Mutexed<std::list<sp<ABuffer>>> mFlushedConfigs;
     Mutexed<std::unique_ptr<OutputBuffers>> mOutputBuffers;
 
     std::atomic_uint64_t mFrameIndex;
