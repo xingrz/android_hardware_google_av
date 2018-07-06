@@ -46,8 +46,6 @@ cc_library_shared {
         "libstagefright_xmlparser",
         "libui",
         "libutils",
-        // TODO: Remove libv4l2_c2_componentstore.
-        "libv4l2_c2componentstore",
     ],
 
     sanitize: {

@@ -25,7 +25,6 @@
 #include <C2Debug.h>
 #include <C2ParamInternal.h>
 #include <C2PlatformSupport.h>
-#include <C2V4l2Support.h>
 
 #include <android/IOMXBufferSource.h>
 #include <android/IGraphicBufferSource.h>
