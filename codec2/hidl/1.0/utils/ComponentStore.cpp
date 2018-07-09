@@ -28,6 +28,7 @@
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
 
 #include <C2PlatformSupport.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <utils/Errors.h>
 
@@ -226,11 +227,12 @@ Return<sp<IInputSurface>> ComponentStore::createInputSurface() {
         return nullptr;
     }
     typedef ::android::hardware::graphics::bufferqueue::V1_0::
-            IGraphicBufferProducer HGBP;
-    typedef ::android::TWGraphicBufferProducer<HGBP> B2HGBP;
+            IGraphicBufferProducer HGbp;
+    typedef ::android::TWGraphicBufferProducer<HGbp> B2HGbp;
     return new InputSurface(
             this,
-            new B2HGBP(source->getIGraphicBufferProducer()),
+            std::make_shared<C2ReflectorHelper>(),
+            new B2HGbp(source->getIGraphicBufferProducer()),
             source);
 }
 
