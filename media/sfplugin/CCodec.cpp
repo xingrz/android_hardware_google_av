@@ -883,35 +883,6 @@ void CCodec::createInputSurface() {
     }
 
     std::shared_ptr<PersistentSurface> persistentSurface(CreateInputSurface());
-    if (!persistentSurface) {
-        using namespace android::hardware::media::omx::V1_0;
-        using namespace android::hardware::media::omx::V1_0::utils;
-        using namespace android::hardware::graphics::bufferqueue::V1_0::utils;
-        typedef android::hardware::media::omx::V1_0::Status OmxStatus;
-        android::sp<IOmx> omx = IOmx::getService();
-        typedef android::hardware::graphics::bufferqueue::V1_0::
-                IGraphicBufferProducer HGraphicBufferProducer;
-        typedef android::hardware::media::omx::V1_0::
-                IGraphicBufferSource HGraphicBufferSource;
-        OmxStatus s;
-        android::sp<HGraphicBufferProducer> gbp;
-        android::sp<HGraphicBufferSource> gbs;
-        android::Return<void> transStatus = omx->createInputSurface(
-                [&s, &gbp, &gbs](
-                        OmxStatus status,
-                        const android::sp<HGraphicBufferProducer>& producer,
-                        const android::sp<HGraphicBufferSource>& source) {
-                    s = status;
-                    gbp = producer;
-                    gbs = source;
-                });
-        if (transStatus.isOk() && s == OmxStatus::OK) {
-            persistentSurface = std::make_shared<android::PersistentSurface>(
-                    new H2BGraphicBufferProducer(gbp),
-                    sp<::android::IGraphicBufferSource>(
-                        new LWGraphicBufferSource(gbs)));
-        }
-    }
 
     if (persistentSurface->getHidlTarget()) {
         sp<IInputSurface> inputSurface = IInputSurface::castFrom(
@@ -1597,6 +1568,7 @@ extern "C" android::CodecBase *CreateCodec() {
 }
 
 extern "C" android::PersistentSurface *CreateInputSurface() {
+    // Attempt to create a Codec2's input surface.
     std::shared_ptr<android::Codec2Client::InputSurface> inputSurface =
             android::Codec2Client::CreateInputSurface();
     if (inputSurface) {
@@ -1605,6 +1577,36 @@ extern "C" android::PersistentSurface *CreateInputSurface() {
                 static_cast<android::sp<android::hidl::base::V1_0::IBase>>(
                 inputSurface->getHalInterface()));
     }
+
+    // Fall back to OMX.
+    using namespace android::hardware::media::omx::V1_0;
+    using namespace android::hardware::media::omx::V1_0::utils;
+    using namespace android::hardware::graphics::bufferqueue::V1_0::utils;
+    typedef android::hardware::media::omx::V1_0::Status OmxStatus;
+    android::sp<IOmx> omx = IOmx::getService();
+    typedef android::hardware::graphics::bufferqueue::V1_0::
+            IGraphicBufferProducer HGraphicBufferProducer;
+    typedef android::hardware::media::omx::V1_0::
+            IGraphicBufferSource HGraphicBufferSource;
+    OmxStatus s;
+    android::sp<HGraphicBufferProducer> gbp;
+    android::sp<HGraphicBufferSource> gbs;
+    android::Return<void> transStatus = omx->createInputSurface(
+            [&s, &gbp, &gbs](
+                    OmxStatus status,
+                    const android::sp<HGraphicBufferProducer>& producer,
+                    const android::sp<HGraphicBufferSource>& source) {
+                s = status;
+                gbp = producer;
+                gbs = source;
+            });
+    if (transStatus.isOk() && s == OmxStatus::OK) {
+        return new android::PersistentSurface(
+                new H2BGraphicBufferProducer(gbp),
+                sp<::android::IGraphicBufferSource>(
+                    new LWGraphicBufferSource(gbs)));
+    }
+
     return nullptr;
 }
 
