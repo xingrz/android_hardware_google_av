@@ -95,7 +95,7 @@ private:
 
     void setDeadline(const TimePoint &deadline, const char *name);
 
-    void onWorkQueued();
+    void onWorkQueued(bool eos);
     void subQueuedWorkCount(uint32_t count);
 
     enum {

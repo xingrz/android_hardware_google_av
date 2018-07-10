@@ -487,8 +487,8 @@ public:
                 {RenderedFrameInfo(mediaTimeUs, renderTimeNs)});
     }
 
-    void onWorkQueued() override {
-        mCodec->onWorkQueued();
+    void onWorkQueued(bool eos) override {
+        mCodec->onWorkQueued(eos);
     }
 
 private:
@@ -1565,20 +1565,19 @@ void CCodec::initiateReleaseIfStuck() {
     mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
 }
 
-void CCodec::onWorkQueued() {
+void CCodec::onWorkQueued(bool eos) {
     ALOGV("queued work count +1 from %d", mQueuedWorkCount.load());
     ++mQueuedWorkCount;
-    Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
-    deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
-    CCodecWatchdog::getInstance()->watch(this);
+    if (eos) {
+        CCodecWatchdog::getInstance()->watch(this);
+        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+        deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
+    }
 }
 
 void CCodec::subQueuedWorkCount(uint32_t count) {
     ALOGV("queued work count -%u from %d", count, mQueuedWorkCount.load());
-    if ((mQueuedWorkCount -= count) > 0) {
-        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
-        deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
-    } else {
+    if ((mQueuedWorkCount -= count) == 0) {
         Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
         deadline->set(TimePoint::max(), "none");
     }
