@@ -454,6 +454,32 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper("android._dataspace", C2_PARAMKEY_DATA_SPACE, "value")
         .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
 
+    // HDR
+    add(ConfigMapper("smpte2086.red.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.red.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.red.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.red.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.green.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.green.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.green.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.green.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.blue.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.blue.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.blue.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.blue.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.white.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.white.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.white.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.white.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.max-luminance", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.max-luminance")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.min-luminance", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.min-luminance")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("cta861.max-cll", C2_PARAMKEY_HDR_STATIC_INFO, "max-cll")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("cta861.max-fall", C2_PARAMKEY_HDR_STATIC_INFO, "max-fall")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+
     add(ConfigMapper(std::string(KEY_FEATURE_) + FEATURE_SecurePlayback,
                      C2_PARAMKEY_SECURE_MODE, "value"));
 
@@ -1120,6 +1146,65 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
                 msg->setInt32("android._dataspace", dataspace);
             }
         }
+
+        // HDR static info
+
+        C2HdrStaticMetadataStruct hdr;
+        if (msg->findFloat("smpte2086.red.x", &hdr.mastering.red.x)
+                && msg->findFloat("smpte2086.red.y", &hdr.mastering.red.y)
+                && msg->findFloat("smpte2086.green.x", &hdr.mastering.green.x)
+                && msg->findFloat("smpte2086.green.y", &hdr.mastering.green.y)
+                && msg->findFloat("smpte2086.blue.x", &hdr.mastering.blue.x)
+                && msg->findFloat("smpte2086.blue.y", &hdr.mastering.blue.y)
+                && msg->findFloat("smpte2086.white.x", &hdr.mastering.white.x)
+                && msg->findFloat("smpte2086.white.y", &hdr.mastering.white.y)
+                && msg->findFloat("smpte2086.max-luminance", &hdr.mastering.maxLuminance)
+                && msg->findFloat("smpte2086.min-luminance", &hdr.mastering.minLuminance)
+                && msg->findFloat("cta861.max-cll", &hdr.maxCll)
+                && msg->findFloat("cta861.max-fall", &hdr.maxFall)) {
+            if (hdr.mastering.red.x >= 0                && hdr.mastering.red.x <= 1
+                    && hdr.mastering.red.y >= 0         && hdr.mastering.red.y <= 1
+                    && hdr.mastering.green.x >= 0       && hdr.mastering.green.x <= 1
+                    && hdr.mastering.green.y >= 0       && hdr.mastering.green.y <= 1
+                    && hdr.mastering.blue.x >= 0        && hdr.mastering.blue.x <= 1
+                    && hdr.mastering.blue.y >= 0        && hdr.mastering.blue.y <= 1
+                    && hdr.mastering.white.x >= 0       && hdr.mastering.white.x <= 1
+                    && hdr.mastering.white.y >= 0       && hdr.mastering.white.y <= 1
+                    && hdr.mastering.maxLuminance >= 0  && hdr.mastering.maxLuminance <= 65535
+                    && hdr.mastering.minLuminance >= 0  && hdr.mastering.minLuminance <= 6.5535
+                    && hdr.maxCll >= 0                  && hdr.maxCll <= 65535
+                    && hdr.maxFall >= 0                 && hdr.maxFall <= 65535) {
+                HDRStaticInfo meta;
+                meta.mID = meta.kType1;
+                meta.sType1.mR.x = hdr.mastering.red.x / 0.00002 + 0.5;
+                meta.sType1.mR.y = hdr.mastering.red.y / 0.00002 + 0.5;
+                meta.sType1.mG.x = hdr.mastering.green.x / 0.00002 + 0.5;
+                meta.sType1.mG.y = hdr.mastering.green.y / 0.00002 + 0.5;
+                meta.sType1.mB.x = hdr.mastering.blue.x / 0.00002 + 0.5;
+                meta.sType1.mB.y = hdr.mastering.blue.y / 0.00002 + 0.5;
+                meta.sType1.mW.x = hdr.mastering.white.x / 0.00002 + 0.5;
+                meta.sType1.mW.y = hdr.mastering.white.y / 0.00002 + 0.5;
+                meta.sType1.mMaxDisplayLuminance = hdr.mastering.maxLuminance + 0.5;
+                meta.sType1.mMinDisplayLuminance = hdr.mastering.minLuminance / 0.0001 + 0.5;
+                meta.sType1.mMaxContentLightLevel = hdr.maxCll + 0.5;
+                meta.sType1.mMaxFrameAverageLightLevel = hdr.maxFall + 0.5;
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.red.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.red.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.green.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.green.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.blue.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.blue.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.white.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.white.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.max-luminance"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.min-luminance"));
+                msg->removeEntryAt(msg->findEntryByName("cta861.max-cll"));
+                msg->removeEntryAt(msg->findEntryByName("cta861.max-fall"));
+                msg->setBuffer(KEY_HDR_STATIC_INFO, ABuffer::CreateAsCopy(&meta, sizeof(meta)));
+            } else {
+                ALOGD("found invalid HDR static metadata %s", msg->debugString(8).c_str());
+            }
+        }
     }
 
     ALOGV("converted to SDK values as %s", msg->debugString().c_str());
@@ -1264,6 +1349,26 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
             if (C2Mapper::map(standard, &primaries, &matrix)) {
                 params->setInt32("color-primaries", primaries);
                 params->setInt32("color-matrix", matrix);
+            }
+        }
+
+        sp<ABuffer> hdrMeta;
+        if (params->findBuffer(KEY_HDR_STATIC_INFO, &hdrMeta)
+                && hdrMeta->size() == sizeof(HDRStaticInfo)) {
+            HDRStaticInfo *meta = (HDRStaticInfo*)hdrMeta->data();
+            if (meta->mID == meta->kType1) {
+                params->setFloat("smpte2086.red.x", meta->sType1.mR.x * 0.00002);
+                params->setFloat("smpte2086.red.y", meta->sType1.mR.y * 0.00002);
+                params->setFloat("smpte2086.green.x", meta->sType1.mG.x * 0.00002);
+                params->setFloat("smpte2086.green.y", meta->sType1.mG.y * 0.00002);
+                params->setFloat("smpte2086.blue.x", meta->sType1.mB.x * 0.00002);
+                params->setFloat("smpte2086.blue.y", meta->sType1.mB.y * 0.00002);
+                params->setFloat("smpte2086.white.x", meta->sType1.mW.x * 0.00002);
+                params->setFloat("smpte2086.white.y", meta->sType1.mW.y * 0.00002);
+                params->setFloat("smpte2086.max-luminance", meta->sType1.mMaxDisplayLuminance);
+                params->setFloat("smpte2086.min-luminance", meta->sType1.mMinDisplayLuminance * 0.0001);
+                params->setFloat("cta861.max-cll", meta->sType1.mMaxContentLightLevel);
+                params->setFloat("cta861.max-fall", meta->sType1.mMaxFrameAverageLightLevel);
             }
         }
     }

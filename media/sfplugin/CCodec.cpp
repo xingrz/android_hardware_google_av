@@ -814,6 +814,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            // propagate HDR static info to output format for both encoders and decoders
+            // if component supports this info, we will update from component, but only the raw port,
+            // so don't propagate if component already filled it in.
+            sp<ABuffer> hdrInfo;
+            if (msg->findBuffer(KEY_HDR_STATIC_INFO, &hdrInfo)
+                    && !config->mOutputFormat->findBuffer(KEY_HDR_STATIC_INFO, &hdrInfo)) {
+                config->mOutputFormat->setBuffer(KEY_HDR_STATIC_INFO, hdrInfo);
+            }
+
             // Set desired color format from configuration parameter
             int32_t format;
             if (msg->findInt32("android._color-format", &format)) {
