@@ -77,11 +77,14 @@ public:
     ~CCodecWatchdog() = default;
 
     void watch(sp<CCodec> codec) {
-        Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
-        // If a watch message is in flight, piggy-back this instance as well.
-        // Otherwise, post a new watch message.
-        bool shouldPost = codecs->empty();
-        codecs->emplace(codec);
+        bool shouldPost = false;
+        {
+            Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
+            // If a watch message is in flight, piggy-back this instance as well.
+            // Otherwise, post a new watch message.
+            shouldPost = codecs->empty();
+            codecs->emplace(codec);
+        }
         if (shouldPost) {
             ALOGV("posting watch message");
             (new AMessage(kWhatWatch, this))->post(kWatchIntervalUs);
@@ -1366,8 +1369,10 @@ void CCodec::signalRequestIDRFrame() {
 }
 
 void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
-    Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
-    queue->splice(queue->end(), workItems);
+    {
+        Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
+        queue->splice(queue->end(), workItems);
+    }
     (new AMessage(kWhatWorkDone, this))->post();
 }
 
@@ -1438,6 +1443,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatWorkDone: {
             std::unique_ptr<C2Work> work;
+            bool shouldPost = false;
             {
                 Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
                 if (queue->empty()) {
@@ -1445,9 +1451,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 }
                 work.swap(queue->front());
                 queue->pop_front();
-                if (!queue->empty()) {
-                    (new AMessage(kWhatWorkDone, this))->post();
-                }
+                shouldPost = !queue->empty();
+            }
+            if (shouldPost) {
+                (new AMessage(kWhatWorkDone, this))->post();
             }
 
             subQueuedWorkCount(1);
