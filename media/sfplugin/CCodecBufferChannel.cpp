@@ -1539,84 +1539,9 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         videoScalingMode = surfaceScaling->value;
     }
 
-    // Use dataspace if component provides it. Otherwise, compose dataspace from color aspects
-    std::shared_ptr<const C2StreamDataSpaceInfo::output> dataSpaceInfo =
-        std::static_pointer_cast<const C2StreamDataSpaceInfo::output>(
-                c2Buffer->getInfo(C2StreamDataSpaceInfo::output::PARAM_TYPE));
-    uint32_t dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
-    if (dataSpaceInfo) {
-        dataSpace = dataSpaceInfo->value;
-    } else {
-        std::shared_ptr<const C2StreamColorAspectsInfo::output> colorAspects =
-            std::static_pointer_cast<const C2StreamColorAspectsInfo::output>(
-                    c2Buffer->getInfo(C2StreamColorAspectsInfo::output::PARAM_TYPE));
-        C2Color::range_t range =
-            colorAspects == nullptr ? C2Color::RANGE_UNSPECIFIED     : colorAspects->range;
-        C2Color::primaries_t primaries =
-            colorAspects == nullptr ? C2Color::PRIMARIES_UNSPECIFIED : colorAspects->primaries;
-        C2Color::transfer_t transfer =
-            colorAspects == nullptr ? C2Color::TRANSFER_UNSPECIFIED  : colorAspects->transfer;
-        C2Color::matrix_t matrix =
-            colorAspects == nullptr ? C2Color::MATRIX_UNSPECIFIED    : colorAspects->matrix;
-
-        switch (range) {
-            case C2Color::RANGE_FULL:    dataSpace |= HAL_DATASPACE_RANGE_FULL;    break;
-            case C2Color::RANGE_LIMITED: dataSpace |= HAL_DATASPACE_RANGE_LIMITED; break;
-            default: break;
-        }
-
-        switch (transfer) {
-            case C2Color::TRANSFER_LINEAR:  dataSpace |= HAL_DATASPACE_TRANSFER_LINEAR;     break;
-            case C2Color::TRANSFER_SRGB:    dataSpace |= HAL_DATASPACE_TRANSFER_SRGB;       break;
-            case C2Color::TRANSFER_170M:    dataSpace |= HAL_DATASPACE_TRANSFER_SMPTE_170M; break;
-            case C2Color::TRANSFER_GAMMA22: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_2;   break;
-            case C2Color::TRANSFER_GAMMA28: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_8;   break;
-            case C2Color::TRANSFER_ST2084:  dataSpace |= HAL_DATASPACE_TRANSFER_ST2084;     break;
-            case C2Color::TRANSFER_HLG:     dataSpace |= HAL_DATASPACE_TRANSFER_HLG;        break;
-            default: break;
-        }
-
-        switch (primaries) {
-            case C2Color::PRIMARIES_BT601_525:
-                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
-                                || matrix == C2Color::MATRIX_BT709)
-                        ? HAL_DATASPACE_STANDARD_BT601_525_UNADJUSTED
-                        : HAL_DATASPACE_STANDARD_BT601_525;
-                break;
-            case C2Color::PRIMARIES_BT601_625:
-                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
-                                || matrix == C2Color::MATRIX_BT709)
-                        ? HAL_DATASPACE_STANDARD_BT601_625_UNADJUSTED
-                        : HAL_DATASPACE_STANDARD_BT601_625;
-                break;
-            case C2Color::PRIMARIES_BT2020:
-                dataSpace |= (matrix == C2Color::MATRIX_BT2020CONSTANT
-                        ? HAL_DATASPACE_STANDARD_BT2020_CONSTANT_LUMINANCE
-                        : HAL_DATASPACE_STANDARD_BT2020);
-                break;
-            case C2Color::PRIMARIES_BT470_M:
-                dataSpace |= HAL_DATASPACE_STANDARD_BT470M;
-                break;
-            case C2Color::PRIMARIES_BT709:
-                dataSpace |= HAL_DATASPACE_STANDARD_BT709;
-                break;
-            default: break;
-        }
-    }
-
-    // convert legacy dataspace values to v0 values
-    const static
-    ALookup<android_dataspace, android_dataspace> sLegacyDataSpaceToV0 {
-        {
-            { HAL_DATASPACE_SRGB, HAL_DATASPACE_V0_SRGB },
-            { HAL_DATASPACE_BT709, HAL_DATASPACE_V0_BT709 },
-            { HAL_DATASPACE_SRGB_LINEAR, HAL_DATASPACE_V0_SRGB_LINEAR },
-            { HAL_DATASPACE_BT601_525, HAL_DATASPACE_V0_BT601_525 },
-            { HAL_DATASPACE_BT601_625, HAL_DATASPACE_V0_BT601_625 },
-            { HAL_DATASPACE_JFIF, HAL_DATASPACE_V0_JFIF },
-        }
-    };
-    sLegacyDataSpaceToV0.lookup((android_dataspace_t)dataSpace, (android_dataspace_t*)&dataSpace);
+    // Use dataspace from format as it has the default aspects already applied
+    android_dataspace_t dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
+    (void)buffer->format()->findInt32("android._dataspace", (int32_t *)&dataSpace);
 
     // HDR static info
     std::shared_ptr<const C2StreamHdrStaticInfo::output> hdrStaticInfo =
@@ -1641,8 +1566,8 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     // TODO: revisit this after C2Fence implementation.
     android::IGraphicBufferProducer::QueueBufferInput qbi(
             timestampNs,
-            false,
-            (android_dataspace_t)dataSpace,
+            false, // droppable
+            dataSpace,
             Rect(blocks.front().crop().left,
                  blocks.front().crop().top,
                  blocks.front().crop().right(),

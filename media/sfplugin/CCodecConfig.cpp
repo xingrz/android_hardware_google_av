@@ -22,6 +22,7 @@
 #include <C2Component.h>
 #include <C2Debug.h>
 #include <C2Param.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <media/stagefright/MediaCodecConstants.h>
 
@@ -84,6 +85,31 @@ struct ConfigMapper {
         C2_CHECK(!mReverse);
         mMapper = mapper;
         mReverse = reverse;
+        return *this;
+    }
+
+    /// Adds SDK <=> Codec 2.0 value mappers based on C2Mapper
+    template<typename C2Type, typename SdkType=int32_t>
+    ConfigMapper &withC2Mappers() {
+        C2_CHECK(!mMapper);
+        C2_CHECK(!mReverse);
+        mMapper = [](C2Value v) -> C2Value {
+            SdkType sdkValue;
+            C2Type c2Value;
+            if (v.get(&sdkValue) && C2Mapper::map(sdkValue, &c2Value)) {
+                return c2Value;
+            }
+            return C2Value();
+        };
+        mReverse = [](C2Value v) -> C2Value {
+            SdkType sdkValue;
+            C2Type c2Value;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<C2Type>::type;
+            if (v.get((C2ValueType*)&c2Value) && C2Mapper::map(c2Value, &sdkValue)) {
+                return sdkValue;
+            }
+            return C2Value();
+        };
         return *this;
     }
 
@@ -285,7 +311,8 @@ const std::vector<ConfigMapper> StandardParams::NO_MAPPERS;
 
 CCodecConfig::CCodecConfig()
     : mInputFormat(new AMessage),
-      mOutputFormat(new AMessage) { }
+      mOutputFormat(new AMessage),
+      mUsingSurface(false) { }
 
 void CCodecConfig::initializeStandardParams() {
     typedef Domain D;
@@ -365,6 +392,67 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_ROTATION, C2_PARAMKEY_ROTATION, "value")
         .limitTo(D::VIDEO & D::RAW)
         .withMappers(negate, negate));
+
+    // android 'video-scaling'
+    add(ConfigMapper("android._video-scaling", C2_PARAMKEY_SURFACE_SCALING_MODE, "value")
+        .limitTo(D::VIDEO & D::DECODER & D::RAW));
+
+    // Color Aspects
+    //
+    // configure default for decoders
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM))
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM))
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM)));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM)));
+
+    // read back final for decoder output (also, configure final aspects as well. This should be
+    // overwritten based on coded/default values if component supports color aspects, but is used
+    // as final values if component does not support aspects at all)
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW));
+
+    // configure source aspects for encoders and read them back on the coded(!) port.
+    // This is to ensure muxing the desired aspects into the container.
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED));
+
+    // read back coded aspects for encoders (on the raw port)
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_VUI_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_VUI_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_VUI_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_VUI_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+
+    // Dataspace
+    add(ConfigMapper("android._dataspace", C2_PARAMKEY_DATA_SPACE, "value")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
 
     add(ConfigMapper(std::string(KEY_FEATURE_) + FEATURE_SecurePlayback,
                      C2_PARAMKEY_SECURE_MODE, "value"));
@@ -751,19 +839,22 @@ status_t CCodecConfig::initialize(
     if (kind.value == C2Component::KIND_ENCODER) {
         mParamUpdater->addStandardParam<C2StreamInitDataInfo::output>(C2_PARAMKEY_INIT_DATA);
     }
-    if (kind.value != C2Component::KIND_ENCODER
-            && (domain.value == C2Component::DOMAIN_IMAGE
-                    || domain.value == C2Component::DOMAIN_VIDEO)) {
-        addLocalParam<C2StreamPictureSizeInfo::output>(C2_PARAMKEY_PICTURE_SIZE);
-        addLocalParam<C2StreamCropRectInfo::output>(C2_PARAMKEY_CROP_RECT);
-        addLocalParam(
-                new C2StreamPixelAspectRatioInfo::output(0u, 1u, 1u),
-                C2_PARAMKEY_PIXEL_ASPECT_RATIO);
-        addLocalParam(new C2StreamRotationInfo::output(0u, 0), C2_PARAMKEY_ROTATION);
-        addLocalParam(new C2StreamColorAspectsInfo::output(0u), C2_PARAMKEY_COLOR_ASPECTS);
-        addLocalParam<C2StreamHdrStaticInfo::output>(C2_PARAMKEY_HDR_STATIC_INFO);
-        addLocalParam<C2StreamDataSpaceInfo::output>(C2_PARAMKEY_DATA_SPACE);
-        addLocalParam<C2StreamSurfaceScalingInfo::output>(C2_PARAMKEY_SURFACE_SCALING_MODE);
+    if (domain.value == C2Component::DOMAIN_IMAGE || domain.value == C2Component::DOMAIN_VIDEO) {
+        if (kind.value != C2Component::KIND_ENCODER) {
+            addLocalParam<C2StreamPictureSizeInfo::output>(C2_PARAMKEY_PICTURE_SIZE);
+            addLocalParam<C2StreamCropRectInfo::output>(C2_PARAMKEY_CROP_RECT);
+            addLocalParam(
+                    new C2StreamPixelAspectRatioInfo::output(0u, 1u, 1u),
+                    C2_PARAMKEY_PIXEL_ASPECT_RATIO);
+            addLocalParam(new C2StreamRotationInfo::output(0u, 0), C2_PARAMKEY_ROTATION);
+            addLocalParam(new C2StreamColorAspectsInfo::output(0u), C2_PARAMKEY_COLOR_ASPECTS);
+            addLocalParam<C2StreamDataSpaceInfo::output>(C2_PARAMKEY_DATA_SPACE);
+            addLocalParam<C2StreamHdrStaticInfo::output>(C2_PARAMKEY_HDR_STATIC_INFO);
+            addLocalParam(new C2StreamSurfaceScalingInfo::output(0u, VIDEO_SCALING_MODE_SCALE_TO_FIT),
+                          C2_PARAMKEY_SURFACE_SCALING_MODE);
+        } else {
+            addLocalParam(new C2StreamColorAspectsInfo::input(0u), C2_PARAMKEY_COLOR_ASPECTS);
+        }
     }
 
     initializeStandardParams();
@@ -975,6 +1066,62 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
         }
     }
 
+    { // convert color info
+        // TODO: apply platform default to decoder output
+
+        C2Color::primaries_t primaries;
+        C2Color::matrix_t matrix;
+        if (msg->findInt32("color-primaries", (int32_t*)&primaries)
+                && msg->findInt32("color-matrix", (int32_t*)&matrix)) {
+            int32_t standard;
+
+            if (C2Mapper::map(primaries, matrix, &standard)) {
+                msg->setInt32(KEY_COLOR_STANDARD, standard);
+            }
+
+            msg->removeEntryAt(msg->findEntryByName("color-primaries"));
+            msg->removeEntryAt(msg->findEntryByName("color-matrix"));
+        }
+
+
+        // calculate dataspace for raw graphic buffers if not specified by component, or if
+        // using surface with unspecified aspects (as those must be defaulted which may change
+        // the dataspace)
+        if ((portDomain & IS_RAW) && (mDomain & (IS_IMAGE | IS_VIDEO))) {
+            android_dataspace dataspace;
+            ColorAspects aspects = {
+                ColorAspects::RangeUnspecified, ColorAspects::PrimariesUnspecified,
+                ColorAspects::TransferUnspecified, ColorAspects::MatrixUnspecified
+            };
+            ColorUtils::getColorAspectsFromFormat(msg, aspects);
+            ColorAspects origAspects = aspects;
+            if (mUsingSurface) {
+                // get image size (default to HD)
+                int32_t width = 1280;
+                int32_t height = 720;
+                int32_t left, top, right, bottom;
+                if (msg->findRect("crop", &left, &top, &right, &bottom)) {
+                    width = right - left + 1;
+                    height = bottom - top + 1;
+                } else {
+                    (void)msg->findInt32(KEY_WIDTH, &width);
+                    (void)msg->findInt32(KEY_HEIGHT, &height);
+                }
+                ColorUtils::setDefaultCodecColorAspectsIfNeeded(aspects, width, height);
+                ColorUtils::setColorAspectsIntoFormat(aspects, msg);
+            }
+
+            if (!msg->findInt32("android._dataspace", (int32_t*)&dataspace)
+                    || aspects.mRange != origAspects.mRange
+                    || aspects.mPrimaries != origAspects.mPrimaries
+                    || aspects.mTransfer != origAspects.mTransfer
+                    || aspects.mMatrixCoeffs != origAspects.mMatrixCoeffs) {
+                dataspace = ColorUtils::getDataSpaceForColorAspects(aspects, true /* mayExpand */);
+                msg->setInt32("android._dataspace", dataspace);
+            }
+        }
+    }
+
     ALOGV("converted to SDK values as %s", msg->debugString().c_str());
     return msg;
 }
@@ -1105,6 +1252,19 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
             params->setEntryNameAt(ix, "crop-height");
             item.set(end - offset + 1);
             params->setEntryAt(ix, item);
+        }
+    }
+
+    { // convert color info
+        int32_t standard;
+        if (params->findInt32(KEY_COLOR_STANDARD, &standard)) {
+            C2Color::primaries_t primaries;
+            C2Color::matrix_t matrix;
+
+            if (C2Mapper::map(standard, &primaries, &matrix)) {
+                params->setInt32("color-primaries", primaries);
+                params->setInt32("color-matrix", matrix);
+            }
         }
     }
 
