@@ -955,7 +955,13 @@ bool CCodecConfig::updateConfiguration(
         if (p && *p) {
             auto insertion = mCurrentConfig.emplace(p->index(), nullptr);
             if (insertion.second || *insertion.first->second != *p) {
-                changed = true;
+                if (mSupportedIndices.count(p->index()) || mLocalParams.count(p->index())) {
+                    // only track changes in supported (reflected or local) indices
+                    changed = true;
+                } else {
+                    ALOGV("an unlisted config was %s: %#x",
+                            insertion.second ? "added" : "updated", p->index());
+                }
             }
             insertion.first->second = std::move(p);
         }
