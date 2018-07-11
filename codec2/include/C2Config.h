@@ -1449,16 +1449,21 @@ C2ENUM(C2Color::matrix_t, uint32_t,
     MATRIX_BT709,                   ///< Rec.ITU-R BT.709-5 or equivalent
     MATRIX_FCC47_73_682,            ///< FCC Title 47 CFR 73.682 or equivalent (KR=0.30, KB=0.11)
     MATRIX_BT601,                   ///< Rec.ITU-R BT.470, BT.601-6 625 or equivalent
-    MATRIX_SMPTE240M,               ///< SMPTE 240M or equivalent
+    MATRIX_240M,                    ///< SMPTE 240M or equivalent
     MATRIX_BT2020,                  ///< Rec.ITU-R BT.2020 non-constant luminance
-    MATRIX_BT2020CONSTANT,          ///< Rec.ITU-R BT.2020 constant luminance
+    MATRIX_BT2020_CONSTANT,         ///< Rec.ITU-R BT.2020 constant luminance
     MATRIX_VENDOR_START = 0x80,     ///< vendor-specific matrix coefficient values start here
-    MATRIX_OTHER = 0xff             ///< max value, reserved for undefined values
+    MATRIX_OTHER = 0xff,            ///< max value, reserved for undefined values
+
+    MATRIX_SMPTE240M = MATRIX_240M, // deprecated
+    MATRIX_BT2020CONSTANT = MATRIX_BT2020_CONSTANT, // deprecated
 )
 
 constexpr C2Color::matrix_t MATRIX_BT470_6M = MATRIX_FCC47_73_682; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT709_5 = MATRIX_BT709; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT601_6 = MATRIX_BT601; // deprecated
+constexpr C2Color::matrix_t MATRIX_SMPTE240M = MATRIX_240M; // deprecated
+constexpr C2Color::matrix_t MATRIX_BT2020CONSTANT = MATRIX_BT2020_CONSTANT; // deprecated
 
 struct C2ColorAspectsStruct {
     C2Color::range_t range;
