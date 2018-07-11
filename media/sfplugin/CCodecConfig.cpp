@@ -385,7 +385,9 @@ void CCodecConfig::initializeStandardParams() {
     // remove when codecs switch to PARAMKEY
     deprecated(ConfigMapper(KEY_MAX_INPUT_SIZE, "coded.max-frame-size", "value")
                .limitTo(D::INPUT));
-    // SDK rotation is clock-wise
+
+    // Rotation
+    // Note: SDK rotation is clock-wise, while C2 rotation is counter-clock-wise
     add(ConfigMapper(KEY_ROTATION, C2_PARAMKEY_VUI_ROTATION, "value")
         .limitTo(D::VIDEO & D::CODED)
         .withMappers(negate, negate));
@@ -641,23 +643,41 @@ void CCodecConfig::initializeStandardParams() {
         C2Mapper::GetProfileLevelMapper(mCodingMediaType);
 
     add(ConfigMapper(KEY_PROFILE, C2_PARAMKEY_PROFILE_LEVEL, "profile")
-        .withMapper([mapper](C2Value v) -> C2Value {
+        .limitTo(D::CODED)
+        .withMappers([mapper](C2Value v) -> C2Value {
             C2Config::profile_t c2 = PROFILE_UNUSED;
             int32_t sdk;
             if (mapper && v.get(&sdk) && mapper->mapProfile(sdk, &c2)) {
                 return c2;
             }
             return PROFILE_UNUSED;
+        }, [mapper](C2Value v) -> C2Value {
+            C2Config::profile_t c2;
+            int32_t sdk;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<decltype(c2)>::type;
+            if (mapper && v.get((C2ValueType*)&c2) && mapper->mapProfile(c2, &sdk)) {
+                return sdk;
+            }
+            return C2Value();
         }));
 
     add(ConfigMapper(KEY_LEVEL, C2_PARAMKEY_PROFILE_LEVEL, "level")
-        .withMapper([mapper](C2Value v) -> C2Value {
+        .limitTo(D::CODED)
+        .withMappers([mapper](C2Value v) -> C2Value {
             C2Config::level_t c2 = LEVEL_UNUSED;
             int32_t sdk;
             if (mapper && v.get(&sdk) && mapper->mapLevel(sdk, &c2)) {
                 return c2;
             }
             return LEVEL_UNUSED;
+        }, [mapper](C2Value v) -> C2Value {
+            C2Config::level_t c2;
+            int32_t sdk;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<decltype(c2)>::type;
+            if (mapper && v.get((C2ValueType*)&c2) && mapper->mapLevel(c2, &sdk)) {
+                return sdk;
+            }
+            return C2Value();
         }));
 
     // convert to dBFS and add default
