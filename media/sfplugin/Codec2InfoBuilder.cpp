@@ -24,7 +24,6 @@
 #include <C2Config.h>
 #include <C2Debug.h>
 #include <C2PlatformSupport.h>
-#include <C2V4l2Support.h>
 #include <Codec2Mapper.h>
 
 #include <android-base/properties.h>
