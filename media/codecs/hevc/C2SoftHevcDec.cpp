@@ -22,6 +22,7 @@
 
 #include <C2Debug.h>
 #include <C2PlatformSupport.h>
+#include <Codec2Mapper.h>
 #include <SimpleC2Interface.h>
 
 #include "C2SoftHevcDec.h"
@@ -126,7 +127,7 @@ public:
 
         addParameter(
                 DefineParam(mDefaultColorAspects, C2_PARAMKEY_DEFAULT_COLOR_ASPECTS)
-                .withDefault(new C2StreamColorAspectsTuning::input(
+                .withDefault(new C2StreamColorAspectsTuning::output(
                         0u, C2Color::RANGE_UNSPECIFIED, C2Color::PRIMARIES_UNSPECIFIED,
                         C2Color::TRANSFER_UNSPECIFIED, C2Color::MATRIX_UNSPECIFIED))
                 .withFields({
@@ -143,9 +144,9 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mCodedColorAspects, C2_PARAMKEY_DEFAULT_COLOR_ASPECTS)
+                DefineParam(mCodedColorAspects, C2_PARAMKEY_VUI_COLOR_ASPECTS)
                 .withDefault(new C2StreamColorAspectsInfo::input(
-                        0u, C2Color::RANGE_UNSPECIFIED, C2Color::PRIMARIES_UNSPECIFIED,
+                        0u, C2Color::RANGE_LIMITED, C2Color::PRIMARIES_UNSPECIFIED,
                         C2Color::TRANSFER_UNSPECIFIED, C2Color::MATRIX_UNSPECIFIED))
                 .withFields({
                     C2F(mCodedColorAspects, range).inRange(
@@ -183,20 +184,6 @@ public:
                 DefineParam(mPixelFormat, C2_PARAMKEY_PIXEL_FORMAT)
                 .withConstValue(new C2StreamPixelFormatInfo::output(
                                      0u, HAL_PIXEL_FORMAT_YCBCR_420_888))
-                .build());
-
-        addParameter(
-                DefineParam(mVuiRotation, C2_PARAMKEY_VUI_ROTATION)
-                .withDefault(new C2StreamRotationInfo::input(0u, 0))
-                .withFields({ C2F(mVuiRotation, value).inRange(0, 270, 90) })
-                .withSetter(VuiRotationSetter)
-                .build());
-
-        addParameter(
-                DefineParam(mRotation, C2_PARAMKEY_ROTATION)
-                .withDefault(new C2StreamRotationInfo::output(0u, 0))
-                .withFields({ C2F(mRotation, value).inRange(0, 270, 90) })
-                .withSetter(RotationSetter, mVuiRotation)
                 .build());
     }
 
@@ -240,46 +227,56 @@ public:
         return C2R::Ok();
     }
 
-    static C2R DefaultColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsTuning::input> &me) {
+    static C2R DefaultColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsTuning::output> &me) {
         (void)mayBlock;
-        (void)me;
-        // take all values
+        if (me.v.range > C2Color::RANGE_OTHER) {
+                me.set().range = C2Color::RANGE_OTHER;
+        }
+        if (me.v.primaries > C2Color::PRIMARIES_OTHER) {
+                me.set().primaries = C2Color::PRIMARIES_OTHER;
+        }
+        if (me.v.transfer > C2Color::TRANSFER_OTHER) {
+                me.set().transfer = C2Color::TRANSFER_OTHER;
+        }
+        if (me.v.matrix > C2Color::MATRIX_OTHER) {
+                me.set().matrix = C2Color::MATRIX_OTHER;
+        }
         return C2R::Ok();
     }
 
     static C2R CodedColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsInfo::input> &me) {
         (void)mayBlock;
-        (void)me;
-        // take all values
+        if (me.v.range > C2Color::RANGE_OTHER) {
+                me.set().range = C2Color::RANGE_OTHER;
+        }
+        if (me.v.primaries > C2Color::PRIMARIES_OTHER) {
+                me.set().primaries = C2Color::PRIMARIES_OTHER;
+        }
+        if (me.v.transfer > C2Color::TRANSFER_OTHER) {
+                me.set().transfer = C2Color::TRANSFER_OTHER;
+        }
+        if (me.v.matrix > C2Color::MATRIX_OTHER) {
+                me.set().matrix = C2Color::MATRIX_OTHER;
+        }
         return C2R::Ok();
     }
 
     static C2R ColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsInfo::output> &me,
-                                  const C2P<C2StreamColorAspectsTuning::input> &def,
+                                  const C2P<C2StreamColorAspectsTuning::output> &def,
                                   const C2P<C2StreamColorAspectsInfo::input> &coded) {
         (void)mayBlock;
         // take default values for all unspecified fields, and coded values for specified ones
         me.set().range = coded.v.range == RANGE_UNSPECIFIED ? def.v.range : coded.v.range;
-        me.set().primaries = coded.v.primaries == PRIMARIES_UNSPECIFIED ? def.v.primaries : coded.v.primaries;
-        me.set().transfer = coded.v.transfer == TRANSFER_UNSPECIFIED ? def.v.transfer : coded.v.transfer;
+        me.set().primaries = coded.v.primaries == PRIMARIES_UNSPECIFIED
+                ? def.v.primaries : coded.v.primaries;
+        me.set().transfer = coded.v.transfer == TRANSFER_UNSPECIFIED
+                ? def.v.transfer : coded.v.transfer;
         me.set().matrix = coded.v.matrix == MATRIX_UNSPECIFIED ? def.v.matrix : coded.v.matrix;
-        // TODO: validate
         return C2R::Ok();
     }
 
-    static C2R VuiRotationSetter(bool mayBlock, C2P<C2StreamRotationInfo::input> &me) {
-        (void)mayBlock;
-        /// round to nearest 90 degrees and normalize from 0 to 270
-        me.set().value = ((((me.v.value / 45) + 1) / 2) & 3) * 90;
-        return C2R::Ok();  // TODO: proper info return
-    }
-
-    static C2R RotationSetter(bool mayBlock,
-                              C2P<C2StreamRotationInfo::output>& me,
-                              const C2P<C2StreamRotationInfo::input>& vui) {
-        (void)mayBlock;
-        me.set().value = vui.v.value;
-        return C2R::Ok();  // TODO: proper info return
+    std::shared_ptr<C2StreamColorAspectsInfo::output> getColorAspects_l() {
+        return mColorAspects;
     }
 
 private:
@@ -288,12 +285,10 @@ private:
     std::shared_ptr<C2StreamMaxPictureSizeTuning::output> mMaxSize;
     std::shared_ptr<C2StreamMaxBufferSizeInfo::input> mMaxInputSize;
     std::shared_ptr<C2StreamColorInfo::output> mColorInfo;
-    std::shared_ptr<C2StreamColorAspectsTuning::input> mDefaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::input> mCodedColorAspects;
+    std::shared_ptr<C2StreamColorAspectsTuning::output> mDefaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
     std::shared_ptr<C2StreamPixelFormatInfo::output> mPixelFormat;
-    std::shared_ptr<C2StreamRotationInfo::input> mVuiRotation;
-    std::shared_ptr<C2StreamRotationInfo::output> mRotation;
 };
 
 static size_t getCpuCoreCount() {
@@ -492,11 +487,6 @@ status_t C2SoftHevcDec::initDecoder() {
     mNumCores = MIN(getCpuCoreCount(), MAX_NUM_CORES);
     mStride = ALIGN64(mWidth);
     mSignalledError = false;
-    mPreference = kPreferBitstream;
-    memset(&mDefaultColorAspects, 0, sizeof(ColorAspects));
-    memset(&mBitstreamColorAspects, 0, sizeof(ColorAspects));
-    memset(&mFinalColorAspects, 0, sizeof(ColorAspects));
-    mUpdateColorAspects = false;
     resetPlugin();
     (void) setNumCores();
     if (OK != setParams(mStride)) return UNKNOWN_ERROR;
@@ -552,48 +542,6 @@ bool C2SoftHevcDec::setDecodeArgs(ivd_video_decode_ip_t *ps_decode_ip,
     return true;
 }
 
-bool C2SoftHevcDec::colorAspectsDiffer(
-        const ColorAspects &a, const ColorAspects &b) {
-    if (a.mRange != b.mRange
-        || a.mPrimaries != b.mPrimaries
-        || a.mTransfer != b.mTransfer
-        || a.mMatrixCoeffs != b.mMatrixCoeffs) {
-        return true;
-    }
-    return false;
-}
-
-void C2SoftHevcDec::updateFinalColorAspects(
-        const ColorAspects &otherAspects, const ColorAspects &preferredAspects) {
-    Mutex::Autolock autoLock(mColorAspectsLock);
-    ColorAspects newAspects;
-    newAspects.mRange = preferredAspects.mRange != ColorAspects::RangeUnspecified ?
-        preferredAspects.mRange : otherAspects.mRange;
-    newAspects.mPrimaries = preferredAspects.mPrimaries != ColorAspects::PrimariesUnspecified ?
-        preferredAspects.mPrimaries : otherAspects.mPrimaries;
-    newAspects.mTransfer = preferredAspects.mTransfer != ColorAspects::TransferUnspecified ?
-        preferredAspects.mTransfer : otherAspects.mTransfer;
-    newAspects.mMatrixCoeffs = preferredAspects.mMatrixCoeffs != ColorAspects::MatrixUnspecified ?
-        preferredAspects.mMatrixCoeffs : otherAspects.mMatrixCoeffs;
-
-    // Check to see if need update mFinalColorAspects.
-    if (colorAspectsDiffer(mFinalColorAspects, newAspects)) {
-        mFinalColorAspects = newAspects;
-        mUpdateColorAspects = true;
-    }
-}
-
-status_t C2SoftHevcDec::handleColorAspectsChange() {
-    if (mPreference == kPreferBitstream) {
-        updateFinalColorAspects(mDefaultColorAspects, mBitstreamColorAspects);
-    } else if (mPreference == kPreferContainer) {
-        updateFinalColorAspects(mBitstreamColorAspects, mDefaultColorAspects);
-    } else {
-        return C2_CORRUPTED;
-    }
-    return C2_OK;
-}
-
 bool C2SoftHevcDec::getVuiParams() {
     ivdext_ctl_get_vui_params_ip_t s_get_vui_params_ip;
     ivdext_ctl_get_vui_params_op_t s_get_vui_params_op;
@@ -611,21 +559,35 @@ bool C2SoftHevcDec::getVuiParams() {
         return false;
     }
 
-    int32_t primaries = s_get_vui_params_op.u1_colour_primaries;
-    int32_t transfer = s_get_vui_params_op.u1_transfer_characteristics;
-    int32_t coeffs = s_get_vui_params_op.u1_matrix_coefficients;
-    bool full_range = s_get_vui_params_op.u1_video_full_range_flag;
+    VuiColorAspects vuiColorAspects;
+    vuiColorAspects.primaries = s_get_vui_params_op.u1_colour_primaries;
+    vuiColorAspects.transfer = s_get_vui_params_op.u1_transfer_characteristics;
+    vuiColorAspects.coeffs = s_get_vui_params_op.u1_matrix_coefficients;
+    vuiColorAspects.fullRange = s_get_vui_params_op.u1_video_full_range_flag;
 
-    ColorAspects colorAspects;
-    ColorUtils::convertIsoColorAspectsToCodecAspects(
-            primaries, transfer, coeffs, full_range, colorAspects);
-    // Update color aspects if necessary.
-    if (colorAspectsDiffer(colorAspects, mBitstreamColorAspects)) {
-        mBitstreamColorAspects = colorAspects;
-        status_t err = handleColorAspectsChange();
-        CHECK(err == OK);
+    // convert vui aspects to C2 values if changed
+    if (!(vuiColorAspects == mBitstreamColorAspects)) {
+        mBitstreamColorAspects = vuiColorAspects;
+        ColorAspects sfAspects;
+        C2StreamColorAspectsInfo::input codedAspects = { 0u };
+        ColorUtils::convertIsoColorAspectsToCodecAspects(
+                vuiColorAspects.primaries, vuiColorAspects.transfer, vuiColorAspects.coeffs,
+                vuiColorAspects.fullRange, sfAspects);
+        if (!C2Mapper::map(sfAspects.mPrimaries, &codedAspects.primaries)) {
+            codedAspects.primaries = C2Color::PRIMARIES_UNSPECIFIED;
+        }
+        if (!C2Mapper::map(sfAspects.mRange, &codedAspects.range)) {
+            codedAspects.range = C2Color::RANGE_UNSPECIFIED;
+        }
+        if (!C2Mapper::map(sfAspects.mMatrixCoeffs, &codedAspects.matrix)) {
+            codedAspects.matrix = C2Color::MATRIX_UNSPECIFIED;
+        }
+        if (!C2Mapper::map(sfAspects.mTransfer, &codedAspects.transfer)) {
+            codedAspects.transfer = C2Color::TRANSFER_UNSPECIFIED;
+        }
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        (void)mIntf->config({&codedAspects}, C2_MAY_BLOCK, &failures);
     }
-
     return true;
 }
 
@@ -714,14 +676,11 @@ void C2SoftHevcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wo
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(std::move(mOutBlock),
                                                            C2Rect(mWidth, mHeight));
     mOutBlock = nullptr;
-    if (mUpdateColorAspects) {
-        buffer->setInfo(std::make_shared<C2StreamColorAspectsInfo::output>(
-                        0u, (C2Color::range_t)mFinalColorAspects.mRange,
-                        (C2Color::primaries_t)mFinalColorAspects.mPrimaries,
-                        (C2Color::transfer_t)mFinalColorAspects.mTransfer,
-                        (C2Color::matrix_t)mFinalColorAspects.mMatrixCoeffs));
-        mUpdateColorAspects = false;
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        buffer->setInfo(mIntf->getColorAspects_l());
     }
+
     auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
         uint32_t flags = 0;
         if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
