@@ -868,7 +868,8 @@ public:
     GraphicInputBuffers(const char *componentName, const char *name = "2D-BB-Input")
         : InputBuffers(componentName, name),
           mImpl(mName),
-          mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) { }
+          mLocalBufferPool(LocalBufferPool::Create(
+                  kMaxLinearBufferSize * kMinInputBufferArraySize)) { }
     ~GraphicInputBuffers() override = default;
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
@@ -1162,8 +1163,8 @@ class RawGraphicOutputBuffers : public FlexOutputBuffers {
 public:
     RawGraphicOutputBuffers(const char *componentName, const char *name = "2D-BB-Output")
         : FlexOutputBuffers(componentName, name),
-          mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) {
-    }
+          mLocalBufferPool(LocalBufferPool::Create(
+                  kMaxLinearBufferSize * kMinOutputBufferArraySize)) { }
     ~RawGraphicOutputBuffers() override = default;
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override {
