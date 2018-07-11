@@ -1068,7 +1068,10 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
             if (layering && layering->m.layerCount > 0
                     && layering->m.bLayerCount < layering->m.layerCount) {
                 // check if this is webrtc compatible
-                if (layering->m.bLayerCount == 0 &&
+                AString mime;
+                if (msg->findString(KEY_MIME, &mime) &&
+                        mime.equalsIgnoreCase(MIMETYPE_VIDEO_VP8) &&
+                        layering->m.bLayerCount == 0 &&
                         (layering->m.layerCount == 1
                                 || (layering->m.layerCount == 2
                                         && layering->flexCount() >= 1
