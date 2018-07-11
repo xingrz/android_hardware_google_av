@@ -25,7 +25,6 @@
 #include <C2Debug.h>
 #include <C2ParamInternal.h>
 #include <C2PlatformSupport.h>
-#include <C2V4l2Support.h>
 
 #include <android/IGraphicBufferSource.h>
 #include <android/IOMXBufferSource.h>
@@ -788,20 +787,24 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         // TODO: do this based on component requiring linear allocator for input
         if ((config->mDomain & Config::IS_DECODER) || (config->mDomain & Config::IS_AUDIO)) {
+            // For audio decoder, override client's max input size if necessary.
+            if ((config->mDomain & Config::IS_DECODER) && (config->mDomain & Config::IS_AUDIO)) {
+                int32_t compSize;
+                if (config->mInputFormat->findInt32(KEY_MAX_INPUT_SIZE, &compSize)
+                        && maxInputSize.value > 0
+                        && compSize > 0
+                        && maxInputSize.value < (uint32_t)compSize) {
+                    ALOGD("client requested max input size %u, which is smaller than "
+                          "what component recommended (%d); overriding with component "
+                          "recommendation.", maxInputSize.value, compSize);
+                    ALOGW("This behavior is subject to change. It is recommended that "
+                          "app developers double check whether the requested "
+                          "max input size is in reasonable range.");
+                    maxInputSize.value = compSize;
+                }
+            }
             // Pass max input size on input format to the buffer channel (if supplied by the
             // component or by a default)
-            int32_t compSize;
-            if (config->mInputFormat->findInt32(KEY_MAX_INPUT_SIZE, &compSize)
-                    && maxInputSize.value > 0
-                    && compSize > 0
-                    && maxInputSize.value < (uint32_t)compSize) {
-                ALOGD("client requested max input size %u, which is smaller than "
-                      "what component recommended (%d); overriding with component "
-                      "recommendation.", maxInputSize.value, compSize);
-                ALOGW("This behavior is subject to change. It is recommended that app developers "
-                      "double check whether the requested max input size is in reasonable range.");
-                maxInputSize.value = compSize;
-            }
             if (maxInputSize.value) {
                 config->mInputFormat->setInt32(
                         KEY_MAX_INPUT_SIZE,
