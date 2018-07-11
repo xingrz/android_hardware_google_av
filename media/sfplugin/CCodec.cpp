@@ -728,7 +728,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         std::vector<std::unique_ptr<C2Param>> configUpdate;
         status_t err = config->getConfigUpdateFromSdkParams(
-                comp, msg, Config::CONFIG, C2_DONT_BLOCK, &configUpdate);
+                comp, msg, Config::IS_CONFIG, C2_DONT_BLOCK, &configUpdate);
         if (err != OK) {
             ALOGW("failed to convert configuration to c2 params");
         }
@@ -1334,7 +1334,8 @@ void CCodec::setParameters(const sp<AMessage> &params) {
     }
 
     std::vector<std::unique_ptr<C2Param>> configUpdate;
-    (void)config->getConfigUpdateFromSdkParams(comp, params, Config::PARAM, C2_MAY_BLOCK, &configUpdate);
+    (void)config->getConfigUpdateFromSdkParams(
+            comp, params, Config::IS_PARAM, C2_MAY_BLOCK, &configUpdate);
     // Prefer to pass parameters to the buffer channel, so they can be synchronized with the frames.
     // Parameter synchronization is not defined when using input surface. For now, route
     // these directly to the component.
