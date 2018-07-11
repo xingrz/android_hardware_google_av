@@ -117,6 +117,8 @@ struct CCodecConfig {
     sp<AMessage> mInputFormat;
     sp<AMessage> mOutputFormat;
 
+    bool mUsingSurface; ///< using input or output surface
+
     std::shared_ptr<InputSurfaceWrapper> mInputSurface;
     std::unique_ptr<InputSurfaceWrapper::Config> mISConfig;
 

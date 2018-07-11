@@ -664,6 +664,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         Mutexed<Config>::Locked config(mConfig);
+        config->mUsingSurface = surface != nullptr;
 
         /*
          * Handle input surface configuration
@@ -954,6 +955,7 @@ status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &s
 
     Mutexed<Config>::Locked config(mConfig);
     config->mInputSurface = surface;
+    config->mUsingSurface = true;
     if (config->mISConfig) {
         surface->configure(*config->mISConfig);
     } else {
@@ -1495,6 +1497,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 const static std::vector<C2Param::Index> stdGfxInfos = {
                     C2StreamRotationInfo::output::PARAM_TYPE,
                     C2StreamColorAspectsInfo::output::PARAM_TYPE,
+                    C2StreamDataSpaceInfo::output::PARAM_TYPE,
                     C2StreamHdrStaticInfo::output::PARAM_TYPE,
                     C2StreamPixelAspectRatioInfo::output::PARAM_TYPE,
                     C2StreamSurfaceScalingInfo::output::PARAM_TYPE
