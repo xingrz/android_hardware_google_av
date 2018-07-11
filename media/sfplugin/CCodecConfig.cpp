@@ -143,7 +143,7 @@ struct ConfigMapper {
     Mapper reverse() const { return mReverse; }
 
 private:
-    Domain mDomain;         ///< parameter domain
+    Domain mDomain;         ///< parameter domain (mask) containing port, kind and config domains
     std::string mMediaKey;  ///< SDK key
     C2String mStruct;       ///< Codec 2.0 struct name
     C2String mField;        ///< Codec 2.0 field name
@@ -225,11 +225,14 @@ struct StandardParams {
      */
     void add(const ConfigMapper &cm) {
         auto it = mConfigMappers.find(cm.mediaKey());
-        ALOGV("%c%c%c%c %04x %9s %s => %s",
+        ALOGV("%c%c%c%c %c%c%c %04x %9s %s => %s",
               ((cm.domain() & Domain::IS_INPUT) ? 'I' : ' '),
               ((cm.domain() & Domain::IS_OUTPUT) ? 'O' : ' '),
               ((cm.domain() & Domain::IS_CODED) ? 'C' : ' '),
               ((cm.domain() & Domain::IS_RAW) ? 'R' : ' '),
+              ((cm.domain() & Domain::IS_CONFIG) ? 'c' : ' '),
+              ((cm.domain() & Domain::IS_PARAM) ? 'p' : ' '),
+              ((cm.domain() & Domain::IS_READ) ? 'r' : ' '),
               cm.domain(),
               it == mConfigMappers.end() ? "adding" : "extending",
               cm.mediaKey().c_str(), cm.path().c_str());
@@ -887,11 +890,13 @@ bool CCodecConfig::updateFormats(Domain domain) {
 }
 
 sp<AMessage> CCodecConfig::getSdkFormatForDomain(
-        const ReflectedParamUpdater::Dict &reflected, Domain domain) const {
+        const ReflectedParamUpdater::Dict &reflected, Domain portDomain) const {
     sp<AMessage> msg = new AMessage;
     for (const std::pair<std::string, std::vector<ConfigMapper>> &el : mStandardParams->getKeys()) {
         for (const ConfigMapper &cm : el.second) {
-            if ((cm.domain() & domain) == 0 || (cm.domain() & mDomain) == 0) {
+            if ((cm.domain() & portDomain) == 0 // input-output-coded-raw
+                || (cm.domain() & mDomain) != mDomain // component domain + kind (these must match)
+                || (cm.domain() & IS_READ) == 0) {
                 continue;
             }
             auto it = reflected.find(cm.path());
@@ -1018,10 +1023,10 @@ static void relaxValues(ReflectedParamUpdater::Value &item) {
 }
 
 ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
-        const sp<AMessage> &params_, Domain domain) const {
+        const sp<AMessage> &params_, Domain configDomain) const {
     // create a modifiable copy of params
     sp<AMessage> params = params_->dup();
-    ALOGV("filtering with domain %x", domain);
+    ALOGV("filtering with config domain %x", configDomain);
 
     // convert some macro parameters to Codec 2.0 specific expressions
 
@@ -1123,7 +1128,7 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
         // standard parameters may get modified, filtered or duplicated
         for (const ConfigMapper &cm : mStandardParams->getConfigMappersForSdkKey(name.c_str())) {
-            if (cm.domain() & domain & mDomain) {
+            if ((cm.domain() & configDomain) && (cm.domain() & /* component */ mDomain)) {
                 // map arithmetic values, pass through string or buffer
                 switch (type) {
                     case AMessage::kTypeBuffer:
@@ -1158,10 +1163,10 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
 
 status_t CCodecConfig::getConfigUpdateFromSdkParams(
         std::shared_ptr<Codec2Client::Component> component,
-        const sp<AMessage> &sdkParams, Domain domain,
+        const sp<AMessage> &sdkParams, Domain configDomain,
         c2_blocking_t blocking,
         std::vector<std::unique_ptr<C2Param>> *configUpdate) const {
-    ReflectedParamUpdater::Dict params = getReflectedFormat(sdkParams, domain);
+    ReflectedParamUpdater::Dict params = getReflectedFormat(sdkParams, configDomain);
 
     std::vector<C2Param::Index> indices;
     mParamUpdater->getParamIndicesFromMessage(params, &indices);
