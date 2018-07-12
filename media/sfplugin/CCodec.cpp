@@ -77,11 +77,14 @@ public:
     ~CCodecWatchdog() = default;
 
     void watch(sp<CCodec> codec) {
-        Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
-        // If a watch message is in flight, piggy-back this instance as well.
-        // Otherwise, post a new watch message.
-        bool shouldPost = codecs->empty();
-        codecs->emplace(codec);
+        bool shouldPost = false;
+        {
+            Mutexed<std::set<wp<CCodec>>>::Locked codecs(mCodecsToWatch);
+            // If a watch message is in flight, piggy-back this instance as well.
+            // Otherwise, post a new watch message.
+            shouldPost = codecs->empty();
+            codecs->emplace(codec);
+        }
         if (shouldPost) {
             ALOGV("posting watch message");
             (new AMessage(kWhatWatch, this))->post(kWatchIntervalUs);
@@ -664,6 +667,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         Mutexed<Config>::Locked config(mConfig);
+        config->mUsingSurface = surface != nullptr;
 
         /*
          * Handle input surface configuration
@@ -728,7 +732,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         std::vector<std::unique_ptr<C2Param>> configUpdate;
         status_t err = config->getConfigUpdateFromSdkParams(
-                comp, msg, Config::CONFIG, C2_DONT_BLOCK, &configUpdate);
+                comp, msg, Config::IS_CONFIG, C2_DONT_BLOCK, &configUpdate);
         if (err != OK) {
             ALOGW("failed to convert configuration to c2 params");
         }
@@ -813,6 +817,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
         }
 
         if ((config->mDomain & (Config::IS_VIDEO | Config::IS_IMAGE))) {
+            // propagate HDR static info to output format for both encoders and decoders
+            // if component supports this info, we will update from component, but only the raw port,
+            // so don't propagate if component already filled it in.
+            sp<ABuffer> hdrInfo;
+            if (msg->findBuffer(KEY_HDR_STATIC_INFO, &hdrInfo)
+                    && !config->mOutputFormat->findBuffer(KEY_HDR_STATIC_INFO, &hdrInfo)) {
+                config->mOutputFormat->setBuffer(KEY_HDR_STATIC_INFO, hdrInfo);
+            }
+
             // Set desired color format from configuration parameter
             int32_t format;
             if (msg->findInt32("android._color-format", &format)) {
@@ -954,6 +967,7 @@ status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &s
 
     Mutexed<Config>::Locked config(mConfig);
     config->mInputSurface = surface;
+    config->mUsingSurface = true;
     if (config->mISConfig) {
         surface->configure(*config->mISConfig);
     } else {
@@ -1334,9 +1348,14 @@ void CCodec::setParameters(const sp<AMessage> &params) {
     }
 
     std::vector<std::unique_ptr<C2Param>> configUpdate;
-    (void)config->getConfigUpdateFromSdkParams(comp, params, Config::PARAM, C2_MAY_BLOCK, &configUpdate);
-    if (property_get_bool("debug.stagefright.ccodec_delayed_params", false)
-            || comp->getName().find("c2.android.") == 0) {
+    (void)config->getConfigUpdateFromSdkParams(
+            comp, params, Config::IS_PARAM, C2_MAY_BLOCK, &configUpdate);
+    // Prefer to pass parameters to the buffer channel, so they can be synchronized with the frames.
+    // Parameter synchronization is not defined when using input surface. For now, route
+    // these directly to the component.
+    if (config->mInputSurface == nullptr
+            && (property_get_bool("debug.stagefright.ccodec_delayed_params", false)
+                    || comp->getName().find("c2.android.") == 0)) {
         mChannel->setParameters(configUpdate);
     } else {
         (void)config->setParameters(comp, configUpdate, C2_MAY_BLOCK);
@@ -1366,8 +1385,10 @@ void CCodec::signalRequestIDRFrame() {
 }
 
 void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
-    Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
-    queue->splice(queue->end(), workItems);
+    {
+        Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
+        queue->splice(queue->end(), workItems);
+    }
     (new AMessage(kWhatWorkDone, this))->post();
 }
 
@@ -1438,6 +1459,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatWorkDone: {
             std::unique_ptr<C2Work> work;
+            bool shouldPost = false;
             {
                 Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
                 if (queue->empty()) {
@@ -1445,9 +1467,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 }
                 work.swap(queue->front());
                 queue->pop_front();
-                if (!queue->empty()) {
-                    (new AMessage(kWhatWorkDone, this))->post();
-                }
+                shouldPost = !queue->empty();
+            }
+            if (shouldPost) {
+                (new AMessage(kWhatWorkDone, this))->post();
             }
 
             subQueuedWorkCount(1);
@@ -1490,6 +1513,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 const static std::vector<C2Param::Index> stdGfxInfos = {
                     C2StreamRotationInfo::output::PARAM_TYPE,
                     C2StreamColorAspectsInfo::output::PARAM_TYPE,
+                    C2StreamDataSpaceInfo::output::PARAM_TYPE,
                     C2StreamHdrStaticInfo::output::PARAM_TYPE,
                     C2StreamPixelAspectRatioInfo::output::PARAM_TYPE,
                     C2StreamSurfaceScalingInfo::output::PARAM_TYPE

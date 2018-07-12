@@ -19,6 +19,8 @@
 
 #include <C2Config.h>
 
+#include <media/stagefright/foundation/ColorUtils.h>
+
 #include <memory>
 
 namespace android {
@@ -49,8 +51,28 @@ namespace android {
         // convert between picture types
         static bool map(C2Config::picture_type_t, int32_t*);
         static bool map(int32_t, C2Config::picture_type_t*);
+
+        // convert between color aspects
+        static bool map(C2Color::range_t, int32_t*);
+        static bool map(int32_t, C2Color::range_t*);
+        static bool map(C2Color::primaries_t, C2Color::matrix_t, int32_t*);
+        static bool map(int32_t, C2Color::primaries_t*, C2Color::matrix_t*);
+        static bool map(C2Color::transfer_t, int32_t*);
+        static bool map(int32_t, C2Color::transfer_t*);
+
+        static bool map(
+                C2Color::range_t, C2Color::primaries_t, C2Color::matrix_t, C2Color::transfer_t,
+                uint32_t *dataSpace);
+
+        static bool map(C2Color::range_t, ColorAspects::Range*);
+        static bool map(ColorAspects::Range, C2Color::range_t*);
+        static bool map(C2Color::primaries_t, ColorAspects::Primaries*);
+        static bool map(ColorAspects::Primaries, C2Color::primaries_t*);
+        static bool map(C2Color::matrix_t, ColorAspects::MatrixCoeffs*);
+        static bool map(ColorAspects::MatrixCoeffs, C2Color::matrix_t*);
+        static bool map(C2Color::transfer_t, ColorAspects::Transfer*);
+        static bool map(ColorAspects::Transfer, C2Color::transfer_t*);
     };
 }
 
 #endif  // ANDROID_CODEC2_MAPPER_H_
-

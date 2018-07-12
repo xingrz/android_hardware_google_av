@@ -2,7 +2,6 @@ cc_library_shared {
     name: "libstagefright_ccodec",
 
     srcs: [
-        "Codec2Mapper.cpp",
         "C2OMXNode.cpp",
         "CCodec.cpp",
         "CCodecBufferChannel.cpp",
