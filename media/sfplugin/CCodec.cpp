@@ -283,7 +283,17 @@ public:
             mConfig.mTimeOffsetUs = config.mTimeOffsetUs;
         }
 
-        // TODO: time lapse config
+        if (config.mCaptureFps != mConfig.mCaptureFps || config.mCodedFps != mConfig.mCodedFps) {
+            status_t res =
+                GetStatus(mSource->setTimeLapseConfig(config.mCodedFps, config.mCaptureFps));
+            status << " timeLapse " << config.mCaptureFps << "fps as " << config.mCodedFps << "fps";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mCaptureFps = config.mCaptureFps;
+            mConfig.mCodedFps = config.mCodedFps;
+        }
 
         if (config.mStartAtUs != mConfig.mStartAtUs
                 || (config.mStopped != mConfig.mStopped && !config.mStopped)) {
@@ -695,8 +705,9 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
             {
                 double value;
-                if (!msg->findDouble("time-lapse-fps", &value)) {
+                if (msg->findDouble("time-lapse-fps", &value)) {
                     config->mISConfig->mCaptureFps = value;
+                    (void)msg->findAsFloat(KEY_FRAME_RATE, &config->mISConfig->mCodedFps);
                 }
             }
 
