@@ -95,7 +95,7 @@ ALookup<C2Config::bitrate_mode_t, int32_t> sBitrateModes = {
 };
 
 ALookup<C2Color::matrix_t, ColorAspects::MatrixCoeffs> sColorMatricesSf = {
-    { C2Color::MATRIX_UNSPECIFIED,    ColorAspects::MatrixUnspecified },
+    { C2Color::MATRIX_UNSPECIFIED,     ColorAspects::MatrixUnspecified },
     { C2Color::MATRIX_BT709,           ColorAspects::MatrixBT709_5 },
     { C2Color::MATRIX_FCC47_73_682,    ColorAspects::MatrixBT470_6M },
     { C2Color::MATRIX_BT601,           ColorAspects::MatrixBT601_6 },
