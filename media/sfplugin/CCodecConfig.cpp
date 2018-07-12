@@ -536,7 +536,9 @@ void CCodecConfig::initializeStandardParams() {
         .limitTo(D::PARAM & D::ENCODER)
         .withMapper([](C2Value) -> C2Value { return uint32_t(1); }));
 
-    add(ConfigMapper(KEY_OPERATING_RATE,   C2_PARAMKEY_OPERATING_RATE,     "value"));
+    add(ConfigMapper(KEY_OPERATING_RATE,   C2_PARAMKEY_OPERATING_RATE,     "value")
+        .limitTo(D::PARAM | D::CONFIG) // write-only
+        .withMapper(makeFloat));
     // C2 priorities are inverted
     add(ConfigMapper(KEY_PRIORITY,         C2_PARAMKEY_PRIORITY,           "value")
         .withMappers(negate, negate));
