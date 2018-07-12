@@ -18,7 +18,7 @@
 #define LOG_TAG "Codec2InfoBuilder"
 #include <log/log.h>
 
-#include <codec2/hidl/client.h>
+#include <strings.h>
 
 #include <C2Component.h>
 #include <C2Config.h>
@@ -26,9 +26,26 @@
 #include <C2PlatformSupport.h>
 #include <Codec2Mapper.h>
 
+#include <OMX_Audio.h>
+#include <OMX_AudioExt.h>
+#include <OMX_IndexExt.h>
+#include <OMX_Types.h>
+#include <OMX_Video.h>
+#include <OMX_VideoExt.h>
+#include <OMX_AsString.h>
+
+#include <android/hardware/media/omx/1.0/IOmx.h>
+#include <android/hardware/media/omx/1.0/IOmxObserver.h>
+#include <android/hardware/media/omx/1.0/IOmxNode.h>
+#include <android/hardware/media/omx/1.0/types.h>
+
 #include <android-base/properties.h>
+#include <codec2/hidl/client.h>
+#include <cutils/native_handle.h>
+#include <media/omx/1.0/WOmxNode.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/foundation/MediaDefs.h>
+#include <media/stagefright/omx/OMXUtils.h>
 #include <media/stagefright/xmlparser/MediaCodecsXmlParser.h>
 
 #include "Codec2InfoBuilder.h"
@@ -39,6 +56,8 @@ using Traits = C2Component::Traits;
 
 namespace /* unnamed */ {
 
+uint32_t kOmxRankOverride = 1;
+
 bool hasPrefix(const std::string& s, const char* prefix) {
     size_t prefixLen = strlen(prefix);
     return s.compare(0, prefixLen, prefix) == 0;
@@ -48,6 +67,239 @@ bool hasSuffix(const std::string& s, const char* suffix) {
     size_t suffixLen = strlen(suffix);
     return suffixLen > s.size() ? false :
             s.compare(s.size() - suffixLen, suffixLen, suffix) == 0;
+}
+
+// Constants from ACodec
+constexpr OMX_U32 kPortIndexInput = 0;
+constexpr OMX_U32 kPortIndexOutput = 0;
+constexpr OMX_U32 kMaxIndicesToCheck = 32;
+
+status_t queryOmxCapabilities(
+        const char* name, const char* mime, bool isEncoder,
+        MediaCodecInfo::CapabilitiesWriter* caps) {
+
+    const char *role = GetComponentRole(isEncoder, mime);
+    if (role == NULL) {
+        return BAD_VALUE;
+    }
+
+    using namespace ::android::hardware::media::omx::V1_0;
+    using ::android::hardware::Return;
+    using ::android::hardware::Void;
+    using ::android::hardware::hidl_vec;
+    using ::android::hardware::media::omx::V1_0::utils::LWOmxNode;
+
+    sp<IOmx> omx = IOmx::getService();
+    if (!omx) {
+        ALOGW("Could not obtain IOmx service.");
+        return NO_INIT;
+    }
+
+    struct Observer : IOmxObserver {
+        virtual Return<void> onMessages(const hidl_vec<Message>&) override {
+            return Void();
+        }
+    };
+
+    sp<Observer> observer = new Observer();
+    Status status;
+    sp<IOmxNode> tOmxNode;
+    Return<void> transStatus = omx->allocateNode(
+            name, observer,
+            [&status, &tOmxNode](Status s, const sp<IOmxNode>& n) {
+                status = s;
+                tOmxNode = n;
+            });
+    if (!transStatus.isOk()) {
+        ALOGW("IOmx::allocateNode -- transaction failed.");
+        return NO_INIT;
+    }
+    if (status != Status::OK) {
+        ALOGW("IOmx::allocateNode -- error returned: %d.",
+                static_cast<int>(status));
+        return NO_INIT;
+    }
+
+    sp<LWOmxNode> omxNode = new LWOmxNode(tOmxNode);
+
+    status_t err = SetComponentRole(omxNode, role);
+    if (err != OK) {
+        omxNode->freeNode();
+        ALOGW("Failed to SetComponentRole: component = %s, role = %s.",
+                name, role);
+        return err;
+    }
+
+    bool isVideo = hasPrefix(mime, "video/") == 0;
+    bool isImage = hasPrefix(mime, "image/") == 0;
+
+    if (isVideo || isImage) {
+        OMX_VIDEO_PARAM_PROFILELEVELTYPE param;
+        InitOMXParams(&param);
+        param.nPortIndex = isEncoder ? kPortIndexOutput : kPortIndexInput;
+
+        for (OMX_U32 index = 0; index <= kMaxIndicesToCheck; ++index) {
+            param.nProfileIndex = index;
+            status_t err = omxNode->getParameter(
+                    OMX_IndexParamVideoProfileLevelQuerySupported,
+                    &param, sizeof(param));
+            if (err != OK) {
+                break;
+            }
+            caps->addProfileLevel(param.eProfile, param.eLevel);
+
+            // AVC components may not list the constrained profiles explicitly, but
+            // decoders that support a profile also support its constrained version.
+            // Encoders must explicitly support constrained profiles.
+            if (!isEncoder && strcasecmp(mime, MEDIA_MIMETYPE_VIDEO_AVC) == 0) {
+                if (param.eProfile == OMX_VIDEO_AVCProfileHigh) {
+                    caps->addProfileLevel(OMX_VIDEO_AVCProfileConstrainedHigh, param.eLevel);
+                } else if (param.eProfile == OMX_VIDEO_AVCProfileBaseline) {
+                    caps->addProfileLevel(OMX_VIDEO_AVCProfileConstrainedBaseline, param.eLevel);
+                }
+            }
+
+            if (index == kMaxIndicesToCheck) {
+                ALOGW("[%s] stopping checking profiles after %u: %x/%x",
+                        name, index,
+                        param.eProfile, param.eLevel);
+            }
+        }
+
+        // Color format query
+        // return colors in the order reported by the OMX component
+        // prefix "flexible" standard ones with the flexible equivalent
+        OMX_VIDEO_PARAM_PORTFORMATTYPE portFormat;
+        InitOMXParams(&portFormat);
+        portFormat.nPortIndex = isEncoder ? kPortIndexInput : kPortIndexOutput;
+        for (OMX_U32 index = 0; index <= kMaxIndicesToCheck; ++index) {
+            portFormat.nIndex = index;
+            status_t err = omxNode->getParameter(
+                    OMX_IndexParamVideoPortFormat,
+                    &portFormat, sizeof(portFormat));
+            if (err != OK) {
+                break;
+            }
+
+            OMX_U32 flexibleEquivalent;
+            if (IsFlexibleColorFormat(
+                    omxNode, portFormat.eColorFormat, false /* usingNativeWindow */,
+                    &flexibleEquivalent)) {
+                caps->addColorFormat(flexibleEquivalent);
+            }
+            caps->addColorFormat(portFormat.eColorFormat);
+
+            if (index == kMaxIndicesToCheck) {
+                ALOGW("[%s] stopping checking formats after %u: %s(%x)",
+                        name, index,
+                        asString(portFormat.eColorFormat), portFormat.eColorFormat);
+            }
+        }
+    } else if (strcasecmp(mime, MEDIA_MIMETYPE_AUDIO_AAC) == 0) {
+        // More audio codecs if they have profiles.
+        OMX_AUDIO_PARAM_ANDROID_PROFILETYPE param;
+        InitOMXParams(&param);
+        param.nPortIndex = isEncoder ? kPortIndexOutput : kPortIndexInput;
+        for (OMX_U32 index = 0; index <= kMaxIndicesToCheck; ++index) {
+            param.nProfileIndex = index;
+            status_t err = omxNode->getParameter(
+                    (OMX_INDEXTYPE)OMX_IndexParamAudioProfileQuerySupported,
+                    &param, sizeof(param));
+            if (err != OK) {
+                break;
+            }
+            // For audio, level is ignored.
+            caps->addProfileLevel(param.eProfile, 0 /* level */);
+
+            if (index == kMaxIndicesToCheck) {
+                ALOGW("[%s] stopping checking profiles after %u: %x",
+                        name, index,
+                        param.eProfile);
+            }
+        }
+
+        // NOTE: Without Android extensions, OMX does not provide a way to query
+        // AAC profile support
+        if (param.nProfileIndex == 0) {
+            ALOGW("component %s doesn't support profile query.", name);
+        }
+    }
+
+    if (isVideo && !isEncoder) {
+        native_handle_t *sidebandHandle = NULL;
+        if (omxNode->configureVideoTunnelMode(
+                kPortIndexOutput, OMX_TRUE, 0, &sidebandHandle) == OK) {
+            // tunneled playback includes adaptive playback
+            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsAdaptivePlayback
+                    | MediaCodecInfo::Capabilities::kFlagSupportsTunneledPlayback);
+        } else if (omxNode->setPortMode(
+                kPortIndexOutput, IOMX::kPortModeDynamicANWBuffer) == OK ||
+                omxNode->prepareForAdaptivePlayback(
+                kPortIndexOutput, OMX_TRUE,
+                1280 /* width */, 720 /* height */) == OK) {
+            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsAdaptivePlayback);
+        }
+    }
+
+    if (isVideo && isEncoder) {
+        OMX_VIDEO_CONFIG_ANDROID_INTRAREFRESHTYPE params;
+        InitOMXParams(&params);
+        params.nPortIndex = kPortIndexOutput;
+        // TODO: should we verify if fallback is supported?
+        if (omxNode->getConfig(
+                (OMX_INDEXTYPE)OMX_IndexConfigAndroidIntraRefresh,
+                &params, sizeof(params)) == OK) {
+            caps->addFlags(MediaCodecInfo::Capabilities::kFlagSupportsIntraRefresh);
+        }
+    }
+
+    omxNode->freeNode();
+    return OK;
+}
+
+void buildOmxInfo(const MediaCodecsXmlParser& parser,
+                  MediaCodecListWriter* writer) {
+    for (const MediaCodecsXmlParser::Codec& codec : parser.getCodecMap()) {
+        const std::string &name = codec.first;
+        if (!hasPrefix(codec.first, "OMX.")) {
+            continue;
+        }
+        const MediaCodecsXmlParser::CodecProperties &properties = codec.second;
+        bool encoder = properties.isEncoder;
+        std::unique_ptr<MediaCodecInfoWriter> info =
+                writer->addMediaCodecInfo();
+        info->setName(name.c_str());
+        info->setOwner("default");
+        info->setEncoder(encoder);
+        info->setRank(kOmxRankOverride);
+        for (const MediaCodecsXmlParser::Type& type : properties.typeMap) {
+            const std::string &mime = type.first;
+            std::unique_ptr<MediaCodecInfo::CapabilitiesWriter> caps =
+                    info->addMime(mime.c_str());
+            const MediaCodecsXmlParser::AttributeMap &attrMap = type.second;
+            for (const MediaCodecsXmlParser::Attribute& attr : attrMap) {
+                const std::string &key = attr.first;
+                const std::string &value = attr.second;
+                if (hasPrefix(key, "feature-") &&
+                        !hasPrefix(key, "feature-bitrate-modes")) {
+                    caps->addDetail(key.c_str(), hasPrefix(value, "1") ? 1 : 0);
+                } else {
+                    caps->addDetail(key.c_str(), value.c_str());
+                }
+            }
+            status_t err = queryOmxCapabilities(
+                    name.c_str(),
+                    mime.c_str(),
+                    encoder,
+                    caps.get());
+            if (err != OK) {
+                ALOGE("Failed to query capabilities for %s (mime: %s). Error: %d",
+                        name.c_str(),
+                        mime.c_str(),
+                        static_cast<int>(err));
+            }
+        }
+    }
 }
 
 } // unnamed namespace
@@ -88,20 +340,29 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
 
     MediaCodecsXmlParser parser(
             MediaCodecsXmlParser::defaultSearchDirs,
-            "media_codecs_c2.xml",
-            "media_codecs_performance_c2.xml");
+            option == 0 ? "media_codecs.xml" :
+                          "media_codecs_c2.xml",
+            option == 0 ? "media_codecs_performance.xml" :
+                          "media_codecs_performance_c2.xml");
     if (parser.getParsingStatus() != OK) {
         ALOGD("XML parser no good");
         return OK;
     }
+
+    bool surfaceTest(Codec2Client::CreateInputSurface());
+    if (option == 0 || !surfaceTest) {
+        buildOmxInfo(parser, writer);
+    }
+
     for (const Traits& trait : traits) {
+        C2Component::rank_t rank = trait.rank;
+
         if (parser.getCodecMap().count(trait.name.c_str()) == 0) {
             ALOGD("%s not found in xml", trait.name.c_str());
             continue;
         }
 
         // TODO: Remove this block once all codecs are enabled by default.
-        C2Component::rank_t rank = trait.rank;
         switch (option) {
         case 0:
             continue;
