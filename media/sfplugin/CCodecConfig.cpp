@@ -1424,7 +1424,10 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
         // standard parameters may get modified, filtered or duplicated
         for (const ConfigMapper &cm : mStandardParams->getConfigMappersForSdkKey(name.c_str())) {
-            if ((cm.domain() & configDomain) && (cm.domain() & /* component */ mDomain)) {
+            // note: we ignore port domain for configuration
+            if ((cm.domain() & configDomain)
+                    // component domain + kind (these must match)
+                    && (cm.domain() & mDomain) == mDomain) {
                 // map arithmetic values, pass through string or buffer
                 switch (type) {
                     case AMessage::kTypeBuffer:
