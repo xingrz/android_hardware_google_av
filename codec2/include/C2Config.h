@@ -1462,8 +1462,6 @@ C2ENUM(C2Color::matrix_t, uint32_t,
 constexpr C2Color::matrix_t MATRIX_BT470_6M = MATRIX_FCC47_73_682; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT709_5 = MATRIX_BT709; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT601_6 = MATRIX_BT601; // deprecated
-constexpr C2Color::matrix_t MATRIX_SMPTE240M = MATRIX_240M; // deprecated
-constexpr C2Color::matrix_t MATRIX_BT2020CONSTANT = MATRIX_BT2020_CONSTANT; // deprecated
 
 struct C2ColorAspectsStruct {
     C2Color::range_t range;
