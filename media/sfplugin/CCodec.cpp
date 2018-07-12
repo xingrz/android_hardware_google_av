@@ -849,6 +849,18 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
         }
 
+        // set channel-mask
+        if (config->mDomain & Config::IS_AUDIO) {
+            int32_t mask;
+            if (msg->findInt32(KEY_CHANNEL_MASK, &mask)) {
+                if (config->mDomain & Config::IS_ENCODER) {
+                    config->mInputFormat->setInt32(KEY_CHANNEL_MASK, mask);
+                } else {
+                    config->mOutputFormat->setInt32(KEY_CHANNEL_MASK, mask);
+                }
+            }
+        }
+
         ALOGD("setup formats input: %s and output: %s",
                 config->mInputFormat->debugString().c_str(),
                 config->mOutputFormat->debugString().c_str());
