@@ -21,6 +21,7 @@
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/SurfaceUtils.h>
 #include <media/stagefright/foundation/ALookup.h>
+#include <media/stagefright/foundation/ColorUtils.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
 #include <stdint.h>  // for INT32_MAX
@@ -91,6 +92,66 @@ ALookup<C2Config::bitrate_mode_t, int32_t> sBitrateModes = {
     { C2Config::BITRATE_CONST,      BITRATE_MODE_CBR },
     { C2Config::BITRATE_VARIABLE,   BITRATE_MODE_VBR },
     { C2Config::BITRATE_IGNORE,     BITRATE_MODE_CQ },
+};
+
+ALookup<C2Color::matrix_t, ColorAspects::MatrixCoeffs> sColorMatricesSf = {
+    { C2Color::MATRIX_UNSPECIFIED,    ColorAspects::MatrixUnspecified },
+    { C2Color::MATRIX_BT709,           ColorAspects::MatrixBT709_5 },
+    { C2Color::MATRIX_FCC47_73_682,    ColorAspects::MatrixBT470_6M },
+    { C2Color::MATRIX_BT601,           ColorAspects::MatrixBT601_6 },
+    { C2Color::MATRIX_SMPTE240M,       ColorAspects::MatrixSMPTE240M },
+    { C2Color::MATRIX_BT2020,          ColorAspects::MatrixBT2020 },
+    { C2Color::MATRIX_BT2020_CONSTANT, ColorAspects::MatrixBT2020Constant },
+    { C2Color::MATRIX_OTHER,           ColorAspects::MatrixOther },
+};
+
+ALookup<C2Color::primaries_t, ColorAspects::Primaries> sColorPrimariesSf = {
+    { C2Color::PRIMARIES_UNSPECIFIED,  ColorAspects::PrimariesUnspecified },
+    { C2Color::PRIMARIES_BT709,        ColorAspects::PrimariesBT709_5 },
+    { C2Color::PRIMARIES_BT470_M,      ColorAspects::PrimariesBT470_6M },
+    { C2Color::PRIMARIES_BT601_625,    ColorAspects::PrimariesBT601_6_625 },
+    { C2Color::PRIMARIES_BT601_525,    ColorAspects::PrimariesBT601_6_525 },
+    { C2Color::PRIMARIES_GENERIC_FILM, ColorAspects::PrimariesGenericFilm },
+    { C2Color::PRIMARIES_BT2020,       ColorAspects::PrimariesBT2020 },
+//    { C2Color::PRIMARIES_RP431,        ColorAspects::Primaries... },
+//    { C2Color::PRIMARIES_EG432,        ColorAspects::Primaries... },
+//    { C2Color::PRIMARIES_EBU3213,      ColorAspects::Primaries... },
+    { C2Color::PRIMARIES_OTHER,        ColorAspects::PrimariesOther },
+};
+
+ALookup<C2Color::range_t, int32_t> sColorRanges = {
+    { C2Color::RANGE_FULL,    COLOR_RANGE_FULL },
+    { C2Color::RANGE_LIMITED, COLOR_RANGE_LIMITED },
+};
+
+ALookup<C2Color::range_t, ColorAspects::Range> sColorRangesSf = {
+    { C2Color::RANGE_UNSPECIFIED, ColorAspects::RangeUnspecified },
+    { C2Color::RANGE_FULL,        ColorAspects::RangeFull },
+    { C2Color::RANGE_LIMITED,     ColorAspects::RangeLimited },
+    { C2Color::RANGE_OTHER,       ColorAspects::RangeOther },
+};
+
+ALookup<C2Color::transfer_t, int32_t> sColorTransfers = {
+    { C2Color::TRANSFER_LINEAR, COLOR_TRANSFER_LINEAR },
+    { C2Color::TRANSFER_170M,   COLOR_TRANSFER_SDR_VIDEO },
+    { C2Color::TRANSFER_ST2084, COLOR_TRANSFER_ST2084 },
+    { C2Color::TRANSFER_HLG,    COLOR_TRANSFER_HLG },
+};
+
+ALookup<C2Color::transfer_t, ColorAspects::Transfer> sColorTransfersSf = {
+    { C2Color::TRANSFER_UNSPECIFIED, ColorAspects::TransferUnspecified },
+    { C2Color::TRANSFER_LINEAR,      ColorAspects::TransferLinear },
+    { C2Color::TRANSFER_SRGB,        ColorAspects::TransferSRGB },
+    { C2Color::TRANSFER_170M,        ColorAspects::TransferSMPTE170M },
+    { C2Color::TRANSFER_GAMMA22,     ColorAspects::TransferGamma22 },
+    { C2Color::TRANSFER_GAMMA28,     ColorAspects::TransferGamma28 },
+    { C2Color::TRANSFER_ST2084,      ColorAspects::TransferST2084 },
+    { C2Color::TRANSFER_HLG,         ColorAspects::TransferHLG },
+    { C2Color::TRANSFER_240M,        ColorAspects::TransferSMPTE240M },
+    { C2Color::TRANSFER_XVYCC,       ColorAspects::TransferXvYCC },
+    { C2Color::TRANSFER_BT1361,      ColorAspects::TransferBT1361 },
+    { C2Color::TRANSFER_ST428,       ColorAspects::TransferST428 },
+    { C2Color::TRANSFER_OTHER,       ColorAspects::TransferOther },
 };
 
 ALookup<C2Config::level_t, int32_t> sDolbyVisionLevels = {
@@ -493,3 +554,262 @@ bool C2Mapper::map(int32_t from, C2Config::pcm_encoding_t *to) {
     return sPcmEncodings.map(from, to);
 }
 
+// static
+bool C2Mapper::map(C2Color::range_t from, int32_t *to) {
+    bool res = true;
+    // map SDK defined values directly. For other values, use wrapping from ColorUtils.
+    if (!sColorRanges.map(from, to)) {
+        ColorAspects::Range sfRange;
+
+        // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+        if (!sColorRangesSf.map(from, &sfRange)) {
+            // use static cast and ensure it is in the extension range
+            if (from < C2Color::RANGE_VENDOR_START || from > C2Color::RANGE_OTHER) {
+                sfRange = ColorAspects::RangeOther;
+                res = false;
+            }
+        }
+
+        *to = ColorUtils::wrapColorAspectsIntoColorRange(sfRange);
+    }
+    return res;
+}
+
+// static
+bool C2Mapper::map(int32_t from, C2Color::range_t *to) {
+    // map SDK defined values directly. For other values, use wrapping from ColorUtils.
+    if (!sColorRanges.map(from, to)) {
+        ColorAspects::Range sfRange;
+        (void)ColorUtils::unwrapColorAspectsFromColorRange(from, &sfRange);
+
+        // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+        if (!sColorRangesSf.map(sfRange, to)) {
+            // use static cast and ensure it is in the extension range
+            *to = (C2Color::range_t)sfRange;
+            if (*to < C2Color::RANGE_VENDOR_START || *to > C2Color::RANGE_OTHER) {
+                *to = C2Color::RANGE_OTHER;
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+// static
+bool C2Mapper::map(C2Color::range_t from, ColorAspects::Range *to) {
+    return sColorRangesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(ColorAspects::Range from, C2Color::range_t *to) {
+    return sColorRangesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(C2Color::primaries_t primaries, C2Color::matrix_t matrix, int32_t *standard) {
+    ColorAspects::Primaries sfPrimaries;
+    ColorAspects::MatrixCoeffs sfMatrix;
+    bool res = true;
+
+    // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+    if (!sColorPrimariesSf.map(primaries, &sfPrimaries)) {
+        // ensure it is in the extension range and use static cast
+        if (primaries < C2Color::PRIMARIES_VENDOR_START || primaries > C2Color::PRIMARIES_OTHER) {
+            // undefined non-extension values map to 'Other'
+            sfPrimaries = ColorAspects::PrimariesOther;
+            res = false;
+        } else {
+            sfPrimaries = (ColorAspects::Primaries)primaries;
+        }
+    }
+
+    if (!sColorMatricesSf.map(matrix, &sfMatrix)) {
+        // use static cast and ensure it is in the extension range
+        if (matrix < C2Color::MATRIX_VENDOR_START || matrix > C2Color::MATRIX_OTHER) {
+            // undefined non-extension values map to 'Other'
+            sfMatrix = ColorAspects::MatrixOther;
+            res = false;
+        } else {
+            sfMatrix = (ColorAspects::MatrixCoeffs)matrix;
+        }
+    }
+
+    *standard = ColorUtils::wrapColorAspectsIntoColorStandard(sfPrimaries, sfMatrix);
+
+    return res;
+}
+
+// static
+bool C2Mapper::map(int32_t standard, C2Color::primaries_t *primaries, C2Color::matrix_t *matrix) {
+    // first map to stagefright foundation aspects => these actually map nearly 1:1 to
+    // Codec 2.0 aspects
+    ColorAspects::Primaries sfPrimaries;
+    ColorAspects::MatrixCoeffs sfMatrix;
+    bool res = true;
+    (void)ColorUtils::unwrapColorAspectsFromColorStandard(standard, &sfPrimaries, &sfMatrix);
+
+    // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+    if (!sColorPrimariesSf.map(sfPrimaries, primaries)) {
+        // use static cast and ensure it is in the extension range
+        *primaries = (C2Color::primaries_t)sfPrimaries;
+        if (*primaries < C2Color::PRIMARIES_VENDOR_START || *primaries > C2Color::PRIMARIES_OTHER) {
+            *primaries = C2Color::PRIMARIES_OTHER;
+            res = false;
+        }
+    }
+
+    if (!sColorMatricesSf.map(sfMatrix, matrix)) {
+        // use static cast and ensure it is in the extension range
+        *matrix = (C2Color::matrix_t)sfMatrix;
+        if (*matrix < C2Color::MATRIX_VENDOR_START || *matrix > C2Color::MATRIX_OTHER) {
+            *matrix = C2Color::MATRIX_OTHER;
+            res = false;
+        }
+    }
+
+    return res;
+}
+
+// static
+bool C2Mapper::map(C2Color::primaries_t from, ColorAspects::Primaries *to) {
+    return sColorPrimariesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(ColorAspects::Primaries from, C2Color::primaries_t *to) {
+    return sColorPrimariesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(C2Color::matrix_t from, ColorAspects::MatrixCoeffs *to) {
+    return sColorMatricesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(ColorAspects::MatrixCoeffs from, C2Color::matrix_t *to) {
+    return sColorMatricesSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(C2Color::transfer_t from, int32_t *to) {
+    bool res = true;
+    // map SDK defined values directly. For other values, use wrapping from ColorUtils.
+    if (!sColorTransfers.map(from, to)) {
+        ColorAspects::Transfer sfTransfer;
+
+        // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+        if (!sColorTransfersSf.map(from, &sfTransfer)) {
+            // use static cast and ensure it is in the extension range
+            if (from < C2Color::TRANSFER_VENDOR_START || from > C2Color::TRANSFER_OTHER) {
+                sfTransfer = ColorAspects::TransferOther;
+                res = false;
+            }
+        }
+
+        *to = ColorUtils::wrapColorAspectsIntoColorTransfer(sfTransfer);
+    }
+    return res;
+}
+
+// static
+bool C2Mapper::map(int32_t from, C2Color::transfer_t *to) {
+    // map SDK defined values directly. For other values, use wrapping from ColorUtils.
+    if (!sColorTransfers.map(from, to)) {
+        ColorAspects::Transfer sfTransfer;
+        (void)ColorUtils::unwrapColorAspectsFromColorTransfer(from, &sfTransfer);
+
+        // map known constants and keep vendor extensions. all other values are mapped to 'Other'
+        if (!sColorTransfersSf.map(sfTransfer, to)) {
+            // use static cast and ensure it is in the extension range
+            *to = (C2Color::transfer_t)sfTransfer;
+            if (*to < C2Color::TRANSFER_VENDOR_START || *to > C2Color::TRANSFER_OTHER) {
+                *to = C2Color::TRANSFER_OTHER;
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+// static
+bool C2Mapper::map(
+        C2Color::range_t range, C2Color::primaries_t primaries,
+        C2Color::matrix_t matrix, C2Color::transfer_t transfer, uint32_t *dataSpace) {
+#if 0
+    // pure reimplementation
+    *dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
+
+    switch (range) {
+        case C2Color::RANGE_FULL:    *dataSpace |= HAL_DATASPACE_RANGE_FULL;    break;
+        case C2Color::RANGE_LIMITED: *dataSpace |= HAL_DATASPACE_RANGE_LIMITED; break;
+        default: break;
+    }
+
+    switch (transfer) {
+        case C2Color::TRANSFER_LINEAR:  *dataSpace |= HAL_DATASPACE_TRANSFER_LINEAR;     break;
+        case C2Color::TRANSFER_SRGB:    *dataSpace |= HAL_DATASPACE_TRANSFER_SRGB;       break;
+        case C2Color::TRANSFER_170M:    *dataSpace |= HAL_DATASPACE_TRANSFER_SMPTE_170M; break;
+        case C2Color::TRANSFER_GAMMA22: *dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_2;   break;
+        case C2Color::TRANSFER_GAMMA28: *dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_8;   break;
+        case C2Color::TRANSFER_ST2084:  *dataSpace |= HAL_DATASPACE_TRANSFER_ST2084;     break;
+        case C2Color::TRANSFER_HLG:     *dataSpace |= HAL_DATASPACE_TRANSFER_HLG;        break;
+        default: break;
+    }
+
+    switch (primaries) {
+        case C2Color::PRIMARIES_BT601_525:
+            *dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
+                            || matrix == C2Color::MATRIX_BT709)
+                    ? HAL_DATASPACE_STANDARD_BT601_525_UNADJUSTED
+                    : HAL_DATASPACE_STANDARD_BT601_525;
+            break;
+        case C2Color::PRIMARIES_BT601_625:
+            *dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
+                            || matrix == C2Color::MATRIX_BT709)
+                    ? HAL_DATASPACE_STANDARD_BT601_625_UNADJUSTED
+                    : HAL_DATASPACE_STANDARD_BT601_625;
+            break;
+        case C2Color::PRIMARIES_BT2020:
+            *dataSpace |= (matrix == C2Color::MATRIX_BT2020CONSTANT
+                    ? HAL_DATASPACE_STANDARD_BT2020_CONSTANT_LUMINANCE
+                    : HAL_DATASPACE_STANDARD_BT2020);
+            break;
+        case C2Color::PRIMARIES_BT470_M:
+            *dataSpace |= HAL_DATASPACE_STANDARD_BT470M;
+            break;
+        case C2Color::PRIMARIES_BT709:
+            *dataSpace |= HAL_DATASPACE_STANDARD_BT709;
+            break;
+        default: break;
+    }
+#else
+    // for now use legacy implementation
+    ColorAspects aspects;
+    if (!sColorRangesSf.map(range, &aspects.mRange)) {
+        aspects.mRange = ColorAspects::RangeUnspecified;
+    }
+    if (!sColorPrimariesSf.map(primaries, &aspects.mPrimaries)) {
+        aspects.mPrimaries = ColorAspects::PrimariesUnspecified;
+    }
+    if (!sColorMatricesSf.map(matrix, &aspects.mMatrixCoeffs)) {
+        aspects.mMatrixCoeffs = ColorAspects::MatrixUnspecified;
+    }
+    if (!sColorTransfersSf.map(transfer, &aspects.mTransfer)) {
+        aspects.mTransfer = ColorAspects::TransferUnspecified;
+    }
+    *dataSpace = ColorUtils::getDataSpaceForColorAspects(aspects, true /* mayExpand */);
+#endif
+    return true;
+}
+
+// static
+bool C2Mapper::map(C2Color::transfer_t from, ColorAspects::Transfer *to) {
+    return sColorTransfersSf.map(from, to);
+}
+
+// static
+bool C2Mapper::map(ColorAspects::Transfer from, C2Color::transfer_t *to) {
+    return sColorTransfersSf.map(from, to);
+}

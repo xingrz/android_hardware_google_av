@@ -22,6 +22,7 @@
 #include <C2Component.h>
 #include <C2Debug.h>
 #include <C2Param.h>
+#include <util/C2InterfaceHelper.h>
 
 #include <media/stagefright/MediaCodecConstants.h>
 
@@ -87,6 +88,31 @@ struct ConfigMapper {
         return *this;
     }
 
+    /// Adds SDK <=> Codec 2.0 value mappers based on C2Mapper
+    template<typename C2Type, typename SdkType=int32_t>
+    ConfigMapper &withC2Mappers() {
+        C2_CHECK(!mMapper);
+        C2_CHECK(!mReverse);
+        mMapper = [](C2Value v) -> C2Value {
+            SdkType sdkValue;
+            C2Type c2Value;
+            if (v.get(&sdkValue) && C2Mapper::map(sdkValue, &c2Value)) {
+                return c2Value;
+            }
+            return C2Value();
+        };
+        mReverse = [](C2Value v) -> C2Value {
+            SdkType sdkValue;
+            C2Type c2Value;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<C2Type>::type;
+            if (v.get((C2ValueType*)&c2Value) && C2Mapper::map(c2Value, &sdkValue)) {
+                return sdkValue;
+            }
+            return C2Value();
+        };
+        return *this;
+    }
+
     /// Maps from SDK values in an AMessage to a suitable C2Value.
     C2Value mapFromMessage(const AMessage::ItemData &item) const {
         C2Value value;
@@ -143,7 +169,7 @@ struct ConfigMapper {
     Mapper reverse() const { return mReverse; }
 
 private:
-    Domain mDomain;         ///< parameter domain
+    Domain mDomain;         ///< parameter domain (mask) containing port, kind and config domains
     std::string mMediaKey;  ///< SDK key
     C2String mStruct;       ///< Codec 2.0 struct name
     C2String mField;        ///< Codec 2.0 field name
@@ -225,11 +251,14 @@ struct StandardParams {
      */
     void add(const ConfigMapper &cm) {
         auto it = mConfigMappers.find(cm.mediaKey());
-        ALOGV("%c%c%c%c %04x %9s %s => %s",
+        ALOGV("%c%c%c%c %c%c%c %04x %9s %s => %s",
               ((cm.domain() & Domain::IS_INPUT) ? 'I' : ' '),
               ((cm.domain() & Domain::IS_OUTPUT) ? 'O' : ' '),
               ((cm.domain() & Domain::IS_CODED) ? 'C' : ' '),
               ((cm.domain() & Domain::IS_RAW) ? 'R' : ' '),
+              ((cm.domain() & Domain::IS_CONFIG) ? 'c' : ' '),
+              ((cm.domain() & Domain::IS_PARAM) ? 'p' : ' '),
+              ((cm.domain() & Domain::IS_READ) ? 'r' : ' '),
               cm.domain(),
               it == mConfigMappers.end() ? "adding" : "extending",
               cm.mediaKey().c_str(), cm.path().c_str());
@@ -282,7 +311,8 @@ const std::vector<ConfigMapper> StandardParams::NO_MAPPERS;
 
 CCodecConfig::CCodecConfig()
     : mInputFormat(new AMessage),
-      mOutputFormat(new AMessage) { }
+      mOutputFormat(new AMessage),
+      mUsingSurface(false) { }
 
 void CCodecConfig::initializeStandardParams() {
     typedef Domain D;
@@ -355,13 +385,102 @@ void CCodecConfig::initializeStandardParams() {
     // remove when codecs switch to PARAMKEY
     deprecated(ConfigMapper(KEY_MAX_INPUT_SIZE, "coded.max-frame-size", "value")
                .limitTo(D::INPUT));
-    // SDK rotation is clock-wise
+
+    // Rotation
+    // Note: SDK rotation is clock-wise, while C2 rotation is counter-clock-wise
     add(ConfigMapper(KEY_ROTATION, C2_PARAMKEY_VUI_ROTATION, "value")
         .limitTo(D::VIDEO & D::CODED)
         .withMappers(negate, negate));
     add(ConfigMapper(KEY_ROTATION, C2_PARAMKEY_ROTATION, "value")
         .limitTo(D::VIDEO & D::RAW)
         .withMappers(negate, negate));
+
+    // android 'video-scaling'
+    add(ConfigMapper("android._video-scaling", C2_PARAMKEY_SURFACE_SCALING_MODE, "value")
+        .limitTo(D::VIDEO & D::DECODER & D::RAW));
+
+    // Color Aspects
+    //
+    // configure default for decoders
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM))
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM))
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM)));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_DEFAULT_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::CODED & (D::CONFIG | D::PARAM)));
+
+    // read back final for decoder output (also, configure final aspects as well. This should be
+    // overwritten based on coded/default values if component supports color aspects, but is used
+    // as final values if component does not support aspects at all)
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::DECODER  & D::RAW));
+
+    // configure source aspects for encoders and read them back on the coded(!) port.
+    // This is to ensure muxing the desired aspects into the container.
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED));
+
+    // read back coded aspects for encoders (on the raw port)
+    add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_VUI_COLOR_ASPECTS,   "range")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .withC2Mappers<C2Color::range_t>());
+    add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_VUI_COLOR_ASPECTS,   "transfer")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .withC2Mappers<C2Color::transfer_t>());
+    add(ConfigMapper("color-primaries",     C2_PARAMKEY_VUI_COLOR_ASPECTS,   "primaries")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+    add(ConfigMapper("color-matrix",        C2_PARAMKEY_VUI_COLOR_ASPECTS,   "matrix")
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+
+    // Dataspace
+    add(ConfigMapper("android._dataspace", C2_PARAMKEY_DATA_SPACE, "value")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+
+    // HDR
+    add(ConfigMapper("smpte2086.red.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.red.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.red.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.red.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.green.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.green.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.green.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.green.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.blue.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.blue.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.blue.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.blue.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.white.x", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.white.x")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.white.y", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.white.y")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.max-luminance", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.max-luminance")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("smpte2086.min-luminance", C2_PARAMKEY_HDR_STATIC_INFO, "mastering.min-luminance")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("cta861.max-cll", C2_PARAMKEY_HDR_STATIC_INFO, "max-cll")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
+    add(ConfigMapper("cta861.max-fall", C2_PARAMKEY_HDR_STATIC_INFO, "max-fall")
+        .limitTo((D::VIDEO | D::IMAGE) & D::RAW));
 
     add(ConfigMapper(std::string(KEY_FEATURE_) + FEATURE_SecurePlayback,
                      C2_PARAMKEY_SECURE_MODE, "value"));
@@ -524,23 +643,41 @@ void CCodecConfig::initializeStandardParams() {
         C2Mapper::GetProfileLevelMapper(mCodingMediaType);
 
     add(ConfigMapper(KEY_PROFILE, C2_PARAMKEY_PROFILE_LEVEL, "profile")
-        .withMapper([mapper](C2Value v) -> C2Value {
+        .limitTo(D::CODED)
+        .withMappers([mapper](C2Value v) -> C2Value {
             C2Config::profile_t c2 = PROFILE_UNUSED;
             int32_t sdk;
             if (mapper && v.get(&sdk) && mapper->mapProfile(sdk, &c2)) {
                 return c2;
             }
             return PROFILE_UNUSED;
+        }, [mapper](C2Value v) -> C2Value {
+            C2Config::profile_t c2;
+            int32_t sdk;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<decltype(c2)>::type;
+            if (mapper && v.get((C2ValueType*)&c2) && mapper->mapProfile(c2, &sdk)) {
+                return sdk;
+            }
+            return C2Value();
         }));
 
     add(ConfigMapper(KEY_LEVEL, C2_PARAMKEY_PROFILE_LEVEL, "level")
-        .withMapper([mapper](C2Value v) -> C2Value {
+        .limitTo(D::CODED)
+        .withMappers([mapper](C2Value v) -> C2Value {
             C2Config::level_t c2 = LEVEL_UNUSED;
             int32_t sdk;
             if (mapper && v.get(&sdk) && mapper->mapLevel(sdk, &c2)) {
                 return c2;
             }
             return LEVEL_UNUSED;
+        }, [mapper](C2Value v) -> C2Value {
+            C2Config::level_t c2;
+            int32_t sdk;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<decltype(c2)>::type;
+            if (mapper && v.get((C2ValueType*)&c2) && mapper->mapLevel(c2, &sdk)) {
+                return sdk;
+            }
+            return C2Value();
         }));
 
     // convert to dBFS and add default
@@ -748,19 +885,22 @@ status_t CCodecConfig::initialize(
     if (kind.value == C2Component::KIND_ENCODER) {
         mParamUpdater->addStandardParam<C2StreamInitDataInfo::output>(C2_PARAMKEY_INIT_DATA);
     }
-    if (kind.value != C2Component::KIND_ENCODER
-            && (domain.value == C2Component::DOMAIN_IMAGE
-                    || domain.value == C2Component::DOMAIN_VIDEO)) {
-        addLocalParam<C2StreamPictureSizeInfo::output>(C2_PARAMKEY_PICTURE_SIZE);
-        addLocalParam<C2StreamCropRectInfo::output>(C2_PARAMKEY_CROP_RECT);
-        addLocalParam(
-                new C2StreamPixelAspectRatioInfo::output(0u, 1u, 1u),
-                C2_PARAMKEY_PIXEL_ASPECT_RATIO);
-        addLocalParam(new C2StreamRotationInfo::output(0u, 0), C2_PARAMKEY_ROTATION);
-        addLocalParam(new C2StreamColorAspectsInfo::output(0u), C2_PARAMKEY_COLOR_ASPECTS);
-        addLocalParam<C2StreamHdrStaticInfo::output>(C2_PARAMKEY_HDR_STATIC_INFO);
-        addLocalParam<C2StreamDataSpaceInfo::output>(C2_PARAMKEY_DATA_SPACE);
-        addLocalParam<C2StreamSurfaceScalingInfo::output>(C2_PARAMKEY_SURFACE_SCALING_MODE);
+    if (domain.value == C2Component::DOMAIN_IMAGE || domain.value == C2Component::DOMAIN_VIDEO) {
+        if (kind.value != C2Component::KIND_ENCODER) {
+            addLocalParam<C2StreamPictureSizeInfo::output>(C2_PARAMKEY_PICTURE_SIZE);
+            addLocalParam<C2StreamCropRectInfo::output>(C2_PARAMKEY_CROP_RECT);
+            addLocalParam(
+                    new C2StreamPixelAspectRatioInfo::output(0u, 1u, 1u),
+                    C2_PARAMKEY_PIXEL_ASPECT_RATIO);
+            addLocalParam(new C2StreamRotationInfo::output(0u, 0), C2_PARAMKEY_ROTATION);
+            addLocalParam(new C2StreamColorAspectsInfo::output(0u), C2_PARAMKEY_COLOR_ASPECTS);
+            addLocalParam<C2StreamDataSpaceInfo::output>(C2_PARAMKEY_DATA_SPACE);
+            addLocalParam<C2StreamHdrStaticInfo::output>(C2_PARAMKEY_HDR_STATIC_INFO);
+            addLocalParam(new C2StreamSurfaceScalingInfo::output(0u, VIDEO_SCALING_MODE_SCALE_TO_FIT),
+                          C2_PARAMKEY_SURFACE_SCALING_MODE);
+        } else {
+            addLocalParam(new C2StreamColorAspectsInfo::input(0u), C2_PARAMKEY_COLOR_ASPECTS);
+        }
     }
 
     initializeStandardParams();
@@ -835,7 +975,13 @@ bool CCodecConfig::updateConfiguration(
         if (p && *p) {
             auto insertion = mCurrentConfig.emplace(p->index(), nullptr);
             if (insertion.second || *insertion.first->second != *p) {
-                changed = true;
+                if (mSupportedIndices.count(p->index()) || mLocalParams.count(p->index())) {
+                    // only track changes in supported (reflected or local) indices
+                    changed = true;
+                } else {
+                    ALOGV("an unlisted config was %s: %#x",
+                            insertion.second ? "added" : "updated", p->index());
+                }
             }
             insertion.first->second = std::move(p);
         }
@@ -887,11 +1033,13 @@ bool CCodecConfig::updateFormats(Domain domain) {
 }
 
 sp<AMessage> CCodecConfig::getSdkFormatForDomain(
-        const ReflectedParamUpdater::Dict &reflected, Domain domain) const {
+        const ReflectedParamUpdater::Dict &reflected, Domain portDomain) const {
     sp<AMessage> msg = new AMessage;
     for (const std::pair<std::string, std::vector<ConfigMapper>> &el : mStandardParams->getKeys()) {
         for (const ConfigMapper &cm : el.second) {
-            if ((cm.domain() & domain) == 0 || (cm.domain() & mDomain) == 0) {
+            if ((cm.domain() & portDomain) == 0 // input-output-coded-raw
+                || (cm.domain() & mDomain) != mDomain // component domain + kind (these must match)
+                || (cm.domain() & IS_READ) == 0) {
                 continue;
             }
             auto it = reflected.find(cm.path());
@@ -940,7 +1088,10 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
             if (layering && layering->m.layerCount > 0
                     && layering->m.bLayerCount < layering->m.layerCount) {
                 // check if this is webrtc compatible
-                if (layering->m.bLayerCount == 0 &&
+                AString mime;
+                if (msg->findString(KEY_MIME, &mime) &&
+                        mime.equalsIgnoreCase(MIMETYPE_VIDEO_VP8) &&
+                        layering->m.bLayerCount == 0 &&
                         (layering->m.layerCount == 1
                                 || (layering->m.layerCount == 2
                                         && layering->flexCount() >= 1
@@ -967,6 +1118,121 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
                 }
             }
             msg->removeEntryAt(msg->findEntryByName(C2_PARAMKEY_TEMPORAL_LAYERING));
+        }
+    }
+
+    { // convert color info
+        // TODO: apply platform default to decoder output
+
+        C2Color::primaries_t primaries;
+        C2Color::matrix_t matrix;
+        if (msg->findInt32("color-primaries", (int32_t*)&primaries)
+                && msg->findInt32("color-matrix", (int32_t*)&matrix)) {
+            int32_t standard;
+
+            if (C2Mapper::map(primaries, matrix, &standard)) {
+                msg->setInt32(KEY_COLOR_STANDARD, standard);
+            }
+
+            msg->removeEntryAt(msg->findEntryByName("color-primaries"));
+            msg->removeEntryAt(msg->findEntryByName("color-matrix"));
+        }
+
+
+        // calculate dataspace for raw graphic buffers if not specified by component, or if
+        // using surface with unspecified aspects (as those must be defaulted which may change
+        // the dataspace)
+        if ((portDomain & IS_RAW) && (mDomain & (IS_IMAGE | IS_VIDEO))) {
+            android_dataspace dataspace;
+            ColorAspects aspects = {
+                ColorAspects::RangeUnspecified, ColorAspects::PrimariesUnspecified,
+                ColorAspects::TransferUnspecified, ColorAspects::MatrixUnspecified
+            };
+            ColorUtils::getColorAspectsFromFormat(msg, aspects);
+            ColorAspects origAspects = aspects;
+            if (mUsingSurface) {
+                // get image size (default to HD)
+                int32_t width = 1280;
+                int32_t height = 720;
+                int32_t left, top, right, bottom;
+                if (msg->findRect("crop", &left, &top, &right, &bottom)) {
+                    width = right - left + 1;
+                    height = bottom - top + 1;
+                } else {
+                    (void)msg->findInt32(KEY_WIDTH, &width);
+                    (void)msg->findInt32(KEY_HEIGHT, &height);
+                }
+                ColorUtils::setDefaultCodecColorAspectsIfNeeded(aspects, width, height);
+                ColorUtils::setColorAspectsIntoFormat(aspects, msg);
+            }
+
+            if (!msg->findInt32("android._dataspace", (int32_t*)&dataspace)
+                    || aspects.mRange != origAspects.mRange
+                    || aspects.mPrimaries != origAspects.mPrimaries
+                    || aspects.mTransfer != origAspects.mTransfer
+                    || aspects.mMatrixCoeffs != origAspects.mMatrixCoeffs) {
+                dataspace = ColorUtils::getDataSpaceForColorAspects(aspects, true /* mayExpand */);
+                msg->setInt32("android._dataspace", dataspace);
+            }
+        }
+
+        // HDR static info
+
+        C2HdrStaticMetadataStruct hdr;
+        if (msg->findFloat("smpte2086.red.x", &hdr.mastering.red.x)
+                && msg->findFloat("smpte2086.red.y", &hdr.mastering.red.y)
+                && msg->findFloat("smpte2086.green.x", &hdr.mastering.green.x)
+                && msg->findFloat("smpte2086.green.y", &hdr.mastering.green.y)
+                && msg->findFloat("smpte2086.blue.x", &hdr.mastering.blue.x)
+                && msg->findFloat("smpte2086.blue.y", &hdr.mastering.blue.y)
+                && msg->findFloat("smpte2086.white.x", &hdr.mastering.white.x)
+                && msg->findFloat("smpte2086.white.y", &hdr.mastering.white.y)
+                && msg->findFloat("smpte2086.max-luminance", &hdr.mastering.maxLuminance)
+                && msg->findFloat("smpte2086.min-luminance", &hdr.mastering.minLuminance)
+                && msg->findFloat("cta861.max-cll", &hdr.maxCll)
+                && msg->findFloat("cta861.max-fall", &hdr.maxFall)) {
+            if (hdr.mastering.red.x >= 0                && hdr.mastering.red.x <= 1
+                    && hdr.mastering.red.y >= 0         && hdr.mastering.red.y <= 1
+                    && hdr.mastering.green.x >= 0       && hdr.mastering.green.x <= 1
+                    && hdr.mastering.green.y >= 0       && hdr.mastering.green.y <= 1
+                    && hdr.mastering.blue.x >= 0        && hdr.mastering.blue.x <= 1
+                    && hdr.mastering.blue.y >= 0        && hdr.mastering.blue.y <= 1
+                    && hdr.mastering.white.x >= 0       && hdr.mastering.white.x <= 1
+                    && hdr.mastering.white.y >= 0       && hdr.mastering.white.y <= 1
+                    && hdr.mastering.maxLuminance >= 0  && hdr.mastering.maxLuminance <= 65535
+                    && hdr.mastering.minLuminance >= 0  && hdr.mastering.minLuminance <= 6.5535
+                    && hdr.maxCll >= 0                  && hdr.maxCll <= 65535
+                    && hdr.maxFall >= 0                 && hdr.maxFall <= 65535) {
+                HDRStaticInfo meta;
+                meta.mID = meta.kType1;
+                meta.sType1.mR.x = hdr.mastering.red.x / 0.00002 + 0.5;
+                meta.sType1.mR.y = hdr.mastering.red.y / 0.00002 + 0.5;
+                meta.sType1.mG.x = hdr.mastering.green.x / 0.00002 + 0.5;
+                meta.sType1.mG.y = hdr.mastering.green.y / 0.00002 + 0.5;
+                meta.sType1.mB.x = hdr.mastering.blue.x / 0.00002 + 0.5;
+                meta.sType1.mB.y = hdr.mastering.blue.y / 0.00002 + 0.5;
+                meta.sType1.mW.x = hdr.mastering.white.x / 0.00002 + 0.5;
+                meta.sType1.mW.y = hdr.mastering.white.y / 0.00002 + 0.5;
+                meta.sType1.mMaxDisplayLuminance = hdr.mastering.maxLuminance + 0.5;
+                meta.sType1.mMinDisplayLuminance = hdr.mastering.minLuminance / 0.0001 + 0.5;
+                meta.sType1.mMaxContentLightLevel = hdr.maxCll + 0.5;
+                meta.sType1.mMaxFrameAverageLightLevel = hdr.maxFall + 0.5;
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.red.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.red.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.green.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.green.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.blue.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.blue.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.white.x"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.white.y"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.max-luminance"));
+                msg->removeEntryAt(msg->findEntryByName("smpte2086.min-luminance"));
+                msg->removeEntryAt(msg->findEntryByName("cta861.max-cll"));
+                msg->removeEntryAt(msg->findEntryByName("cta861.max-fall"));
+                msg->setBuffer(KEY_HDR_STATIC_INFO, ABuffer::CreateAsCopy(&meta, sizeof(meta)));
+            } else {
+                ALOGD("found invalid HDR static metadata %s", msg->debugString(8).c_str());
+            }
         }
     }
 
@@ -1018,10 +1284,10 @@ static void relaxValues(ReflectedParamUpdater::Value &item) {
 }
 
 ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
-        const sp<AMessage> &params_, Domain domain) const {
+        const sp<AMessage> &params_, Domain configDomain) const {
     // create a modifiable copy of params
     sp<AMessage> params = params_->dup();
-    ALOGV("filtering with domain %x", domain);
+    ALOGV("filtering with config domain %x", configDomain);
 
     // convert some macro parameters to Codec 2.0 specific expressions
 
@@ -1103,6 +1369,39 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
     }
 
+    { // convert color info
+        int32_t standard;
+        if (params->findInt32(KEY_COLOR_STANDARD, &standard)) {
+            C2Color::primaries_t primaries;
+            C2Color::matrix_t matrix;
+
+            if (C2Mapper::map(standard, &primaries, &matrix)) {
+                params->setInt32("color-primaries", primaries);
+                params->setInt32("color-matrix", matrix);
+            }
+        }
+
+        sp<ABuffer> hdrMeta;
+        if (params->findBuffer(KEY_HDR_STATIC_INFO, &hdrMeta)
+                && hdrMeta->size() == sizeof(HDRStaticInfo)) {
+            HDRStaticInfo *meta = (HDRStaticInfo*)hdrMeta->data();
+            if (meta->mID == meta->kType1) {
+                params->setFloat("smpte2086.red.x", meta->sType1.mR.x * 0.00002);
+                params->setFloat("smpte2086.red.y", meta->sType1.mR.y * 0.00002);
+                params->setFloat("smpte2086.green.x", meta->sType1.mG.x * 0.00002);
+                params->setFloat("smpte2086.green.y", meta->sType1.mG.y * 0.00002);
+                params->setFloat("smpte2086.blue.x", meta->sType1.mB.x * 0.00002);
+                params->setFloat("smpte2086.blue.y", meta->sType1.mB.y * 0.00002);
+                params->setFloat("smpte2086.white.x", meta->sType1.mW.x * 0.00002);
+                params->setFloat("smpte2086.white.y", meta->sType1.mW.y * 0.00002);
+                params->setFloat("smpte2086.max-luminance", meta->sType1.mMaxDisplayLuminance);
+                params->setFloat("smpte2086.min-luminance", meta->sType1.mMinDisplayLuminance * 0.0001);
+                params->setFloat("cta861.max-cll", meta->sType1.mMaxContentLightLevel);
+                params->setFloat("cta861.max-fall", meta->sType1.mMaxFrameAverageLightLevel);
+            }
+        }
+    }
+
     // this is to verify that we set proper signedness for standard parameters
     bool beVeryStrict = property_get_bool("debug.stagefright.ccodec_strict_type", false);
     // this is to allow vendors to use the wrong signedness for standard parameters
@@ -1123,7 +1422,7 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
         // standard parameters may get modified, filtered or duplicated
         for (const ConfigMapper &cm : mStandardParams->getConfigMappersForSdkKey(name.c_str())) {
-            if (cm.domain() & domain & mDomain) {
+            if ((cm.domain() & configDomain) && (cm.domain() & /* component */ mDomain)) {
                 // map arithmetic values, pass through string or buffer
                 switch (type) {
                     case AMessage::kTypeBuffer:
@@ -1158,10 +1457,10 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
 
 status_t CCodecConfig::getConfigUpdateFromSdkParams(
         std::shared_ptr<Codec2Client::Component> component,
-        const sp<AMessage> &sdkParams, Domain domain,
+        const sp<AMessage> &sdkParams, Domain configDomain,
         c2_blocking_t blocking,
         std::vector<std::unique_ptr<C2Param>> *configUpdate) const {
-    ReflectedParamUpdater::Dict params = getReflectedFormat(sdkParams, domain);
+    ReflectedParamUpdater::Dict params = getReflectedFormat(sdkParams, configDomain);
 
     std::vector<C2Param::Index> indices;
     mParamUpdater->getParamIndicesFromMessage(params, &indices);

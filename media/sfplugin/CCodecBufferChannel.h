@@ -25,6 +25,7 @@
 
 #include <C2Buffer.h>
 #include <C2Component.h>
+#include <Codec2Mapper.h>
 
 #include <codec2/hidl/client.h>
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
