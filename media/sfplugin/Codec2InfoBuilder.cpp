@@ -71,7 +71,7 @@ bool hasSuffix(const std::string& s, const char* suffix) {
 
 // Constants from ACodec
 constexpr OMX_U32 kPortIndexInput = 0;
-constexpr OMX_U32 kPortIndexOutput = 0;
+constexpr OMX_U32 kPortIndexOutput = 1;
 constexpr OMX_U32 kMaxIndicesToCheck = 32;
 
 status_t queryOmxCapabilities(
