@@ -363,8 +363,8 @@ typedef C2ComponentAttributesSetting C2ComponentTemporalInfo;
  * Time stretching.
  *
  * This is the ratio between the rate of the input timestamp, and the rate of the output timestamp.
- * E.g. if this is 4.0, for every 4 seconds of input timestamp difference, the output shall differ
- * by 1 seconds.
+ * E.g. if this is 4.0, for every 1 seconds of input timestamp difference, the output shall differ
+ * by 4 seconds.
  */
 typedef C2GlobalParam<C2Tuning, C2FloatValue, kParamIndexTimeStretch> C2ComponentTimeStretchTuning;
 constexpr char C2_PARAMKEY_TIME_STRETCH[]  = "algo.time-stretch";

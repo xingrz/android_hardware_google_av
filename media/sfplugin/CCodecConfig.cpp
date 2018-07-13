@@ -788,20 +788,14 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_LATENCY, C2_PARAMKEY_PIPELINE_DELAY_REQUEST, "value")
         .limitTo(D::VIDEO & D::ENCODER));
 
+    add(ConfigMapper(C2_PARAMKEY_INPUT_TIME_STRETCH, C2_PARAMKEY_INPUT_TIME_STRETCH, "value"));
+
     /* still to do
-
-    // not yet supported in Codec 2.0
-    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";  // we actually used "audio-hw-sync"
-
-    constexpr char KEY_CAPTURE_RATE[] = "capture-rate";
-    constexpr char KEY_CHANNEL_MASK[] = "channel-mask";
-    constexpr char KEY_COLOR_RANGE[] = "color-range";
-    constexpr char KEY_COLOR_STANDARD[] = "color-standard";
-    constexpr char KEY_COLOR_TRANSFER[] = "color-transfer";
-    constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
-    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth"; // not yet used
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
-    constexpr char KEY_TEMPORAL_LAYERING[] = "ts-schema";
+
+       not yet used by MediaCodec, but defined as MediaFormat
+    KEY_AUDIO_SESSION_ID // we use "audio-hw-sync"
+    KEY_OUTPUT_REORDER_DEPTH
     */
 }
 
@@ -1303,6 +1297,20 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
                                  ? -1 /* no sync frames */
                                  : (int32_t)c2_min(iFrameInterval * frameRate + 0.5,
                                                    (float)INT32_MAX));
+            }
+        }
+    }
+
+    if (mDomain == (IS_VIDEO | IS_ENCODER)) {
+        // convert capture-rate into input-time-stretch
+        float frameRate, captureRate;
+        if (params->findAsFloat(KEY_FRAME_RATE, &frameRate)) {
+            if (!params->findAsFloat("time-lapse-fps", &captureRate)
+                    && !params->findAsFloat(KEY_CAPTURE_RATE, &captureRate)) {
+                captureRate = frameRate;
+            }
+            if (captureRate > 0 && frameRate > 0) {
+                params->setFloat(C2_PARAMKEY_INPUT_TIME_STRETCH, captureRate / frameRate);
             }
         }
     }
