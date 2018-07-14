@@ -1553,19 +1553,11 @@ void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
 void CCodec::initiateReleaseIfStuck() {
     std::string name;
     bool pendingDeadline = false;
-    {
-        Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
+    for (Mutexed<NamedTimePoint> *deadlinePtr : { &mDeadline, &mQueueDeadline, &mEosDeadline }) {
+        Mutexed<NamedTimePoint>::Locked deadline(*deadlinePtr);
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
-        }
-        if (deadline->get() != TimePoint::max()) {
-            pendingDeadline = true;
-        }
-    }
-    {
-        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
-        if (deadline->get() < std::chrono::steady_clock::now()) {
-            name = deadline->getName();
+            break;
         }
         if (deadline->get() != TimePoint::max()) {
             pendingDeadline = true;
@@ -1588,8 +1580,14 @@ void CCodec::initiateReleaseIfStuck() {
 
 void CCodec::onWorkQueued(bool eos) {
     ALOGV("queued work count +1 from %d", mQueuedWorkCount.load());
-    ++mQueuedWorkCount;
+    int32_t count = ++mQueuedWorkCount;
     if (eos) {
+        CCodecWatchdog::getInstance()->watch(this);
+        Mutexed<NamedTimePoint>::Locked deadline(mEosDeadline);
+        deadline->set(std::chrono::steady_clock::now() + 3s, "eos");
+    }
+    // TODO: query and use input/pipeline/output delay combined
+    if (count >= 8) {
         CCodecWatchdog::getInstance()->watch(this);
         Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
         deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
@@ -1598,10 +1596,13 @@ void CCodec::onWorkQueued(bool eos) {
 
 void CCodec::subQueuedWorkCount(uint32_t count) {
     ALOGV("queued work count -%u from %d", count, mQueuedWorkCount.load());
-    if ((mQueuedWorkCount -= count) == 0) {
-        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+    int32_t currentCount = (mQueuedWorkCount -= count);
+    if (currentCount == 0) {
+        Mutexed<NamedTimePoint>::Locked deadline(mEosDeadline);
         deadline->set(TimePoint::max(), "none");
     }
+    Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+    deadline->set(TimePoint::max(), "none");
 }
 
 }  // namespace android
