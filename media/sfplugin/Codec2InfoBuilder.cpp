@@ -56,8 +56,6 @@ using Traits = C2Component::Traits;
 
 namespace /* unnamed */ {
 
-uint32_t kOmxRankOverride = 1;
-
 bool hasPrefix(const std::string& s, const char* prefix) {
     size_t prefixLen = strlen(prefix);
     return s.compare(0, prefixLen, prefix) == 0;
@@ -259,6 +257,8 @@ status_t queryOmxCapabilities(
 
 void buildOmxInfo(const MediaCodecsXmlParser& parser,
                   MediaCodecListWriter* writer) {
+    uint32_t omxRank = ::android::base::GetUintProperty(
+            "debug.stagefright.omx_default_rank", uint32_t(0x100));
     for (const MediaCodecsXmlParser::Codec& codec : parser.getCodecMap()) {
         const std::string &name = codec.first;
         if (!hasPrefix(codec.first, "OMX.")) {
@@ -271,7 +271,7 @@ void buildOmxInfo(const MediaCodecsXmlParser& parser,
         info->setName(name.c_str());
         info->setOwner("default");
         info->setEncoder(encoder);
-        info->setRank(kOmxRankOverride);
+        info->setRank(omxRank);
         for (const MediaCodecsXmlParser::Type& type : properties.typeMap) {
             const std::string &mime = type.first;
             std::unique_ptr<MediaCodecInfo::CapabilitiesWriter> caps =
@@ -312,8 +312,8 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
     //   0 - Only OMX components are available.
     //   1 - Audio decoders and encoders with prefix "c2.android." are available
     //       and ranked first.
-    //       All other components with prefix "c2.android." are available but
-    //       ranked last.
+    //       All other components with prefix "c2.android." are available with
+    //       their normal ranks.
     //       Components with prefix "c2.vda." are available with their normal
     //       ranks.
     //       All other components with suffix ".avc.decoder" or ".avc.encoder"
@@ -375,7 +375,6 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
                     rank = 1;
                     break;
                 }
-                rank = std::numeric_limits<decltype(rank)>::max();
                 break;
             }
             if (hasSuffix(trait.name, ".avc.decoder") ||
