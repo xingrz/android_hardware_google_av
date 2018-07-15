@@ -283,7 +283,17 @@ public:
             mConfig.mTimeOffsetUs = config.mTimeOffsetUs;
         }
 
-        // TODO: time lapse config
+        if (config.mCaptureFps != mConfig.mCaptureFps || config.mCodedFps != mConfig.mCodedFps) {
+            status_t res =
+                GetStatus(mSource->setTimeLapseConfig(config.mCodedFps, config.mCaptureFps));
+            status << " timeLapse " << config.mCaptureFps << "fps as " << config.mCodedFps << "fps";
+            if (res != OK) {
+                status << " (=> " << asString(res) << ")";
+                err = res;
+            }
+            mConfig.mCaptureFps = config.mCaptureFps;
+            mConfig.mCodedFps = config.mCodedFps;
+        }
 
         if (config.mStartAtUs != mConfig.mStartAtUs
                 || (config.mStopped != mConfig.mStopped && !config.mStopped)) {
@@ -695,8 +705,9 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
             {
                 double value;
-                if (!msg->findDouble("time-lapse-fps", &value)) {
+                if (msg->findDouble("time-lapse-fps", &value)) {
                     config->mISConfig->mCaptureFps = value;
+                    (void)msg->findAsFloat(KEY_FRAME_RATE, &config->mISConfig->mCodedFps);
                 }
             }
 
@@ -849,6 +860,18 @@ void CCodec::configure(const sp<AMessage> &msg) {
             }
         }
 
+        // set channel-mask
+        if (config->mDomain & Config::IS_AUDIO) {
+            int32_t mask;
+            if (msg->findInt32(KEY_CHANNEL_MASK, &mask)) {
+                if (config->mDomain & Config::IS_ENCODER) {
+                    config->mInputFormat->setInt32(KEY_CHANNEL_MASK, mask);
+                } else {
+                    config->mOutputFormat->setInt32(KEY_CHANNEL_MASK, mask);
+                }
+            }
+        }
+
         ALOGD("setup formats input: %s and output: %s",
                 config->mInputFormat->debugString().c_str(),
                 config->mOutputFormat->debugString().c_str());
@@ -896,35 +919,6 @@ void CCodec::createInputSurface() {
     }
 
     std::shared_ptr<PersistentSurface> persistentSurface(CreateInputSurface());
-    if (!persistentSurface) {
-        using namespace android::hardware::media::omx::V1_0;
-        using namespace android::hardware::media::omx::V1_0::utils;
-        using namespace android::hardware::graphics::bufferqueue::V1_0::utils;
-        typedef android::hardware::media::omx::V1_0::Status OmxStatus;
-        android::sp<IOmx> omx = IOmx::getService();
-        typedef android::hardware::graphics::bufferqueue::V1_0::
-                IGraphicBufferProducer HGraphicBufferProducer;
-        typedef android::hardware::media::omx::V1_0::
-                IGraphicBufferSource HGraphicBufferSource;
-        OmxStatus s;
-        android::sp<HGraphicBufferProducer> gbp;
-        android::sp<HGraphicBufferSource> gbs;
-        android::Return<void> transStatus = omx->createInputSurface(
-                [&s, &gbp, &gbs](
-                        OmxStatus status,
-                        const android::sp<HGraphicBufferProducer>& producer,
-                        const android::sp<HGraphicBufferSource>& source) {
-                    s = status;
-                    gbp = producer;
-                    gbs = source;
-                });
-        if (transStatus.isOk() && s == OmxStatus::OK) {
-            persistentSurface = std::make_shared<android::PersistentSurface>(
-                    new H2BGraphicBufferProducer(gbp),
-                    sp<::android::IGraphicBufferSource>(
-                        new LWGraphicBufferSource(gbs)));
-        }
-    }
 
     if (persistentSurface->getHidlTarget()) {
         sp<IInputSurface> inputSurface = IInputSurface::castFrom(
@@ -1559,19 +1553,11 @@ void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
 void CCodec::initiateReleaseIfStuck() {
     std::string name;
     bool pendingDeadline = false;
-    {
-        Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
+    for (Mutexed<NamedTimePoint> *deadlinePtr : { &mDeadline, &mQueueDeadline, &mEosDeadline }) {
+        Mutexed<NamedTimePoint>::Locked deadline(*deadlinePtr);
         if (deadline->get() < std::chrono::steady_clock::now()) {
             name = deadline->getName();
-        }
-        if (deadline->get() != TimePoint::max()) {
-            pendingDeadline = true;
-        }
-    }
-    {
-        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
-        if (deadline->get() < std::chrono::steady_clock::now()) {
-            name = deadline->getName();
+            break;
         }
         if (deadline->get() != TimePoint::max()) {
             pendingDeadline = true;
@@ -1594,8 +1580,14 @@ void CCodec::initiateReleaseIfStuck() {
 
 void CCodec::onWorkQueued(bool eos) {
     ALOGV("queued work count +1 from %d", mQueuedWorkCount.load());
-    ++mQueuedWorkCount;
+    int32_t count = ++mQueuedWorkCount;
     if (eos) {
+        CCodecWatchdog::getInstance()->watch(this);
+        Mutexed<NamedTimePoint>::Locked deadline(mEosDeadline);
+        deadline->set(std::chrono::steady_clock::now() + 3s, "eos");
+    }
+    // TODO: query and use input/pipeline/output delay combined
+    if (count >= 8) {
         CCodecWatchdog::getInstance()->watch(this);
         Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
         deadline->set(std::chrono::steady_clock::now() + 3s, "queue");
@@ -1604,10 +1596,13 @@ void CCodec::onWorkQueued(bool eos) {
 
 void CCodec::subQueuedWorkCount(uint32_t count) {
     ALOGV("queued work count -%u from %d", count, mQueuedWorkCount.load());
-    if ((mQueuedWorkCount -= count) == 0) {
-        Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+    int32_t currentCount = (mQueuedWorkCount -= count);
+    if (currentCount == 0) {
+        Mutexed<NamedTimePoint>::Locked deadline(mEosDeadline);
         deadline->set(TimePoint::max(), "none");
     }
+    Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
+    deadline->set(TimePoint::max(), "none");
 }
 
 }  // namespace android
@@ -1617,6 +1612,7 @@ extern "C" android::CodecBase *CreateCodec() {
 }
 
 extern "C" android::PersistentSurface *CreateInputSurface() {
+    // Attempt to create a Codec2's input surface.
     std::shared_ptr<android::Codec2Client::InputSurface> inputSurface =
             android::Codec2Client::CreateInputSurface();
     if (inputSurface) {
@@ -1625,6 +1621,36 @@ extern "C" android::PersistentSurface *CreateInputSurface() {
                 static_cast<android::sp<android::hidl::base::V1_0::IBase>>(
                 inputSurface->getHalInterface()));
     }
+
+    // Fall back to OMX.
+    using namespace android::hardware::media::omx::V1_0;
+    using namespace android::hardware::media::omx::V1_0::utils;
+    using namespace android::hardware::graphics::bufferqueue::V1_0::utils;
+    typedef android::hardware::media::omx::V1_0::Status OmxStatus;
+    android::sp<IOmx> omx = IOmx::getService();
+    typedef android::hardware::graphics::bufferqueue::V1_0::
+            IGraphicBufferProducer HGraphicBufferProducer;
+    typedef android::hardware::media::omx::V1_0::
+            IGraphicBufferSource HGraphicBufferSource;
+    OmxStatus s;
+    android::sp<HGraphicBufferProducer> gbp;
+    android::sp<HGraphicBufferSource> gbs;
+    android::Return<void> transStatus = omx->createInputSurface(
+            [&s, &gbp, &gbs](
+                    OmxStatus status,
+                    const android::sp<HGraphicBufferProducer>& producer,
+                    const android::sp<HGraphicBufferSource>& source) {
+                s = status;
+                gbp = producer;
+                gbs = source;
+            });
+    if (transStatus.isOk() && s == OmxStatus::OK) {
+        return new android::PersistentSurface(
+                new H2BGraphicBufferProducer(gbp),
+                sp<::android::IGraphicBufferSource>(
+                    new LWGraphicBufferSource(gbs)));
+    }
+
     return nullptr;
 }
 

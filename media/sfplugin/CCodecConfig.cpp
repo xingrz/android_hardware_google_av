@@ -536,7 +536,9 @@ void CCodecConfig::initializeStandardParams() {
         .limitTo(D::PARAM & D::ENCODER)
         .withMapper([](C2Value) -> C2Value { return uint32_t(1); }));
 
-    add(ConfigMapper(KEY_OPERATING_RATE,   C2_PARAMKEY_OPERATING_RATE,     "value"));
+    add(ConfigMapper(KEY_OPERATING_RATE,   C2_PARAMKEY_OPERATING_RATE,     "value")
+        .limitTo(D::PARAM | D::CONFIG) // write-only
+        .withMapper(makeFloat));
     // C2 priorities are inverted
     add(ConfigMapper(KEY_PRIORITY,         C2_PARAMKEY_PRIORITY,           "value")
         .withMappers(negate, negate));
@@ -786,20 +788,14 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper(KEY_LATENCY, C2_PARAMKEY_PIPELINE_DELAY_REQUEST, "value")
         .limitTo(D::VIDEO & D::ENCODER));
 
+    add(ConfigMapper(C2_PARAMKEY_INPUT_TIME_STRETCH, C2_PARAMKEY_INPUT_TIME_STRETCH, "value"));
+
     /* still to do
-
-    // not yet supported in Codec 2.0
-    constexpr char KEY_AUDIO_SESSION_ID[] = "audio-session-id";  // we actually used "audio-hw-sync"
-
-    constexpr char KEY_CAPTURE_RATE[] = "capture-rate";
-    constexpr char KEY_CHANNEL_MASK[] = "channel-mask";
-    constexpr char KEY_COLOR_RANGE[] = "color-range";
-    constexpr char KEY_COLOR_STANDARD[] = "color-standard";
-    constexpr char KEY_COLOR_TRANSFER[] = "color-transfer";
-    constexpr char KEY_HDR_STATIC_INFO[] = "hdr-static-info";
-    constexpr char KEY_OUTPUT_REORDER_DEPTH[] = "output-reorder-depth"; // not yet used
     constexpr char KEY_PUSH_BLANK_BUFFERS_ON_STOP[] = "push-blank-buffers-on-shutdown";
-    constexpr char KEY_TEMPORAL_LAYERING[] = "ts-schema";
+
+       not yet used by MediaCodec, but defined as MediaFormat
+    KEY_AUDIO_SESSION_ID // we use "audio-hw-sync"
+    KEY_OUTPUT_REORDER_DEPTH
     */
 }
 
@@ -1305,6 +1301,20 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
     }
 
+    if (mDomain == (IS_VIDEO | IS_ENCODER)) {
+        // convert capture-rate into input-time-stretch
+        float frameRate, captureRate;
+        if (params->findAsFloat(KEY_FRAME_RATE, &frameRate)) {
+            if (!params->findAsFloat("time-lapse-fps", &captureRate)
+                    && !params->findAsFloat(KEY_CAPTURE_RATE, &captureRate)) {
+                captureRate = frameRate;
+            }
+            if (captureRate > 0 && frameRate > 0) {
+                params->setFloat(C2_PARAMKEY_INPUT_TIME_STRETCH, captureRate / frameRate);
+            }
+        }
+    }
+
     {   // reflect temporal layering into a binary blob
         AString schema;
         if (params->findString(KEY_TEMPORAL_LAYERING, &schema)) {
@@ -1422,7 +1432,10 @@ ReflectedParamUpdater::Dict CCodecConfig::getReflectedFormat(
         }
         // standard parameters may get modified, filtered or duplicated
         for (const ConfigMapper &cm : mStandardParams->getConfigMappersForSdkKey(name.c_str())) {
-            if ((cm.domain() & configDomain) && (cm.domain() & /* component */ mDomain)) {
+            // note: we ignore port domain for configuration
+            if ((cm.domain() & configDomain)
+                    // component domain + kind (these must match)
+                    && (cm.domain() & mDomain) == mDomain) {
                 // map arithmetic values, pass through string or buffer
                 switch (type) {
                     case AMessage::kTypeBuffer:
