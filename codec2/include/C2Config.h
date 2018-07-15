@@ -363,8 +363,8 @@ typedef C2ComponentAttributesSetting C2ComponentTemporalInfo;
  * Time stretching.
  *
  * This is the ratio between the rate of the input timestamp, and the rate of the output timestamp.
- * E.g. if this is 4.0, for every 4 seconds of input timestamp difference, the output shall differ
- * by 1 seconds.
+ * E.g. if this is 4.0, for every 1 seconds of input timestamp difference, the output shall differ
+ * by 4 seconds.
  */
 typedef C2GlobalParam<C2Tuning, C2FloatValue, kParamIndexTimeStretch> C2ComponentTimeStretchTuning;
 constexpr char C2_PARAMKEY_TIME_STRETCH[]  = "algo.time-stretch";
@@ -1462,8 +1462,6 @@ C2ENUM(C2Color::matrix_t, uint32_t,
 constexpr C2Color::matrix_t MATRIX_BT470_6M = MATRIX_FCC47_73_682; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT709_5 = MATRIX_BT709; // deprecated
 constexpr C2Color::matrix_t MATRIX_BT601_6 = MATRIX_BT601; // deprecated
-constexpr C2Color::matrix_t MATRIX_SMPTE240M = MATRIX_240M; // deprecated
-constexpr C2Color::matrix_t MATRIX_BT2020CONSTANT = MATRIX_BT2020_CONSTANT; // deprecated
 
 struct C2ColorAspectsStruct {
     C2Color::range_t range;

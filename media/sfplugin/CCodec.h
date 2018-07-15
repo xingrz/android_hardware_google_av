@@ -164,6 +164,7 @@ private:
     Mutexed<NamedTimePoint> mDeadline;
     std::atomic_int32_t mQueuedWorkCount;
     Mutexed<NamedTimePoint> mQueueDeadline;
+    Mutexed<NamedTimePoint> mEosDeadline;
     typedef CCodecConfig Config;
     Mutexed<Config> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
