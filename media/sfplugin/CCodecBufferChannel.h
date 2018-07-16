@@ -131,6 +131,14 @@ public:
             std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
             const C2StreamInitDataInfo::output *initData);
 
+    /**
+     * Make an input buffer available for the client as it is no longer needed
+     * by the codec.
+     *
+     * @param buffer The buffer that becomes unused.
+     */
+    void onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer);
+
     enum MetaMode {
         MODE_NONE,
         MODE_ANW,

@@ -132,6 +132,13 @@ public:
             const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) = 0;
 
     /**
+     * Release the buffer that is no longer used by the codec process. Return
+     * true if and only if the buffer was on file and released successfully.
+     */
+    virtual bool expireComponentBuffer(
+            const std::shared_ptr<C2Buffer> &c2buffer) = 0;
+
+    /**
      * Flush internal state. After this call, no index or buffer previously
      * returned from requestNewBuffer() is valid.
      */
@@ -267,8 +274,8 @@ namespace {
 
 // TODO: get this info from component
 const static size_t kMinInputBufferArraySize = 8;
-const static size_t kMaxPipelineCapacity = 16;
-const static size_t kChannelOutputDelay = 2;
+const static size_t kMaxPipelineCapacity = 18;
+const static size_t kChannelOutputDelay = 0;
 const static size_t kMinOutputBufferArraySize = kMaxPipelineCapacity +
                                                 kChannelOutputDelay;
 const static size_t kLinearBufferSize = 1048576;
@@ -476,6 +483,21 @@ public:
         return true;
     }
 
+    bool expireComponentBuffer(const std::shared_ptr<C2Buffer> &c2buffer) {
+        for (size_t i = 0; i < mBuffers.size(); ++i) {
+            std::shared_ptr<C2Buffer> compBuffer =
+                    mBuffers[i].compBuffer.lock();
+            if (!compBuffer || compBuffer != c2buffer) {
+                continue;
+            }
+            mBuffers[i].clientBuffer = nullptr;
+            mBuffers[i].compBuffer.reset();
+            return true;
+        }
+        ALOGV("[%s] codec released an unknown buffer", mName);
+        return false;
+    }
+
     void flush() {
         ALOGV("[%s] buffers are flushed %zu", mName, mBuffers.size());
         mBuffers.clear();
@@ -599,6 +621,28 @@ public:
         return true;
     }
 
+    bool expireComponentBuffer(const std::shared_ptr<C2Buffer> &c2buffer) {
+        for (size_t i = 0; i < mBuffers.size(); ++i) {
+            std::shared_ptr<C2Buffer> compBuffer =
+                    mBuffers[i].compBuffer.lock();
+            if (!compBuffer) {
+                continue;
+            }
+            if (c2buffer == compBuffer) {
+                if (mBuffers[i].ownedByClient) {
+                    // This should not happen.
+                    ALOGD("[%s] codec released a buffer owned by client "
+                          "(index %zu)", mName, i);
+                    mBuffers[i].ownedByClient = false;
+                }
+                mBuffers[i].compBuffer.reset();
+                return true;
+            }
+        }
+        ALOGV("[%s] codec released an unknown buffer (array mode)", mName);
+        return false;
+    }
+
     /**
      * Populate |array| with the underlying buffer array.
      *
@@ -672,6 +716,11 @@ public:
         return mImpl.returnBuffer(buffer, c2buffer);
     }
 
+    bool expireComponentBuffer(
+            const std::shared_ptr<C2Buffer> &c2buffer) override {
+        return mImpl.expireComponentBuffer(c2buffer);
+    }
+
     void flush() override {
         mImpl.flush();
     }
@@ -707,6 +756,11 @@ public:
     bool releaseBuffer(
             const sp<MediaCodecBuffer> &buffer, std::shared_ptr<C2Buffer> *c2buffer) override {
         return mImpl.releaseSlot(buffer, c2buffer);
+    }
+
+    bool expireComponentBuffer(
+            const std::shared_ptr<C2Buffer> &c2buffer) override {
+        return mImpl.expireComponentBuffer(c2buffer);
     }
 
     void flush() override {
@@ -839,6 +893,11 @@ public:
         return mImpl.releaseSlot(buffer, c2buffer);
     }
 
+    bool expireComponentBuffer(
+            const std::shared_ptr<C2Buffer> &c2buffer) override {
+        return mImpl.expireComponentBuffer(c2buffer);
+    }
+
     void flush() override {
         // This is no-op by default unless we're in array mode where we need to keep
         // track of the flushed work.
@@ -897,6 +956,10 @@ public:
         return mImpl.releaseSlot(buffer, c2buffer);
     }
 
+    bool expireComponentBuffer(
+            const std::shared_ptr<C2Buffer> &c2buffer) override {
+        return mImpl.expireComponentBuffer(c2buffer);
+    }
     void flush() override {
         // This is no-op by default unless we're in array mode where we need to keep
         // track of the flushed work.
@@ -938,6 +1001,9 @@ public:
         return false;
     }
 
+    bool expireComponentBuffer(const std::shared_ptr<C2Buffer> &) override {
+        return false;
+    }
     void flush() override {
     }
 
@@ -2141,6 +2207,18 @@ void CCodecBufferChannel::onWorkDone(
         mAvailablePipelineCapacity.freeOutputSlot("onWorkDone");
     }
     feedInputBufferIfAvailable();
+}
+
+void CCodecBufferChannel::onInputBufferDone(
+        const std::shared_ptr<C2Buffer>& buffer) {
+    bool newInputSlotAvailable;
+    {
+        Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+        newInputSlotAvailable = (*buffers)->expireComponentBuffer(buffer);
+    }
+    if (newInputSlotAvailable) {
+        feedInputBufferIfAvailable();
+    }
 }
 
 bool CCodecBufferChannel::handleWork(

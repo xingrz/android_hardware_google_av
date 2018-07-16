@@ -479,6 +479,14 @@ struct CCodec::ClientListener : public Codec2Client::Listener {
         (void)renderedFrames;
     }
 
+    virtual void onInputBufferDone(
+            const std::shared_ptr<C2Buffer>& buffer) override {
+        sp<CCodec> codec(mCodec.promote());
+        if (codec) {
+            codec->onInputBufferDone(buffer);
+        }
+    }
+
 private:
     wp<CCodec> mCodec;
 };
@@ -1384,6 +1392,10 @@ void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
         queue->splice(queue->end(), workItems);
     }
     (new AMessage(kWhatWorkDone, this))->post();
+}
+
+void CCodec::onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer) {
+    mChannel->onInputBufferDone(buffer);
 }
 
 void CCodec::onMessageReceived(const sp<AMessage> &msg) {
