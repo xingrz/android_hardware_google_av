@@ -825,7 +825,12 @@ void Codec2Client::Component::handleOnWorkDone(
     std::vector<uint64_t> inputDone;
     for (const std::unique_ptr<C2Work> &work : workItems) {
         if (work) {
-            inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
+            if (work->worklets.empty()
+                    || !work->worklets.back()
+                    || (work->worklets.back()->output.flags & C2FrameData::FLAG_INCOMPLETE) == 0) {
+                // input is complete
+                inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
+            }
         }
     }
 
