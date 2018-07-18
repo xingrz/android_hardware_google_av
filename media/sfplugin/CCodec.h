@@ -93,7 +93,10 @@ private:
     status_t setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface);
     void setParameters(const sp<AMessage> &params);
 
-    void setDeadline(const TimePoint &deadline, const char *name);
+    void setDeadline(
+            const TimePoint &now,
+            const std::chrono::milliseconds &timeout,
+            const char *name);
 
     void onWorkQueued(bool eos);
     void subQueuedWorkCount(uint32_t count);
