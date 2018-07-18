@@ -128,7 +128,7 @@ bool contains(std::map<T, std::set<U>> *mapOfSet, T key, U value) {
 }
 
 int32_t Accessor::Impl::sPid = getpid();
-uint32_t Accessor::Impl::sSeqId = time(NULL);
+uint32_t Accessor::Impl::sSeqId = time(nullptr);
 
 Accessor::Impl::Impl(
         const std::shared_ptr<BufferPoolAllocator> &allocator)

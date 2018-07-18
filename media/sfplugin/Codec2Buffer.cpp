@@ -562,7 +562,7 @@ GraphicMetadataBuffer::GraphicMetadataBuffer(
         const std::shared_ptr<C2Allocator> &alloc)
     : Codec2Buffer(format, new ABuffer(sizeof(VideoNativeMetadata))),
       mAlloc(alloc) {
-    ((VideoNativeMetadata *)base())->pBuffer = 0;
+    ((VideoNativeMetadata *)base())->pBuffer = nullptr;
 }
 
 std::shared_ptr<C2Buffer> GraphicMetadataBuffer::asC2Buffer() {

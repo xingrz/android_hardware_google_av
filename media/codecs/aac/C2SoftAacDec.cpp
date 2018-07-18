@@ -239,10 +239,10 @@ C2SoftAacDec::C2SoftAacDec(
         const std::shared_ptr<IntfImpl> &intfImpl)
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
-      mAACDecoder(NULL),
-      mStreamInfo(NULL),
+      mAACDecoder(nullptr),
+      mStreamInfo(nullptr),
       mSignalledError(false),
-      mOutputDelayRingBuffer(NULL) {
+      mOutputDelayRingBuffer(nullptr) {
 }
 
 C2SoftAacDec::~C2SoftAacDec() {
@@ -279,11 +279,11 @@ void C2SoftAacDec::onReset() {
 void C2SoftAacDec::onRelease() {
     if (mAACDecoder) {
         aacDecoder_Close(mAACDecoder);
-        mAACDecoder = NULL;
+        mAACDecoder = nullptr;
     }
     if (mOutputDelayRingBuffer) {
         delete[] mOutputDelayRingBuffer;
-        mOutputDelayRingBuffer = NULL;
+        mOutputDelayRingBuffer = nullptr;
     }
 }
 
@@ -291,9 +291,9 @@ status_t C2SoftAacDec::initDecoder() {
     ALOGV("initDecoder()");
     status_t status = UNKNOWN_ERROR;
     mAACDecoder = aacDecoder_Open(TT_MP4_ADIF, /* num layers */ 1);
-    if (mAACDecoder != NULL) {
+    if (mAACDecoder != nullptr) {
         mStreamInfo = aacDecoder_GetStreamInfo(mAACDecoder);
-        if (mStreamInfo != NULL) {
+        if (mStreamInfo != nullptr) {
             status = OK;
         }
     }
@@ -305,7 +305,7 @@ status_t C2SoftAacDec::initDecoder() {
     mOutputDelayRingBufferReadPos = 0;
     mOutputDelayRingBufferFilled = 0;
 
-    if (mAACDecoder == NULL) {
+    if (mAACDecoder == nullptr) {
         ALOGE("AAC decoder is null. TODO: Can not call aacDecoder_SetParam in the following code");
     }
 
@@ -401,7 +401,7 @@ int32_t C2SoftAacDec::outputDelayRingBufferGetSamples(INT_PCM *samples, int32_t 
             && (mOutputDelayRingBufferWritePos < mOutputDelayRingBufferReadPos
                     || mOutputDelayRingBufferWritePos >= mOutputDelayRingBufferReadPos + numSamples)) {
         // faster memcopy loop without checks, if the preconditions allow this
-        if (samples != 0) {
+        if (samples != nullptr) {
             for (int32_t i = 0; i < numSamples; i++) {
                 samples[i] = mOutputDelayRingBuffer[mOutputDelayRingBufferReadPos++];
             }
@@ -415,7 +415,7 @@ int32_t C2SoftAacDec::outputDelayRingBufferGetSamples(INT_PCM *samples, int32_t 
         ALOGV("slow C2SoftAacDec::outputDelayRingBufferGetSamples()");
 
         for (int32_t i = 0; i < numSamples; i++) {
-            if (samples != 0) {
+            if (samples != nullptr) {
                 samples[i] = mOutputDelayRingBuffer[mOutputDelayRingBufferReadPos];
             }
             mOutputDelayRingBufferReadPos++;
@@ -784,7 +784,7 @@ void C2SoftAacDec::process(
         if (discard > toCompensate) {
             discard = toCompensate;
         }
-        int32_t discarded = outputDelayRingBufferGetSamples(0, discard);
+        int32_t discarded = outputDelayRingBufferGetSamples(nullptr, discard);
         mOutputDelayCompensated += discarded;
         return;
     }
@@ -849,7 +849,7 @@ c2_status_t C2SoftAacDec::onFlush_sm() {
         if (avail > mStreamInfo->frameSize * mStreamInfo->numChannels) {
             avail = mStreamInfo->frameSize * mStreamInfo->numChannels;
         }
-        int32_t ns = outputDelayRingBufferGetSamples(0, avail);
+        int32_t ns = outputDelayRingBufferGetSamples(nullptr, avail);
         if (ns != avail) {
             ALOGW("not a complete frame of samples available");
             break;

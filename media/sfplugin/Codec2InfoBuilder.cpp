@@ -77,7 +77,7 @@ status_t queryOmxCapabilities(
         MediaCodecInfo::CapabilitiesWriter* caps) {
 
     const char *role = GetComponentRole(isEncoder, mime);
-    if (role == NULL) {
+    if (role == nullptr) {
         return BAD_VALUE;
     }
 
@@ -224,7 +224,7 @@ status_t queryOmxCapabilities(
     }
 
     if (isVideo && !isEncoder) {
-        native_handle_t *sidebandHandle = NULL;
+        native_handle_t *sidebandHandle = nullptr;
         if (omxNode->configureVideoTunnelMode(
                 kPortIndexOutput, OMX_TRUE, 0, &sidebandHandle) == OK) {
             // tunneled playback includes adaptive playback

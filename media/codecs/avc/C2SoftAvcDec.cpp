@@ -789,7 +789,7 @@ void C2SoftAvcDec::process(
                 return;
             }
             WORD32 delay;
-            GETTIME(&mTimeStart, NULL);
+            GETTIME(&mTimeStart, nullptr);
             TIME_DIFF(mTimeEnd, mTimeStart, delay);
             (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
             WORD32 decodeTime;
