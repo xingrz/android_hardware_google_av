@@ -28,7 +28,7 @@ Return<void> Connection::fetch(uint64_t transactionId, uint32_t bufferId, fetch_
     ResultStatus status = ResultStatus::CRITICAL_ERROR;
     if (mInitialized && mAccessor) {
         if (bufferId != SYNC_BUFFERID) {
-            const native_handle_t *handle = NULL;
+            const native_handle_t *handle = nullptr;
             status = mAccessor->fetch(
                     mConnectionId, transactionId, bufferId, &handle);
             if (status == ResultStatus::OK) {

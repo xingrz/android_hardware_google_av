@@ -245,7 +245,7 @@ private:
     std::atomic_bool mInputMetEos;
 
     inline bool hasCryptoOrDescrambler() {
-        return mCrypto != NULL || mDescrambler != NULL;
+        return mCrypto != nullptr || mDescrambler != nullptr;
     }
 };
 

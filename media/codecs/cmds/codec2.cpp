@@ -155,7 +155,7 @@ SimplePlayer::SimplePlayer()
             HAL_PIXEL_FORMAT_YV12);
             //PIXEL_FORMAT_RGB_565);
 
-    CHECK(mControl != NULL);
+    CHECK(mControl != nullptr);
     CHECK(mControl->isValid());
 
     SurfaceComposerClient::Transaction{}
@@ -164,7 +164,7 @@ SimplePlayer::SimplePlayer()
             .apply();
 
     mSurface = mControl->getSurface();
-    CHECK(mSurface != NULL);
+    CHECK(mSurface != nullptr);
     mSurface->connect(NATIVE_WINDOW_API_CPU, mProducerListener);
 }
 
@@ -305,7 +305,7 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
         } else {
             status_t err = source->read(&buffer);
             if (err != OK) {
-                CHECK(buffer == NULL);
+                CHECK(buffer == nullptr);
 
                 if (err == INFO_FORMAT_CHANGED) {
                     continue;
@@ -367,7 +367,7 @@ void SimplePlayer::play(const sp<IMediaSource> &source) {
 
         if (buffer) {
             buffer->release();
-            buffer = NULL;
+            buffer = nullptr;
         }
 
         ++numFrames;
@@ -419,9 +419,9 @@ int main(int argc, char **argv) {
         const char *filename = argv[k];
 
         sp<DataSource> dataSource =
-            DataSourceFactory::CreateFromURI(NULL /* httpService */, filename);
+            DataSourceFactory::CreateFromURI(nullptr /* httpService */, filename);
 
-        if (strncasecmp(filename, "sine:", 5) && dataSource == NULL) {
+        if (strncasecmp(filename, "sine:", 5) && dataSource == nullptr) {
             fprintf(stderr, "Unable to create data source.\n");
             return 1;
         }
@@ -431,14 +431,14 @@ int main(int argc, char **argv) {
 
         sp<IMediaExtractor> extractor = MediaExtractorFactory::Create(dataSource);
 
-        if (extractor == NULL) {
+        if (extractor == nullptr) {
             fprintf(stderr, "could not create extractor.\n");
             return -1;
         }
 
         sp<MetaData> meta = extractor->getMetaData();
 
-        if (meta != NULL) {
+        if (meta != nullptr) {
             const char *mime;
             if (!meta->findCString(kKeyMIMEType, &mime)) {
                 fprintf(stderr, "extractor did not provide MIME type.\n");
@@ -453,7 +453,7 @@ int main(int argc, char **argv) {
             meta = extractor->getTrackMetaData(
                     i, MediaExtractor::kIncludeExtensiveMetaData);
 
-            if (meta == NULL) {
+            if (meta == nullptr) {
                 break;
             }
             const char *mime;
@@ -464,10 +464,10 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            meta = NULL;
+            meta = nullptr;
         }
 
-        if (meta == NULL) {
+        if (meta == nullptr) {
             fprintf(stderr, "No AVC track found.\n");
             return -1;
         }

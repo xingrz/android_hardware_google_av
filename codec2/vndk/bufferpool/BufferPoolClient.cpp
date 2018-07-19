@@ -306,7 +306,7 @@ ResultStatus BufferPoolClient::Impl::allocate(
         return ResultStatus::CRITICAL_ERROR;
     }
     BufferId bufferId;
-    native_handle_t *handle = NULL;
+    native_handle_t *handle = nullptr;
     buffer->reset();
     ResultStatus status = allocateBufferHandle(params, &bufferId, &handle);
     if (status == ResultStatus::OK) {
@@ -335,7 +335,7 @@ ResultStatus BufferPoolClient::Impl::allocate(
         }
         if (!*buffer) {
             ALOGV("client cache creation failure %d: %lld",
-                  handle != NULL, (long long)mConnectionId);
+                  handle != nullptr, (long long)mConnectionId);
             status = ResultStatus::NO_MEMORY;
             postBufferRelease(bufferId);
         }
@@ -386,7 +386,7 @@ ResultStatus BufferPoolClient::Impl::receive(
             if (!mCache.mCreating) {
                 mCache.mCreating = true;
                 lock.unlock();
-                native_handle_t* handle = NULL;
+                native_handle_t* handle = nullptr;
                 status = fetchBufferHandle(transactionId, bufferId, &handle);
                 lock.lock();
                 if (status == ResultStatus::OK) {
@@ -587,7 +587,7 @@ ResultStatus BufferPoolClient::Impl::allocateBufferHandle(
         const std::vector<uint8_t>& params, BufferId *bufferId,
         native_handle_t** handle) {
     if (mLocalConnection) {
-        const native_handle_t* allocHandle = NULL;
+        const native_handle_t* allocHandle = nullptr;
         ResultStatus status = mLocalConnection->allocate(
                 params, bufferId, &allocHandle);
         if (status == ResultStatus::OK) {

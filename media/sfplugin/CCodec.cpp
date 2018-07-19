@@ -1392,7 +1392,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatAllocate: {
             // C2ComponentStore::createComponent() should return within 100ms.
-            setDeadline(now + 150ms, "allocate");
+            setDeadline(now, 150ms, "allocate");
             sp<RefBase> obj;
             CHECK(msg->findObject("codecInfo", &obj));
             allocate((MediaCodecInfo *)obj.get());
@@ -1400,7 +1400,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatConfigure: {
             // C2Component::commit_sm() should return within 5ms.
-            setDeadline(now + 50ms, "configure");
+            setDeadline(now, 50ms, "configure");
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
             configure(format);
@@ -1408,14 +1408,14 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
-            setDeadline(now + 550ms, "start");
+            setDeadline(now, 550ms, "start");
             mQueuedWorkCount = 0;
             start();
             break;
         }
         case kWhatStop: {
             // C2Component::stop() should return within 500ms.
-            setDeadline(now + 550ms, "stop");
+            setDeadline(now, 550ms, "stop");
             stop();
 
             mQueuedWorkCount = 0;
@@ -1425,19 +1425,19 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatFlush: {
             // C2Component::flush_sm() should return within 5ms.
-            setDeadline(now + 50ms, "flush");
+            setDeadline(now, 50ms, "flush");
             flush();
             break;
         }
         case kWhatCreateInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now + 100ms, "createInputSurface");
+            setDeadline(now, 100ms, "createInputSurface");
             createInputSurface();
             break;
         }
         case kWhatSetInputSurface: {
             // Surface operations may be briefly blocking.
-            setDeadline(now + 100ms, "setInputSurface");
+            setDeadline(now, 100ms, "setInputSurface");
             sp<RefBase> obj;
             CHECK(msg->findObject("surface", &obj));
             sp<PersistentSurface> surface(static_cast<PersistentSurface *>(obj.get()));
@@ -1445,7 +1445,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
         case kWhatSetParameters: {
-            setDeadline(now + 50ms, "setParameters");
+            setDeadline(now, 50ms, "setParameters");
             sp<AMessage> params;
             CHECK(msg->findMessage("params", &params));
             setParameters(params);
@@ -1542,12 +1542,16 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
     }
-    setDeadline(TimePoint::max(), "none");
+    setDeadline(TimePoint::max(), 0ms, "none");
 }
 
-void CCodec::setDeadline(const TimePoint &newDeadline, const char *name) {
+void CCodec::setDeadline(
+        const TimePoint &now,
+        const std::chrono::milliseconds &timeout,
+        const char *name) {
+    int32_t mult = std::max(1, property_get_int32("debug.stagefright.ccodec_timeout_mult", 1));
     Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
-    deadline->set(newDeadline, name);
+    deadline->set(now + (timeout * mult), name);
 }
 
 void CCodec::initiateReleaseIfStuck() {

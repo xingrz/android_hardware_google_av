@@ -144,7 +144,7 @@ C2SoftAacEnc::C2SoftAacEnc(
         const std::shared_ptr<IntfImpl> &intfImpl)
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
-      mAACEncoder(NULL),
+      mAACEncoder(nullptr),
       mSBRMode(-1),
       mSBRRatio(0),
       mAACProfile(AOT_AAC_LC),
@@ -296,7 +296,7 @@ void C2SoftAacEnc::process(
         // The very first thing we want to output is the codec specific
         // data.
 
-        if (AACENC_OK != aacEncEncode(mAACEncoder, NULL, NULL, NULL, NULL)) {
+        if (AACENC_OK != aacEncEncode(mAACEncoder, nullptr, nullptr, nullptr, nullptr)) {
             ALOGE("Unable to initialize encoder for profile / sample-rate / bit-rate / channels");
             // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;

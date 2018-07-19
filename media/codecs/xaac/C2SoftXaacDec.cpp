@@ -620,7 +620,7 @@ IA_ERRORCODE C2SoftXaacDec::configflushDecode() {
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_INIT,
                                 IA_CMD_TYPE_FLUSH_MEM,
-                                NULL);
+                                nullptr);
     RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_FLUSH_MEM");
 
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -632,7 +632,7 @@ IA_ERRORCODE C2SoftXaacDec::configflushDecode() {
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_INIT,
                                 IA_CMD_TYPE_FLUSH_MEM,
-                                NULL);
+                                nullptr);
     RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_FLUSH_MEM");
 
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
@@ -692,7 +692,7 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     /* API size */
     uint32_t pui_api_size;
     /* Get the API size */
-    IA_ERRORCODE err_code = ixheaacd_dec_api(NULL,
+    IA_ERRORCODE err_code = ixheaacd_dec_api(nullptr,
                                              IA_API_CMD_GET_API_SIZE,
                                              0,
                                              &pui_api_size);
@@ -710,11 +710,11 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_INIT,
                                 IA_CMD_TYPE_INIT_API_PRE_CONFIG_PARAMS,
-                                NULL);
+                                nullptr);
     RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_INIT_API_PRE_CONFIG_PARAMS");
 
     /* Get the API size */
-    err_code = ia_drc_dec_api(NULL, IA_API_CMD_GET_API_SIZE, 0, &pui_api_size);
+    err_code = ia_drc_dec_api(nullptr, IA_API_CMD_GET_API_SIZE, 0, &pui_api_size);
 
     RETURN_IF_FATAL(err_code, "IA_API_CMD_GET_API_SIZE");
 
@@ -728,7 +728,7 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
 
     /* Set the config params to default values */
     err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                              IA_CMD_TYPE_INIT_API_PRE_CONFIG_PARAMS, NULL);
+                              IA_CMD_TYPE_INIT_API_PRE_CONFIG_PARAMS, nullptr);
 
     RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_API_PRE_CONFIG_PARAMS");
 
@@ -772,7 +772,7 @@ IA_ERRORCODE C2SoftXaacDec::initXAACDecoder() {
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_INIT,
                                 IA_CMD_TYPE_INIT_API_POST_CONFIG_PARAMS,
-                                NULL);
+                                nullptr);
     RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_INIT_API_POST_CONFIG_PARAMS");
 
     /* ******************************************************************/
@@ -903,7 +903,7 @@ IA_ERRORCODE C2SoftXaacDec::deInitXAACDecoder() {
         err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                     IA_API_CMD_INPUT_OVER,
                                     0,
-                                    NULL);
+                                    nullptr);
     }
 
     /* Irrespective of error returned in IA_API_CMD_INPUT_OVER, free allocated memory */
@@ -948,14 +948,14 @@ IA_ERRORCODE C2SoftXaacDec::configXAACDecoder(uint8_t* inBuffer, uint32_t inBuff
         err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                     IA_API_CMD_INIT,
                                     IA_CMD_TYPE_GA_HDR,
-                                    NULL);
+                                    nullptr);
         RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_GA_HDR");
     } else {
         /* Initialize the process */
         err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                     IA_API_CMD_INIT,
                                     IA_CMD_TYPE_INIT_PROCESS,
-                                    NULL);
+                                    nullptr);
         RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_INIT_PROCESS");
     }
 
@@ -1011,7 +1011,7 @@ IA_ERRORCODE C2SoftXaacDec::initMPEGDDDrc() {
         RETURN_IF_FATAL(err_code, "IA_API_CMD_GET_MEM_INFO_TYPE");
 
         pv_alloc_ptr = memalign(4, ui_size);
-        if (pv_alloc_ptr == NULL) {
+        if (pv_alloc_ptr == nullptr) {
             ALOGE(" Cannot create requested memory  %d", ui_size);
             return IA_FATAL_ERROR;
         }
@@ -1027,7 +1027,7 @@ IA_ERRORCODE C2SoftXaacDec::initMPEGDDDrc() {
     ui_size = 8192 * 2;
 
     mDrcInBuf = (int8_t*)memalign(4, ui_size);
-    if (mDrcInBuf == NULL) {
+    if (mDrcInBuf == nullptr) {
         ALOGE(" Cannot create requested memory  %d", ui_size);
         return IA_FATAL_ERROR;
     }
@@ -1037,7 +1037,7 @@ IA_ERRORCODE C2SoftXaacDec::initMPEGDDDrc() {
     RETURN_IF_FATAL(err_code, "IA_API_CMD_SET_MEM_PTR");
 
     mDrcOutBuf = (int8_t*)memalign(4, ui_size);
-    if (mDrcOutBuf == NULL) {
+    if (mDrcOutBuf == nullptr) {
         ALOGE(" Cannot create requested memory  %d", ui_size);
         return IA_FATAL_ERROR;
     }
@@ -1103,7 +1103,7 @@ int C2SoftXaacDec::configMPEGDDrc() {
     RETURN_IF_FATAL(err_code, "IA_ENHAACPLUS_DEC_CONFIG_PARAM_SBR_MODE");
 
     err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                              IA_CMD_TYPE_INIT_API_POST_CONFIG_PARAMS, NULL);
+                              IA_CMD_TYPE_INIT_API_POST_CONFIG_PARAMS, nullptr);
 
     RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_API_POST_CONFIG_PARAMS");
 
@@ -1142,7 +1142,7 @@ int C2SoftXaacDec::configMPEGDDrc() {
         RETURN_IF_FATAL(err_code, "IA_ENHAACPLUS_DEC_CONFIG_EXT_ELE_PTR");
 
         err_code =
-            ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT, IA_CMD_TYPE_INIT_SET_BUFF_PTR, 0);
+            ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT, IA_CMD_TYPE_INIT_SET_BUFF_PTR, nullptr);
         RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_SET_BUFF_PTR");
 
         err_code = ixheaacd_dec_api(mXheaacCodecHandle, IA_API_CMD_GET_CONFIG_PARAM,
@@ -1170,7 +1170,7 @@ int C2SoftXaacDec::configMPEGDDrc() {
 
                 /* Execute process */
                 err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                                          IA_CMD_TYPE_INIT_CPY_IL_BSF_BUFF, NULL);
+                                          IA_CMD_TYPE_INIT_CPY_IL_BSF_BUFF, nullptr);
                 RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_CPY_IL_BSF_BUFF");
 
                 mDRCFlag = 1;
@@ -1194,7 +1194,7 @@ int C2SoftXaacDec::configMPEGDDrc() {
 
                 /* Execute process */
                 err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                                          IA_CMD_TYPE_INIT_CPY_IC_BSF_BUFF, NULL);
+                                          IA_CMD_TYPE_INIT_CPY_IC_BSF_BUFF, nullptr);
 
                 RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_CPY_IC_BSF_BUFF");
 
@@ -1235,11 +1235,11 @@ int C2SoftXaacDec::configMPEGDDrc() {
 
             /* Execute process */
             err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                                      IA_CMD_TYPE_INIT_CPY_IN_BSF_BUFF, NULL);
+                                      IA_CMD_TYPE_INIT_CPY_IN_BSF_BUFF, nullptr);
             RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_CPY_IN_BSF_BUFF");
 
             err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                                      IA_CMD_TYPE_INIT_PROCESS, NULL);
+                                      IA_CMD_TYPE_INIT_PROCESS, nullptr);
             RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_INIT_PROCESS");
 
             err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_GET_CONFIG_PARAM,
@@ -1273,7 +1273,7 @@ IA_ERRORCODE C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
     err_code = ixheaacd_dec_api(mXheaacCodecHandle,
                                 IA_API_CMD_EXECUTE,
                                 IA_CMD_TYPE_DO_EXECUTE,
-                                NULL);
+                                nullptr);
     RETURN_IF_FATAL(err_code,  "IA_CMD_TYPE_DO_EXECUTE");
 
     /* Checking for end of processing */
@@ -1316,7 +1316,7 @@ IA_ERRORCODE C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
 
             /* Execute process */
             err_code = ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_INIT,
-                                      IA_CMD_TYPE_INIT_CPY_BSF_BUFF, NULL);
+                                      IA_CMD_TYPE_INIT_CPY_BSF_BUFF, nullptr);
             RETURN_IF_FATAL(err_code, "IA_DRC_DEC_CONFIG_PARAM_BITS_FORMAT");
 
             mMpegDDRCPresent = 1;
@@ -1343,7 +1343,7 @@ IA_ERRORCODE C2SoftXaacDec::decodeXAACStream(uint8_t* inBuffer,
         RETURN_IF_FATAL(err_code, "IA_API_CMD_SET_INPUT_BYTES");
 
         err_code =
-            ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_EXECUTE, IA_CMD_TYPE_DO_EXECUTE, NULL);
+            ia_drc_dec_api(mMpegDDrcHandle, IA_API_CMD_EXECUTE, IA_CMD_TYPE_DO_EXECUTE, nullptr);
         RETURN_IF_FATAL(err_code, "IA_CMD_TYPE_DO_EXECUTE");
 
         memcpy(mOutputBuffer, mDrcOutBuf, *outBytes);

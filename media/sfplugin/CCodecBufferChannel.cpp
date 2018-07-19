@@ -1423,7 +1423,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
         hidl_string detailedError;
 
         auto returnVoid = mDescrambler->descramble(
-                key != NULL ? (ScramblingControl)key[0] : ScramblingControl::UNSCRAMBLED,
+                key != nullptr ? (ScramblingControl)key[0] : ScramblingControl::UNSCRAMBLED,
                 hidlSubSamples,
                 srcBuffer,
                 0,

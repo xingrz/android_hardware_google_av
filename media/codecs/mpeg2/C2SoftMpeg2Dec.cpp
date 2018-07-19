@@ -873,7 +873,7 @@ void C2SoftMpeg2Dec::process(
         // If input dump is enabled, then write to file
         DUMP_TO_FILE(mInFile, s_decode_ip.pv_stream_buffer, s_decode_ip.u4_num_Bytes);
         WORD32 delay;
-        GETTIME(&mTimeStart, NULL);
+        GETTIME(&mTimeStart, nullptr);
         TIME_DIFF(mTimeEnd, mTimeStart, delay);
         (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         WORD32 decodeTime;
