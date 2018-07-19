@@ -28,6 +28,7 @@
 #include <C2Debug.h>
 
 #include <android/hardware/cas/native/1.0/IDescrambler.h>
+#include <android-base/stringprintf.h>
 #include <binder/MemoryDealer.h>
 #include <gui/Surface.h>
 #include <media/openmax/OMX_Core.h>
@@ -47,6 +48,7 @@
 
 namespace android {
 
+using android::base::StringPrintf;
 using hardware::hidl_handle;
 using hardware::hidl_string;
 using hardware::hidl_vec;
@@ -60,7 +62,11 @@ using CasStatus = hardware::cas::V1_0::Status;
  */
 class CCodecBufferChannel::Buffers {
 public:
-    Buffers() = default;
+    Buffers(const char *componentName, const char *name = "Buffers")
+        : mComponentName(componentName),
+          mChannelName(std::string(componentName) + ":" + name),
+          mName(mChannelName.c_str()) {
+    }
     virtual ~Buffers() = default;
 
     /**
@@ -90,6 +96,9 @@ public:
     virtual void getArray(Vector<sp<MediaCodecBuffer>> *) const {}
 
 protected:
+    std::string mComponentName; ///< name of component for debugging
+    std::string mChannelName; ///< name of channel for debugging
+    const char *mName; ///< C-string version of channel name
     // Format to be used for creating MediaCodec-facing buffers.
     sp<AMessage> mFormat;
 
@@ -99,7 +108,8 @@ private:
 
 class CCodecBufferChannel::InputBuffers : public CCodecBufferChannel::Buffers {
 public:
-    InputBuffers() = default;
+    InputBuffers(const char *componentName, const char *name = "Input[]")
+        : Buffers(componentName, name) { }
     virtual ~InputBuffers() = default;
 
     /**
@@ -144,7 +154,8 @@ private:
 
 class CCodecBufferChannel::OutputBuffers : public CCodecBufferChannel::Buffers {
 public:
-    OutputBuffers() = default;
+    OutputBuffers(const char *componentName, const char *name = "Output")
+        : Buffers(componentName, name) { }
     virtual ~OutputBuffers() = default;
 
     /**
@@ -243,7 +254,7 @@ private:
         if (mSkipCutBuffer != nullptr) {
             size_t prevSize = mSkipCutBuffer->size();
             if (prevSize != 0u) {
-                ALOGD("Replacing SkipCutBuffer holding %zu bytes", prevSize);
+                ALOGD("[%s] Replacing SkipCutBuffer holding %zu bytes", mName, prevSize);
             }
         }
         mSkipCutBuffer = new SkipCutBuffer(skip, cut, channelCount);
@@ -258,6 +269,8 @@ namespace {
 const static size_t kMinInputBufferArraySize = 8;
 const static size_t kMinOutputBufferArraySize = 16;
 const static size_t kLinearBufferSize = 1048576;
+// This can fit 4K RGBA frame, and most likely client won't need more than this.
+const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
 
 /**
  * Simple local buffer pool backed by std::vector.
@@ -403,7 +416,9 @@ class BuffersArrayImpl;
  */
 class FlexBuffersImpl {
 public:
-    FlexBuffersImpl() = default;
+    FlexBuffersImpl(const char *name)
+        : mImplName(std::string(name) + ".Impl"),
+          mName(mImplName.c_str()) { }
 
     /**
      * Assign an empty slot for a buffer and return the index. If there's no
@@ -447,7 +462,7 @@ public:
             }
         }
         if (clientBuffer == nullptr) {
-            ALOGV("%s: No matching buffer found", __func__);
+            ALOGV("[%s] %s: No matching buffer found", mName, __func__);
             return false;
         }
         std::shared_ptr<C2Buffer> result = clientBuffer->asC2Buffer();
@@ -458,8 +473,16 @@ public:
         return true;
     }
 
+    void flush() {
+        ALOGV("[%s] buffers are flushed %zu", mName, mBuffers.size());
+        mBuffers.clear();
+    }
+
 private:
     friend class BuffersArrayImpl;
+
+    std::string mImplName; ///< name for debugging
+    const char *mName; ///< C-string version of name
 
     struct Entry {
         sp<Codec2Buffer> clientBuffer;
@@ -473,6 +496,10 @@ private:
  */
 class BuffersArrayImpl {
 public:
+    BuffersArrayImpl()
+        : mImplName("BuffersArrayImpl"),
+          mName(mImplName.c_str()) { }
+
     /**
      * Initialize buffer array from the original |impl|. The buffers known by
      * the client is preserved, and the empty slots are populated so that the
@@ -486,6 +513,8 @@ public:
             const FlexBuffersImpl &impl,
             size_t minSize,
             std::function<sp<Codec2Buffer>()> allocate) {
+        mImplName = impl.mImplName + "[N]";
+        mName = mImplName.c_str();
         for (size_t i = 0; i < impl.mBuffers.size(); ++i) {
             sp<Codec2Buffer> clientBuffer = impl.mBuffers[i].clientBuffer;
             bool ownedByClient = (clientBuffer != nullptr);
@@ -494,6 +523,7 @@ public:
             }
             mBuffers.push_back({ clientBuffer, impl.mBuffers[i].compBuffer, ownedByClient });
         }
+        ALOGV("[%s] converted %zu buffers to array mode of %zu", mName, mBuffers.size(), minSize);
         for (size_t i = impl.mBuffers.size(); i < minSize; ++i) {
             mBuffers.push_back({ allocate(), std::weak_ptr<C2Buffer>(), false });
         }
@@ -545,7 +575,7 @@ public:
         for (size_t i = 0; i < mBuffers.size(); ++i) {
             if (mBuffers[i].clientBuffer == buffer) {
                 if (!mBuffers[i].ownedByClient) {
-                    ALOGD("Client returned a buffer it does not own according to our record: %zu", i);
+                    ALOGD("[%s] Client returned a buffer it does not own according to our record: %zu", mName, i);
                 }
                 clientBuffer = mBuffers[i].clientBuffer;
                 mBuffers[i].ownedByClient = false;
@@ -554,10 +584,10 @@ public:
             }
         }
         if (clientBuffer == nullptr) {
-            ALOGV("%s: No matching buffer found", __func__);
+            ALOGV("[%s] %s: No matching buffer found", mName, __func__);
             return false;
         }
-        ALOGV("%s: matching buffer found (index=%zu)", __func__, index);
+        ALOGV("[%s] %s: matching buffer found (index=%zu)", mName, __func__, index);
         std::shared_ptr<C2Buffer> result = clientBuffer->asC2Buffer();
         mBuffers[index].compBuffer = result;
         if (c2buffer) {
@@ -588,6 +618,9 @@ public:
     }
 
 private:
+    std::string mImplName; ///< name for debugging
+    const char *mName; ///< C-string version of name
+
     struct Entry {
         const sp<Codec2Buffer> clientBuffer;
         std::weak_ptr<C2Buffer> compBuffer;
@@ -598,7 +631,8 @@ private:
 
 class InputBuffersArray : public CCodecBufferChannel::InputBuffers {
 public:
-    InputBuffersArray() = default;
+    InputBuffersArray(const char *componentName, const char *name = "Input[N]")
+        : InputBuffers(componentName, name) { }
     ~InputBuffersArray() override = default;
 
     void initialize(
@@ -644,11 +678,17 @@ private:
 
 class LinearInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
-    using CCodecBufferChannel::InputBuffers::InputBuffers;
+    LinearInputBuffers(const char *componentName, const char *name = "1D-Input")
+        : InputBuffers(componentName, name),
+          mImpl(mName) { }
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
         int32_t capacity = kLinearBufferSize;
         (void)mFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+        if ((size_t)capacity > kMaxLinearBufferSize) {
+            ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+            capacity = kMaxLinearBufferSize;
+        }
         // TODO: proper max input size
         // TODO: read usage from intf
         sp<Codec2Buffer> newBuffer = alloc((size_t)capacity);
@@ -668,13 +708,15 @@ public:
     void flush() override {
         // This is no-op by default unless we're in array mode where we need to keep
         // track of the flushed work.
+        mImpl.flush();
     }
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
         int32_t capacity = kLinearBufferSize;
         (void)mFormat->findInt32(C2_NAME_STREAM_MAX_BUFFER_SIZE_SETTING, &capacity);
 
-        std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        std::unique_ptr<InputBuffersArray> array(
+                new InputBuffersArray(mComponentName.c_str(), "1D-Input[N]"));
         array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
@@ -706,8 +748,10 @@ public:
             bool secure,
             const sp<MemoryDealer> &dealer,
             const sp<ICrypto> &crypto,
-            int32_t heapSeqNum)
-        : mUsage({0, 0}),
+            int32_t heapSeqNum,
+            const char *componentName, const char *name = "EncryptedInput")
+        : LinearInputBuffers(componentName, name),
+          mUsage({0, 0}),
           mDealer(dealer),
           mCrypto(crypto),
           mHeapSeqNum(heapSeqNum) {
@@ -719,7 +763,7 @@ public:
         for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
             sp<IMemory> memory = mDealer->allocate(kLinearBufferSize);
             if (memory == nullptr) {
-                ALOGD("Failed to allocate memory from dealer: only %zu slots allocated", i);
+                ALOGD("[%s] Failed to allocate memory from dealer: only %zu slots allocated", mName, i);
                 break;
             }
             mMemoryVector.push_back({std::weak_ptr<C2LinearBlock>(), memory});
@@ -764,7 +808,10 @@ private:
 
 class GraphicMetadataInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
-    GraphicMetadataInputBuffers() : mStore(GetCodec2PlatformAllocatorStore()) {}
+    GraphicMetadataInputBuffers(const char *componentName, const char *name = "2D-MetaInput")
+        : InputBuffers(componentName, name),
+          mImpl(mName),
+          mStore(GetCodec2PlatformAllocatorStore()) { }
     ~GraphicMetadataInputBuffers() override = default;
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
@@ -798,7 +845,8 @@ public:
         if (err != C2_OK) {
             return nullptr;
         }
-        std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        std::unique_ptr<InputBuffersArray> array(
+                new InputBuffersArray(mComponentName.c_str(), "2D-MetaInput[N]"));
         array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
@@ -817,9 +865,11 @@ private:
 
 class GraphicInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
-    GraphicInputBuffers()
-        : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) {
-    }
+    GraphicInputBuffers(const char *componentName, const char *name = "2D-BB-Input")
+        : InputBuffers(componentName, name),
+          mImpl(mName),
+          mLocalBufferPool(LocalBufferPool::Create(
+                  kMaxLinearBufferSize * kMinInputBufferArraySize)) { }
     ~GraphicInputBuffers() override = default;
 
     bool requestNewBuffer(size_t *index, sp<MediaCodecBuffer> *buffer) override {
@@ -847,7 +897,8 @@ public:
     }
 
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode() final {
-        std::unique_ptr<InputBuffersArray> array(new InputBuffersArray);
+        std::unique_ptr<InputBuffersArray> array(
+                new InputBuffersArray(mComponentName.c_str(), "2D-BB-Input[N]"));
         array->setPool(mPool);
         array->setFormat(mFormat);
         array->initialize(
@@ -868,7 +919,8 @@ private:
 
 class DummyInputBuffers : public CCodecBufferChannel::InputBuffers {
 public:
-    DummyInputBuffers() = default;
+    DummyInputBuffers(const char *componentName, const char *name = "2D-Input")
+        : InputBuffers(componentName, name) { }
 
     bool requestNewBuffer(size_t *, sp<MediaCodecBuffer> *) override {
         return false;
@@ -895,7 +947,8 @@ public:
 
 class OutputBuffersArray : public CCodecBufferChannel::OutputBuffers {
 public:
-    OutputBuffersArray() = default;
+    OutputBuffersArray(const char *componentName, const char *name = "Output[N]")
+        : OutputBuffers(componentName, name) { }
     ~OutputBuffersArray() override = default;
 
     void initialize(
@@ -923,16 +976,17 @@ public:
                     return clientBuffer->canCopy(buffer);
                 });
         if (err != OK) {
-            ALOGD("grabBuffer failed: %d", err);
+            ALOGD("[%s] grabBuffer failed: %d", mName, err);
             return false;
         }
         c2Buffer->setFormat(mFormat);
         if (!c2Buffer->copy(buffer)) {
-            ALOGD("copy buffer failed");
+            ALOGD("[%s] copy buffer failed", mName);
             return false;
         }
         submit(c2Buffer);
         *clientBuffer = c2Buffer;
+        ALOGV("[%s] grabbed buffer %zu", mName, *index);
         return true;
     }
 
@@ -981,7 +1035,9 @@ private:
 
 class FlexOutputBuffers : public CCodecBufferChannel::OutputBuffers {
 public:
-    using CCodecBufferChannel::OutputBuffers::OutputBuffers;
+    FlexOutputBuffers(const char *componentName, const char *name = "Output[]")
+        : OutputBuffers(componentName, name),
+          mImpl(mName) { }
 
     bool registerBuffer(
             const std::shared_ptr<C2Buffer> &buffer,
@@ -991,6 +1047,7 @@ public:
         newBuffer->setFormat(mFormat);
         *index = mImpl.assignSlot(newBuffer);
         *clientBuffer = newBuffer;
+        ALOGV("[%s] registered buffer %zu", mName, *index);
         return true;
     }
 
@@ -1018,7 +1075,7 @@ public:
     }
 
     std::unique_ptr<CCodecBufferChannel::OutputBuffers> toArrayMode() override {
-        std::unique_ptr<OutputBuffersArray> array(new OutputBuffersArray);
+        std::unique_ptr<OutputBuffersArray> array(new OutputBuffersArray(mComponentName.c_str()));
         array->setFormat(mFormat);
         array->transferSkipCutBuffer(mSkipCutBuffer);
         array->initialize(
@@ -1051,7 +1108,8 @@ private:
 
 class LinearOutputBuffers : public FlexOutputBuffers {
 public:
-    using FlexOutputBuffers::FlexOutputBuffers;
+    LinearOutputBuffers(const char *componentName, const char *name = "1D-Output")
+        : FlexOutputBuffers(componentName, name) { }
 
     void flush(
             const std::list<std::unique_ptr<C2Work>> &flushedWork) override {
@@ -1063,13 +1121,16 @@ public:
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override {
         if (buffer == nullptr) {
-            return new DummyContainerBuffer(mFormat, buffer);
+            ALOGV("[%s] using a dummy buffer", mName);
+            return new LocalLinearBuffer(mFormat, new ABuffer(0));
         }
         if (buffer->data().type() != C2BufferData::LINEAR) {
+            ALOGV("[%s] non-linear buffer %d", mName, buffer->data().type());
             // We expect linear output buffers from the component.
             return nullptr;
         }
         if (buffer->data().linearBlocks().size() != 1u) {
+            ALOGV("[%s] no linear buffers", mName);
             // We expect one and only one linear block from the component.
             return nullptr;
         }
@@ -1086,7 +1147,8 @@ public:
 
 class GraphicOutputBuffers : public FlexOutputBuffers {
 public:
-    using FlexOutputBuffers::FlexOutputBuffers;
+    GraphicOutputBuffers(const char *componentName, const char *name = "2D-Output")
+        : FlexOutputBuffers(componentName, name) { }
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override {
         return new DummyContainerBuffer(mFormat, buffer);
@@ -1099,9 +1161,10 @@ public:
 
 class RawGraphicOutputBuffers : public FlexOutputBuffers {
 public:
-    RawGraphicOutputBuffers()
-        : mLocalBufferPool(LocalBufferPool::Create(1920 * 1080 * 4 * 16)) {
-    }
+    RawGraphicOutputBuffers(const char *componentName, const char *name = "2D-BB-Output")
+        : FlexOutputBuffers(componentName, name),
+          mLocalBufferPool(LocalBufferPool::Create(
+                  kMaxLinearBufferSize * kMinOutputBufferArraySize)) { }
     ~RawGraphicOutputBuffers() override = default;
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override {
@@ -1187,7 +1250,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mFrameIndex(0u),
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
-      mPendingFeed(0) {
+      mPendingFeed(0),
+      mInputMetEos(false) {
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
@@ -1199,11 +1263,13 @@ CCodecBufferChannel::~CCodecBufferChannel() {
 void CCodecBufferChannel::setComponent(
         const std::shared_ptr<Codec2Client::Component> &component) {
     mComponent = component;
+    mComponentName = component->getName() + StringPrintf("#%d", int(uintptr_t(component.get()) % 997));
+    mName = mComponentName.c_str();
 }
 
 status_t CCodecBufferChannel::setInputSurface(
         const std::shared_ptr<InputSurfaceWrapper> &surface) {
-    ALOGV("setInputSurface");
+    ALOGV("[%s] setInputSurface", mName);
     mInputSurface = surface;
     return mInputSurface->connect(mComponent);
 }
@@ -1224,12 +1290,13 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     bool eos = false;
     if (buffer->meta()->findInt32("eos", &tmp) && tmp) {
         eos = true;
-        ALOGV("input EOS");
+        mInputMetEos = true;
+        ALOGV("[%s] input EOS", mName);
     }
     if (buffer->meta()->findInt32("csd", &tmp) && tmp) {
         flags |= C2FrameData::FLAG_CODEC_CONFIG;
     }
-    ALOGV("queueInputBuffer: buffer->size() = %zu", buffer->size());
+    ALOGV("[%s] queueInputBuffer: buffer->size() = %zu", mName, buffer->size());
     std::unique_ptr<C2Work> work(new C2Work);
     work->input.ordinal.timestamp = timeUs;
     work->input.ordinal.frameIndex = mFrameIndex++;
@@ -1247,6 +1314,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     work->input.flags = (C2FrameData::flags_t)flags;
     // TODO: fill info's
 
+    work->input.configUpdate = std::move(mParamsToBeSet);
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
 
@@ -1255,6 +1323,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     c2_status_t err = mComponent->queue(&items);
 
     if (err == C2_OK && eos && buffer->size() > 0u) {
+        mCCodecCallback->onWorkQueued(false);
         work.reset(new C2Work);
         work->input.ordinal.timestamp = timeUs;
         work->input.ordinal.frameIndex = mFrameIndex++;
@@ -1265,15 +1334,31 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
         items.push_back(std::move(work));
         err = mComponent->queue(&items);
     }
+    if (err == C2_OK) {
+        mCCodecCallback->onWorkQueued(eos);
+    }
 
     feedInputBufferIfAvailableInternal();
     return err;
 }
 
+status_t CCodecBufferChannel::setParameters(std::vector<std::unique_ptr<C2Param>> &params) {
+    QueueGuard guard(mSync);
+    if (!guard.isRunning()) {
+        ALOGD("[%s] setParameters is only supported in the running state.", mName);
+        return -ENOSYS;
+    }
+    mParamsToBeSet.insert(mParamsToBeSet.end(),
+                          std::make_move_iterator(params.begin()),
+                          std::make_move_iterator(params.end()));
+    params.clear();
+    return OK;
+}
+
 status_t CCodecBufferChannel::queueInputBuffer(const sp<MediaCodecBuffer> &buffer) {
     QueueGuard guard(mSync);
     if (!guard.isRunning()) {
-        ALOGW("No more buffers should be queued at current state.");
+        ALOGD("[%s] No more buffers should be queued at current state.", mName);
         return -ENOSYS;
     }
     return queueInputBufferInternal(buffer);
@@ -1286,7 +1371,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
         AString *errorDetailMsg) {
     QueueGuard guard(mSync);
     if (!guard.isRunning()) {
-        ALOGW("No more buffers should be queued at current state.");
+        ALOGD("[%s] No more buffers should be queued at current state.", mName);
         return -ENOSYS;
     }
 
@@ -1353,12 +1438,12 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
                 });
 
         if (!returnVoid.isOk() || status != CasStatus::OK || result < 0) {
-            ALOGE("descramble failed, trans=%s, status=%d, result=%zd",
-                    returnVoid.description().c_str(), status, result);
+            ALOGI("[%s] descramble failed, trans=%s, status=%d, result=%zd",
+                    mName, returnVoid.description().c_str(), status, result);
             return UNKNOWN_ERROR;
         }
 
-        ALOGV("descramble succeeded, %zd bytes", result);
+        ALOGV("[%s] descramble succeeded, %zd bytes", mName, result);
 
         if (dstBuffer.type == BufferType::SHARED_MEMORY) {
             encryptedBuffer->copyDecryptedContentFromMemory(result);
@@ -1372,37 +1457,35 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
 void CCodecBufferChannel::feedInputBufferIfAvailable() {
     QueueGuard guard(mSync);
     if (!guard.isRunning()) {
-        ALOGV("We're not running --- no input buffer reported");
+        ALOGV("[%s] We're not running --- no input buffer reported", mName);
         return;
     }
     feedInputBufferIfAvailableInternal();
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    while (mPendingFeed > 0) {
+    while (!mInputMetEos && mPendingFeed > 0) {
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
             Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
             if (!(*buffers)->requestNewBuffer(&index, &inBuffer)) {
-                ALOGV("no new buffer available");
+                ALOGV("[%s] no new buffer available", mName);
                 break;
             }
         }
-        ALOGV("new input index = %zu", index);
+        ALOGV("[%s] new input index = %zu [%p]", mName, index, inBuffer.get());
         mCallback->onInputBufferAvailable(index, inBuffer);
-        ALOGV("%s: pending feed -1 from %u", __func__, mPendingFeed.load());
+        ALOGV("[%s] %s: pending feed -1 from %u", mName, __func__, mPendingFeed.load());
         --mPendingFeed;
     }
 }
 
 status_t CCodecBufferChannel::renderOutputBuffer(
         const sp<MediaCodecBuffer> &buffer, int64_t timestampNs) {
-    ALOGV("renderOutputBuffer");
-    ALOGV("%s: pending feed +1 from %u", __func__, mPendingFeed.load());
+    ALOGV("[%s] %s: pending feed +1 from %u", mName, __func__, mPendingFeed.load());
     ++mPendingFeed;
     feedInputBufferIfAvailable();
-
     std::shared_ptr<C2Buffer> c2Buffer;
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
@@ -1416,7 +1499,7 @@ status_t CCodecBufferChannel::renderOutputBuffer(
 
 #if 0
     const std::vector<std::shared_ptr<const C2Info>> infoParams = c2Buffer->info();
-    ALOGV("queuing gfx buffer with %zu infos", infoParams.size());
+    ALOGV("[%s] queuing gfx buffer with %zu infos", mName, infoParams.size());
     for (const std::shared_ptr<const C2Info> &info : infoParams) {
         AString res;
         for (size_t ix = 0; ix + 3 < info->size(); ix += 4) {
@@ -1457,84 +1540,9 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         videoScalingMode = surfaceScaling->value;
     }
 
-    // Use dataspace if component provides it. Otherwise, compose dataspace from color aspects
-    std::shared_ptr<const C2StreamDataSpaceInfo::output> dataSpaceInfo =
-        std::static_pointer_cast<const C2StreamDataSpaceInfo::output>(
-                c2Buffer->getInfo(C2StreamDataSpaceInfo::output::PARAM_TYPE));
-    uint32_t dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
-    if (dataSpaceInfo) {
-        dataSpace = dataSpaceInfo->value;
-    } else {
-        std::shared_ptr<const C2StreamColorAspectsInfo::output> colorAspects =
-            std::static_pointer_cast<const C2StreamColorAspectsInfo::output>(
-                    c2Buffer->getInfo(C2StreamColorAspectsInfo::output::PARAM_TYPE));
-        C2Color::range_t range =
-            colorAspects == nullptr ? C2Color::RANGE_UNSPECIFIED     : colorAspects->range;
-        C2Color::primaries_t primaries =
-            colorAspects == nullptr ? C2Color::PRIMARIES_UNSPECIFIED : colorAspects->primaries;
-        C2Color::transfer_t transfer =
-            colorAspects == nullptr ? C2Color::TRANSFER_UNSPECIFIED  : colorAspects->transfer;
-        C2Color::matrix_t matrix =
-            colorAspects == nullptr ? C2Color::MATRIX_UNSPECIFIED    : colorAspects->matrix;
-
-        switch (range) {
-            case C2Color::RANGE_FULL:    dataSpace |= HAL_DATASPACE_RANGE_FULL;    break;
-            case C2Color::RANGE_LIMITED: dataSpace |= HAL_DATASPACE_RANGE_LIMITED; break;
-            default: break;
-        }
-
-        switch (transfer) {
-            case C2Color::TRANSFER_LINEAR:  dataSpace |= HAL_DATASPACE_TRANSFER_LINEAR;     break;
-            case C2Color::TRANSFER_SRGB:    dataSpace |= HAL_DATASPACE_TRANSFER_SRGB;       break;
-            case C2Color::TRANSFER_170M:    dataSpace |= HAL_DATASPACE_TRANSFER_SMPTE_170M; break;
-            case C2Color::TRANSFER_GAMMA22: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_2;   break;
-            case C2Color::TRANSFER_GAMMA28: dataSpace |= HAL_DATASPACE_TRANSFER_GAMMA2_8;   break;
-            case C2Color::TRANSFER_ST2084:  dataSpace |= HAL_DATASPACE_TRANSFER_ST2084;     break;
-            case C2Color::TRANSFER_HLG:     dataSpace |= HAL_DATASPACE_TRANSFER_HLG;        break;
-            default: break;
-        }
-
-        switch (primaries) {
-            case C2Color::PRIMARIES_BT601_525:
-                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
-                                || matrix == C2Color::MATRIX_BT709)
-                        ? HAL_DATASPACE_STANDARD_BT601_525_UNADJUSTED
-                        : HAL_DATASPACE_STANDARD_BT601_525;
-                break;
-            case C2Color::PRIMARIES_BT601_625:
-                dataSpace |= (matrix == C2Color::MATRIX_SMPTE240M
-                                || matrix == C2Color::MATRIX_BT709)
-                        ? HAL_DATASPACE_STANDARD_BT601_625_UNADJUSTED
-                        : HAL_DATASPACE_STANDARD_BT601_625;
-                break;
-            case C2Color::PRIMARIES_BT2020:
-                dataSpace |= (matrix == C2Color::MATRIX_BT2020CONSTANT
-                        ? HAL_DATASPACE_STANDARD_BT2020_CONSTANT_LUMINANCE
-                        : HAL_DATASPACE_STANDARD_BT2020);
-                break;
-            case C2Color::PRIMARIES_BT470_M:
-                dataSpace |= HAL_DATASPACE_STANDARD_BT470M;
-                break;
-            case C2Color::PRIMARIES_BT709:
-                dataSpace |= HAL_DATASPACE_STANDARD_BT709;
-                break;
-            default: break;
-        }
-    }
-
-    // convert legacy dataspace values to v0 values
-    const static
-    ALookup<android_dataspace, android_dataspace> sLegacyDataSpaceToV0 {
-        {
-            { HAL_DATASPACE_SRGB, HAL_DATASPACE_V0_SRGB },
-            { HAL_DATASPACE_BT709, HAL_DATASPACE_V0_BT709 },
-            { HAL_DATASPACE_SRGB_LINEAR, HAL_DATASPACE_V0_SRGB_LINEAR },
-            { HAL_DATASPACE_BT601_525, HAL_DATASPACE_V0_BT601_525 },
-            { HAL_DATASPACE_BT601_625, HAL_DATASPACE_V0_BT601_625 },
-            { HAL_DATASPACE_JFIF, HAL_DATASPACE_V0_JFIF },
-        }
-    };
-    sLegacyDataSpaceToV0.lookup((android_dataspace_t)dataSpace, (android_dataspace_t*)&dataSpace);
+    // Use dataspace from format as it has the default aspects already applied
+    android_dataspace_t dataSpace = HAL_DATASPACE_UNKNOWN; // this is 0
+    (void)buffer->format()->findInt32("android._dataspace", (int32_t *)&dataSpace);
 
     // HDR static info
     std::shared_ptr<const C2StreamHdrStaticInfo::output> hdrStaticInfo =
@@ -1544,14 +1552,14 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
         if (output->surface == nullptr) {
-            ALOGE("no surface");
+            ALOGI("[%s] cannot render buffer without surface", mName);
             return OK;
         }
     }
 
     std::vector<C2ConstGraphicBlock> blocks = c2Buffer->data().graphicBlocks();
     if (blocks.size() != 1u) {
-        ALOGE("# of graphic blocks expected to be 1, but %zu", blocks.size());
+        ALOGD("[%s] expected 1 graphic block, but got %zu", mName, blocks.size());
         return UNKNOWN_ERROR;
     }
     const C2ConstGraphicBlock &block = blocks.front();
@@ -1559,8 +1567,8 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     // TODO: revisit this after C2Fence implementation.
     android::IGraphicBufferProducer::QueueBufferInput qbi(
             timestampNs,
-            false,
-            (android_dataspace_t)dataSpace,
+            false, // droppable
+            dataSpace,
             Rect(blocks.front().crop().left,
                  blocks.front().crop().top,
                  blocks.front().crop().right(),
@@ -1600,10 +1608,10 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     android::IGraphicBufferProducer::QueueBufferOutput qbo;
     status_t result = mComponent->queueToOutputSurface(block, qbi, &qbo);
     if (result != OK) {
-        ALOGE("queueBuffer failed: %d", result);
+        ALOGI("[%s] queueBuffer failed: %d", mName, result);
         return result;
     }
-    ALOGV("queue buffer successful");
+    ALOGV("[%s] queue buffer successful", mName);
 
     int64_t mediaTimeUs = 0;
     (void)buffer->meta()->findInt64("timeUs", &mediaTimeUs);
@@ -1613,7 +1621,7 @@ status_t CCodecBufferChannel::renderOutputBuffer(
 }
 
 status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) {
-    ALOGV("discardBuffer: %p", buffer.get());
+    ALOGV("[%s] discardBuffer: %p", mName, buffer.get());
     bool released = false;
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
@@ -1625,13 +1633,13 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         if (*buffers && (*buffers)->releaseBuffer(buffer, nullptr)) {
             released = true;
-            ALOGV("%s: pending feed +1 from %u", __func__, mPendingFeed.load());
+            ALOGV("[%s] %s: pending feed +1 from %u", mName, __func__, mPendingFeed.load());
             ++mPendingFeed;
         }
     }
     feedInputBufferIfAvailable();
     if (!released) {
-        ALOGD("MediaCodec discarded an unknown buffer");
+        ALOGD("[%s] MediaCodec discarded an unknown buffer", mName);
     }
     return OK;
 }
@@ -1698,8 +1706,8 @@ status_t CCodecBufferChannel::start(
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
-                ALOGD("Query input allocators returned %zu params => %s (%u)",
-                        params.size(), asString(err), err);
+                ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
+                        mName, params.size(), asString(err), err);
             } else if (err == C2_OK && params.size() == 1) {
                 C2PortAllocatorsTuning::input *inputAllocators =
                     C2PortAllocatorsTuning::input::From(params[0].get());
@@ -1710,8 +1718,8 @@ status_t CCodecBufferChannel::start(
                     if (allocator) {
                         pools->inputAllocatorId = allocator->getId();
                     } else {
-                        ALOGD("component requested invalid input allocator ID %u",
-                                inputAllocators->m.values[0]);
+                        ALOGD("[%s] component requested invalid input allocator ID %u",
+                                mName, inputAllocators->m.values[0]);
                     }
                 }
             }
@@ -1719,8 +1727,8 @@ status_t CCodecBufferChannel::start(
             // TODO: use C2Component wrapper to associate this pool with ourselves
             if ((poolMask >> pools->inputAllocatorId) & 1) {
                 err = CreateCodec2BlockPool(pools->inputAllocatorId, nullptr, &pool);
-                ALOGD("Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
-                        pools->inputAllocatorId,
+                ALOGD("[%s] Created input block pool with allocatorID %u => poolID %llu - %s (%d)",
+                        mName, pools->inputAllocatorId,
                         (unsigned long long)(pool ? pool->getLocalId() : 111000111),
                         asString(err), err);
             } else {
@@ -1730,8 +1738,8 @@ status_t CCodecBufferChannel::start(
                 C2BlockPool::local_id_t inputPoolId =
                     graphic ? C2BlockPool::BASIC_GRAPHIC : C2BlockPool::BASIC_LINEAR;
                 err = GetCodec2BlockPool(inputPoolId, nullptr, &pool);
-                ALOGD("Using basic input block pool with poolID %llu => got %llu - %s (%d)",
-                        (unsigned long long)inputPoolId,
+                ALOGD("[%s] Using basic input block pool with poolID %llu => got %llu - %s (%d)",
+                        mName, (unsigned long long)inputPoolId,
                         (unsigned long long)(pool ? pool->getLocalId() : 111000111),
                         asString(err), err);
                 if (err != C2_OK) {
@@ -1744,11 +1752,11 @@ status_t CCodecBufferChannel::start(
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         if (graphic) {
             if (mInputSurface) {
-                buffers->reset(new DummyInputBuffers);
+                buffers->reset(new DummyInputBuffers(mName));
             } else if (mMetaMode == MODE_ANW) {
-                buffers->reset(new GraphicMetadataInputBuffers);
+                buffers->reset(new GraphicMetadataInputBuffers(mName));
             } else {
-                buffers->reset(new GraphicInputBuffers);
+                buffers->reset(new GraphicInputBuffers(mName));
             }
         } else {
             if (hasCryptoOrDescrambler()) {
@@ -1765,9 +1773,9 @@ status_t CCodecBufferChannel::start(
                     mHeapSeqNum = -1;
                 }
                 buffers->reset(new EncryptedLinearInputBuffers(
-                        secure, mDealer, mCrypto, mHeapSeqNum));
+                        secure, mDealer, mCrypto, mHeapSeqNum, mName));
             } else {
-                buffers->reset(new LinearInputBuffers);
+                buffers->reset(new LinearInputBuffers(mName));
             }
         }
         (*buffers)->setFormat(inputFormat);
@@ -1807,8 +1815,8 @@ status_t CCodecBufferChannel::start(
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
-                ALOGD("Query input allocators returned %zu params => %s (%u)",
-                        params.size(), asString(err), err);
+                ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
+                        mName, params.size(), asString(err), err);
             } else if (err == C2_OK && params.size() == 1) {
                 C2PortAllocatorsTuning::output *outputAllocators =
                     C2PortAllocatorsTuning::output::From(params[0].get());
@@ -1819,8 +1827,8 @@ status_t CCodecBufferChannel::start(
                     if (allocator) {
                         pools->outputAllocatorId = allocator->getId();
                     } else {
-                        ALOGD("component requested invalid output allocator ID %u",
-                                outputAllocators->m.values[0]);
+                        ALOGD("[%s] component requested invalid output allocator ID %u",
+                                mName, outputAllocators->m.values[0]);
                     }
                 }
             }
@@ -1835,8 +1843,8 @@ status_t CCodecBufferChannel::start(
             if ((poolMask >> pools->outputAllocatorId) & 1) {
                 err = mComponent->createBlockPool(
                         pools->outputAllocatorId, &pools->outputPoolId, &pools->outputPoolIntf);
-                ALOGI("Created output block pool with allocatorID %u => poolID %llu - %s",
-                        pools->outputAllocatorId,
+                ALOGI("[%s] Created output block pool with allocatorID %u => poolID %llu - %s",
+                        mName, pools->outputAllocatorId,
                         (unsigned long long)pools->outputPoolId,
                         asString(err));
             } else {
@@ -1855,8 +1863,8 @@ status_t CCodecBufferChannel::start(
 
             std::vector<std::unique_ptr<C2SettingResult>> failures;
             err = mComponent->config({ poolIdsTuning.get() }, C2_MAY_BLOCK, &failures);
-            ALOGD("Configured output block pool ids %llu => %s",
-                    (unsigned long long)poolIdsTuning->m.values[0], asString(err));
+            ALOGD("[%s] Configured output block pool ids %llu => %s",
+                    mName, (unsigned long long)poolIdsTuning->m.values[0], asString(err));
             outputPoolId_ = pools->outputPoolId;
         }
 
@@ -1864,12 +1872,12 @@ status_t CCodecBufferChannel::start(
 
         if (graphic) {
             if (outputSurface) {
-                buffers->reset(new GraphicOutputBuffers);
+                buffers->reset(new GraphicOutputBuffers(mName));
             } else {
-                buffers->reset(new RawGraphicOutputBuffers);
+                buffers->reset(new RawGraphicOutputBuffers(mName));
             }
         } else {
-            buffers->reset(new LinearOutputBuffers);
+            buffers->reset(new LinearOutputBuffers(mName));
         }
         (*buffers)->setFormat(outputFormat->dup());
 
@@ -1905,25 +1913,63 @@ status_t CCodecBufferChannel::start(
     }
 
     mPendingFeed = 0;
+    mInputMetEos = false;
     mSync.start();
-    if (mInputSurface == nullptr) {
-        // TODO: use proper buffer depth instead of this random value
-        for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
-            size_t index;
-            sp<MediaCodecBuffer> buffer;
-            {
-                Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-                if (!(*buffers)->requestNewBuffer(&index, &buffer)) {
-                    if (i == 0) {
-                        ALOGE("start: cannot allocate memory at all");
-                        return NO_MEMORY;
+    return OK;
+}
+
+status_t CCodecBufferChannel::requestInitialInputBuffers() {
+    if (mInputSurface) {
+        return OK;
+    }
+    // TODO: use proper buffer depth instead of this random value
+    for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
+        size_t index;
+        sp<MediaCodecBuffer> buffer;
+        {
+            Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+            if (!(*buffers)->requestNewBuffer(&index, &buffer)) {
+                if (i == 0) {
+                    ALOGW("[%s] start: cannot allocate memory at all", mName);
+                    return NO_MEMORY;
+                } else {
+                    ALOGV("[%s] start: cannot allocate memory, only %zu buffers allocated",
+                            mName, i);
+                }
+                break;
+            }
+        }
+        if (buffer) {
+            Mutexed<std::list<sp<ABuffer>>>::Locked configs(mFlushedConfigs);
+            ALOGV("[%s] input buffer %zu available", mName, index);
+            bool post = true;
+            if (!configs->empty()) {
+                sp<ABuffer> config = configs->front();
+                if (buffer->capacity() >= config->size()) {
+                    memcpy(buffer->base(), config->data(), config->size());
+                    buffer->setRange(0, config->size());
+                    buffer->meta()->clear();
+                    buffer->meta()->setInt64("timeUs", 0);
+                    buffer->meta()->setInt32("csd", 1);
+                    configs.unlock();
+                    if (queueInputBufferInternal(buffer) == OK) {
+                        ALOGV("[%s] queued flushed codec config", mName);
+                        configs.lock();
+
+                        configs->pop_front();
+                        post = false;
                     } else {
-                        ALOGV("start: cannot allocate memory, only %zu buffers allocated", i);
+                        ALOGD("[%s] failed to queue flushed codec config", mName);
+                        configs.lock();
+
+                        buffer->setRange(0, buffer->capacity());
                     }
-                    break;
+                } else {
+                    ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
+                            mName, buffer->capacity(), config->size());
                 }
             }
-            if (buffer) {
+            if (post) {
                 mCallback->onInputBufferAvailable(index, buffer);
             }
         }
@@ -1941,7 +1987,28 @@ void CCodecBufferChannel::stop() {
 }
 
 void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) {
-    ALOGV("flush");
+    ALOGV("[%s] flush", mName);
+    {
+        Mutexed<std::list<sp<ABuffer>>>::Locked configs(mFlushedConfigs);
+        for (const std::unique_ptr<C2Work> &work : flushedWork) {
+            if (!(work->input.flags & C2FrameData::FLAG_CODEC_CONFIG)) {
+                continue;
+            }
+            if (work->input.buffers.empty()
+                    || work->input.buffers.front()->data().linearBlocks().empty()) {
+                ALOGD("[%s] no linear codec config data found", mName);
+                continue;
+            }
+            C2ReadView view =
+                    work->input.buffers.front()->data().linearBlocks().front().map().get();
+            if (view.error() != C2_OK) {
+                ALOGD("[%s] failed to map flushed codec config data: %d", mName, view.error());
+                continue;
+            }
+            configs->push_back(ABuffer::CreateAsCopy(view.data(), view.capacity()));
+            ALOGV("[%s] stashed flushed codec config data (size=%u)", mName, view.capacity());
+        }
+    }
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         (*buffers)->flush();
@@ -1956,7 +2023,7 @@ void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
     if (handleWork(std::move(work), outputFormat, initData)) {
-        ALOGV("%s: pending feed +1 from %u", __func__, mPendingFeed.load());
+        ALOGV("[%s] onWorkDone: pending feed +1 from %u", mName, mPendingFeed.load());
         ++mPendingFeed;
     }
     feedInputBufferIfAvailable();
@@ -1969,18 +2036,18 @@ bool CCodecBufferChannel::handleWork(
     if (work->result != C2_OK) {
         if (work->result == C2_NOT_FOUND) {
             // TODO: Define what flushed work's result is.
-            ALOGD("flushed work; ignored.");
+            ALOGD("[%s] flushed work; ignored.", mName);
             return true;
         }
-        ALOGD("work failed to complete: %d", work->result);
+        ALOGD("[%s] work failed to complete: %d", mName, work->result);
         mCCodecCallback->onError(work->result, ACTION_CODE_FATAL);
         return false;
     }
 
     // NOTE: MediaCodec usage supposedly have only one worklet
     if (work->worklets.size() != 1u) {
-        ALOGE("onWorkDone: incorrect number of worklets: %zu",
-                work->worklets.size());
+        ALOGI("[%s] onWorkDone: incorrect number of worklets: %zu",
+                mName, work->worklets.size());
         mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
         return false;
     }
@@ -1988,27 +2055,27 @@ bool CCodecBufferChannel::handleWork(
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
     if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
         // Discard frames from previous generation.
-        ALOGD("Discard frames from previous generation.");
+        ALOGD("[%s] Discard frames from previous generation.", mName);
         return true;
     }
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {
-        ALOGE("onWorkDone: incorrect number of output buffers: %zu",
-                worklet->output.buffers.size());
+        ALOGI("[%s] onWorkDone: incorrect number of output buffers: %zu",
+                mName, worklet->output.buffers.size());
         mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
         return false;
     } else if (worklet->output.buffers.size() == 1u) {
         buffer = worklet->output.buffers[0];
         if (!buffer) {
-            ALOGW("onWorkDone: nullptr found in buffers; ignored.");
+            ALOGD("[%s] onWorkDone: nullptr found in buffers; ignored.", mName);
         }
     }
 
     if (outputFormat != nullptr) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        ALOGD("onWorkDone: output format changed to %s",
-                outputFormat->debugString().c_str());
+        ALOGD("[%s] onWorkDone: output format changed to %s",
+                mName, outputFormat->debugString().c_str());
         (*buffers)->setFormat(outputFormat);
 
         AString mediaType;
@@ -2026,7 +2093,7 @@ bool CCodecBufferChannel::handleWork(
     int32_t flags = 0;
     if (worklet->output.flags & C2FrameData::FLAG_END_OF_STREAM) {
         flags |= MediaCodec::BUFFER_FLAG_EOS;
-        ALOGV("onWorkDone: output EOS");
+        ALOGV("[%s] onWorkDone: output EOS", mName);
     }
 
     bool feedNeeded = true;
@@ -2037,14 +2104,14 @@ bool CCodecBufferChannel::handleWork(
         if ((*buffers)->registerCsd(initData, &index, &outBuffer)) {
             outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
             outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
-            ALOGV("onWorkDone: csd index = %zu", index);
+            ALOGV("[%s] onWorkDone: csd index = %zu [%p]", mName, index, outBuffer.get());
 
             buffers.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
             buffers.lock();
             feedNeeded = false;
         } else {
-            ALOGE("onWorkDone: unable to register csd");
+            ALOGD("[%s] onWorkDone: unable to register csd", mName);
             buffers.unlock();
             mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
             buffers.lock();
@@ -2053,8 +2120,8 @@ bool CCodecBufferChannel::handleWork(
     }
 
     if (!buffer && !flags) {
-        ALOGV("onWorkDone: Not reporting output buffer (%lld)",
-              work->input.ordinal.frameIndex.peekull());
+        ALOGV("[%s] onWorkDone: Not reporting output buffer (%lld)",
+              mName, work->input.ordinal.frameIndex.peekull());
         return feedNeeded;
     }
 
@@ -2076,7 +2143,7 @@ bool CCodecBufferChannel::handleWork(
     {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         if (!(*buffers)->registerBuffer(buffer, &index, &outBuffer)) {
-            ALOGE("onWorkDone: unable to register output buffer");
+            ALOGD("[%s] onWorkDone: unable to register output buffer", mName);
             // TODO
             // buffers.unlock();
             // mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
@@ -2087,7 +2154,8 @@ bool CCodecBufferChannel::handleWork(
 
     outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
     outBuffer->meta()->setInt32("flags", flags);
-    ALOGV("onWorkDone: out buffer index = %zu size = %zu", index, outBuffer->size());
+    ALOGV("[%s] onWorkDone: out buffer index = %zu [%p] => %p + %zu",
+            mName, index, outBuffer.get(), outBuffer->data(), outBuffer->size());
     mCallback->onOutputBufferAvailable(index, outBuffer);
     return false;
 }
@@ -2100,14 +2168,14 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 
 //    if (newSurface == nullptr) {
 //        if (*surface != nullptr) {
-//            ALOGW("cannot unset a surface");
+//            ALOGI("[%s] cannot unset a surface", mName);
 //            return INVALID_OPERATION;
 //        }
 //        return OK;
 //    }
 //
 //    if (*surface == nullptr) {
-//        ALOGW("component was not configured with a surface");
+//        ALOGI("[%s] component was not configured with a surface", mName);
 //        return INVALID_OPERATION;
 //    }
 
@@ -2134,8 +2202,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
                 outputPoolId,
                 newSurface->getIGraphicBufferProducer(),
                 generation) != C2_OK) {
-            ALOGW("setSurface -- setOutputSurface() failed to configure "
-                    "new surface to the component's output block pool.");
+            ALOGI("[%s] setSurface: component setOutputSurface failed", mName);
             return INVALID_OPERATION;
         }
     }
@@ -2151,6 +2218,56 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
 
 void CCodecBufferChannel::setMetaMode(MetaMode mode) {
     mMetaMode = mode;
+}
+
+status_t toStatusT(c2_status_t c2s, c2_operation_t c2op) {
+    // C2_OK is always translated to OK.
+    if (c2s == C2_OK) {
+        return OK;
+    }
+
+    // Operation-dependent translation
+    // TODO: Add as necessary
+    switch (c2op) {
+    case C2_OPERATION_Component_start:
+        switch (c2s) {
+        case C2_NO_MEMORY:
+            return NO_MEMORY;
+        default:
+            return UNKNOWN_ERROR;
+        }
+    default:
+        break;
+    }
+
+    // Backup operation-agnostic translation
+    switch (c2s) {
+    case C2_BAD_INDEX:
+        return BAD_INDEX;
+    case C2_BAD_VALUE:
+        return BAD_VALUE;
+    case C2_BLOCKING:
+        return WOULD_BLOCK;
+    case C2_DUPLICATE:
+        return ALREADY_EXISTS;
+    case C2_NO_INIT:
+        return NO_INIT;
+    case C2_NO_MEMORY:
+        return NO_MEMORY;
+    case C2_NOT_FOUND:
+        return NAME_NOT_FOUND;
+    case C2_TIMED_OUT:
+        return TIMED_OUT;
+    case C2_BAD_STATE:
+    case C2_CANCELED:
+    case C2_CANNOT_DO:
+    case C2_CORRUPTED:
+    case C2_OMITTED:
+    case C2_REFUSED:
+        return UNKNOWN_ERROR;
+    default:
+        return -static_cast<status_t>(c2s);
+    }
 }
 
 }  // namespace android

@@ -54,6 +54,7 @@ public:
         float mMinFps; // minimum fps (repeat frame to achieve this)
         float mMaxFps; // max fps (via frame drop)
         float mCaptureFps; // capture fps
+        float mCodedFps;   // coded fps
         bool mSuspended; // suspended
         int64_t mTimeOffsetUs; // time offset (input => codec)
         int64_t mSuspendAtUs; // suspend/resume time

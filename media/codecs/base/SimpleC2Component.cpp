@@ -410,6 +410,20 @@ void SimpleC2Component::processQueue() {
         return;
     }
 
+    {
+        std::vector<C2Param *> updates;
+        for (const std::unique_ptr<C2Param> &param: work->input.configUpdate) {
+            if (param) {
+                updates.emplace_back(param.get());
+            }
+        }
+        if (!updates.empty()) {
+            std::vector<std::unique_ptr<C2SettingResult>> failures;
+            c2_status_t err = intf()->config_vb(updates, C2_MAY_BLOCK, &failures);
+            ALOGD("applied %zu configUpdates => %s (%d)", updates.size(), asString(err), err);
+        }
+    }
+
     process(work, mOutputBlockPool);
     ALOGV("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     {
