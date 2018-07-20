@@ -18,6 +18,8 @@
 #define LOG_TAG "C2ComponentWrapper"
 
 #include <inttypes.h>
+#include <unistd.h>
+#include <list>
 
 #include <C2Config.h>
 #include <C2PlatformSupport.h>
@@ -28,28 +30,86 @@
 
 namespace android {
 
+void C2ComponentWrapper::setFlushMode(C2ComponentWrapper::FlushDrainFaultMode mode) {
+    mFlushMode = mode;
+}
+
+void C2ComponentWrapper::setDrainMode(C2ComponentWrapper::FlushDrainFaultMode mode) {
+    mDrainMode = mode;
+}
+
+void C2ComponentWrapper::setStartMode(C2ComponentWrapper::FaultMode mode) {
+    mStartMode = mode;
+}
+
+void C2ComponentWrapper::setStopMode(C2ComponentWrapper::FaultMode mode) {
+    mStopMode = mode;
+}
+
+void C2ComponentWrapper::setResetMode(C2ComponentWrapper::FaultMode mode) {
+    mResetMode = mode;
+}
+
+void C2ComponentWrapper::setReleaseMode(C2ComponentWrapper::FaultMode mode) {
+    mReleaseMode = mode;
+}
+
+void C2ComponentWrapper::Listener::setOnWorkDoneMode(C2ComponentWrapper::Listener::FaultMode mode) {
+    mWorkDoneMode = mode;
+}
+
+void C2ComponentWrapper::Listener::setAlteredListenerResult(c2_status_t status) {
+    mWorkDoneMode = IS_ALTERED;
+    mAlteredListenerResult = status;
+}
+
 C2ComponentWrapper::Listener::Listener(
         const std::shared_ptr<C2Component::Listener> &listener) : mListener(listener) {}
+
 void C2ComponentWrapper::Listener::onWorkDone_nb(std::weak_ptr<C2Component> component,
         std::list<std::unique_ptr<C2Work>> workItems) {
+    switch(mWorkDoneMode) {
+        case IS_INFINITE:
+            while(true) {
+                sleep(1);
+            }
+            break;
+        case IS_ALTERED:
+            for (const auto& work : workItems) {
+                work->result = mAlteredListenerResult;
+             }
+            break;
+        default:
+            break;
+    }
     mListener->onWorkDone_nb(component, std::move(workItems));
 }
+
 void C2ComponentWrapper::Listener::onTripped_nb(std::weak_ptr<C2Component> component,
         std::vector<std::shared_ptr<C2SettingResult>> settingResult) {
     mListener->onTripped_nb(component,settingResult);
 }
+
 void C2ComponentWrapper::Listener::onError_nb(
         std::weak_ptr<C2Component> component, uint32_t errorCode) {
-      mListener->onError_nb(component, errorCode);
+    mListener->onError_nb(component, errorCode);
 }
 
 C2ComponentWrapper::C2ComponentWrapper(
-        const std::shared_ptr<C2Component> &comp) : mComp(comp){}
+        const std::shared_ptr<C2Component> &comp) : mComp(comp) {}
 
 c2_status_t C2ComponentWrapper::setListener_vb(
         const std::shared_ptr<C2Component::Listener> &listener, c2_blocking_t mayBlock) {
     mListener = std::make_shared<Listener>(listener);
     return mComp->setListener_vb(mListener, mayBlock);
+}
+
+void C2ComponentWrapper::setAlteredFlushResult(c2_status_t status) {
+    mAlteredResult = status;
+}
+
+void C2ComponentWrapper::setAlteredDrainResult(c2_status_t status) {
+    mAlteredResult = status;
 }
 
 c2_status_t C2ComponentWrapper::queue_nb(std::list<std::unique_ptr<C2Work>>* const items) {
@@ -62,31 +122,68 @@ c2_status_t C2ComponentWrapper::announce_nb(const std::vector<C2WorkOutline> &it
 
 c2_status_t C2ComponentWrapper::flush_sm(
         C2Component::flush_mode_t mode, std::list<std::unique_ptr<C2Work>>* const flushedWork) {
+    switch(mFlushMode) {
+        case IS_HANG:
+            while(true) {
+                sleep(1);
+            }
+            break;
+        case IS_ALTERED:
+            return mAlteredResult;
+        default:
+            break;
+    }
     return mComp->flush_sm(mode, flushedWork);
 }
 
 c2_status_t C2ComponentWrapper::drain_nb(C2Component::drain_mode_t mode) {
+     switch(mDrainMode) {
+        case IS_HANG:
+            while(true) {
+                sleep(1);
+            }
+            break;
+        case IS_ALTERED:
+            return mAlteredResult;
+        default:
+            break;
+    }
     return mComp->drain_nb(mode);
 }
 
+c2_status_t C2ComponentWrapper::switchMode(FaultMode mode, std::function<c2_status_t()> func) {
+     switch (mode) {
+        case IS_CORRUPT: return C2_CORRUPTED;
+        case IS_TIMED_OUT: sleep(1); return C2_TIMED_OUT;
+        case IS_INFINITE:
+            while(true) {
+                sleep(1);
+            }
+        case HAS_NO_MEMORY: return C2_NO_MEMORY;
+        default:
+            return func();
+            
+    }
+}
+
 c2_status_t C2ComponentWrapper::start() {
-    return mComp->start();
+    return switchMode(mStartMode, [this] { return mComp->start(); });
 }
 
 c2_status_t C2ComponentWrapper::stop() {
-    return mComp->stop();
+    return switchMode(mStopMode, [this] { return mComp->stop(); });
 }
 
 c2_status_t C2ComponentWrapper::reset() {
-    return mComp->reset();
+    return switchMode(mResetMode, [this] { return mComp->reset(); });
 }
 
 c2_status_t C2ComponentWrapper::release() {
-    return mComp->release();
+    return switchMode(mReleaseMode, [this] { return mComp->release(); });
 }
 
 std::shared_ptr<C2ComponentInterface> C2ComponentWrapper::intf(){
     return mComp->intf();
 }
 
-} // namespace android
+}  // namespace android
