@@ -71,7 +71,6 @@ cc_library_shared {
     cflags: [
         "-Werror",
         "-Wall",
-        "-std=c++14",
     ],
 }
 

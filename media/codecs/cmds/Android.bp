@@ -25,7 +25,6 @@ cc_binary {
     cflags: [
         "-Werror",
         "-Wall",
-        "-std=c++14",
     ],
 
     sanitize: {
