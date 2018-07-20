@@ -610,7 +610,7 @@ void CCodec::allocate(const sp<MediaCodecInfo> &codecInfo) {
     }
     config->queryConfiguration(comp);
 
-    mCallback->onComponentAllocated(comp->getName().c_str());
+    mCallback->onComponentAllocated(componentName.c_str());
 }
 
 void CCodec::initiateConfigureComponent(const sp<AMessage> &format) {

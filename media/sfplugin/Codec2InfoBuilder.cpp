@@ -357,60 +357,65 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
     for (const Traits& trait : traits) {
         C2Component::rank_t rank = trait.rank;
 
-        if (parser.getCodecMap().count(trait.name.c_str()) == 0) {
+        std::shared_ptr<Codec2Client::Interface> intf =
+            Codec2Client::CreateInterfaceByName(trait.name.c_str());
+        if (!intf || parser.getCodecMap().count(intf->getName()) == 0) {
             ALOGD("%s not found in xml", trait.name.c_str());
             continue;
         }
+        std::string canonName = intf->getName();
 
         // TODO: Remove this block once all codecs are enabled by default.
         switch (option) {
         case 0:
             continue;
         case 1:
-            if (hasPrefix(trait.name, "c2.vda.")) {
+            if (hasPrefix(canonName, "c2.vda.")) {
                 break;
             }
-            if (hasPrefix(trait.name, "c2.android.")) {
+            if (hasPrefix(canonName, "c2.android.")) {
                 if (trait.domain == C2Component::DOMAIN_AUDIO) {
                     rank = 1;
                     break;
                 }
                 break;
             }
-            if (hasSuffix(trait.name, ".avc.decoder") ||
-                    hasSuffix(trait.name, ".avc.encoder")) {
+            if (hasSuffix(canonName, ".avc.decoder") ||
+                    hasSuffix(canonName, ".avc.encoder")) {
                 rank = std::numeric_limits<decltype(rank)>::max();
                 break;
             }
             continue;
         case 2:
-            if (hasPrefix(trait.name, "c2.vda.")) {
+            if (hasPrefix(canonName, "c2.vda.")) {
                 break;
             }
-            if (hasPrefix(trait.name, "c2.android.")) {
+            if (hasPrefix(canonName, "c2.android.")) {
                 rank = 1;
                 break;
             }
-            if (hasSuffix(trait.name, ".avc.decoder") ||
-                    hasSuffix(trait.name, ".avc.encoder")) {
+            if (hasSuffix(canonName, ".avc.decoder") ||
+                    hasSuffix(canonName, ".avc.encoder")) {
                 rank = std::numeric_limits<decltype(rank)>::max();
                 break;
             }
             continue;
         case 3:
-            if (hasPrefix(trait.name, "c2.android.")) {
+            if (hasPrefix(canonName, "c2.android.")) {
                 rank = 1;
             }
             break;
         }
 
-        const MediaCodecsXmlParser::CodecProperties &codec = parser.getCodecMap().at(trait.name);
         std::unique_ptr<MediaCodecInfoWriter> codecInfo = writer->addMediaCodecInfo();
         codecInfo->setName(trait.name.c_str());
-        codecInfo->setOwner("dummy");
+        codecInfo->setOwner("codec2");
         bool encoder = trait.kind == C2Component::KIND_ENCODER;
         codecInfo->setEncoder(encoder);
         codecInfo->setRank(rank);
+        const MediaCodecsXmlParser::CodecProperties &codec =
+            parser.getCodecMap().at(canonName);
+
         for (auto typeIt = codec.typeMap.begin(); typeIt != codec.typeMap.end(); ++typeIt) {
             const std::string &mediaType = typeIt->first;
             const MediaCodecsXmlParser::AttributeMap &attrMap = typeIt->second;
@@ -427,8 +432,6 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
             }
 
             bool gotProfileLevels = false;
-            std::shared_ptr<Codec2Client::Interface> intf =
-                Codec2Client::CreateInterfaceByName(trait.name.c_str());
             if (intf) {
                 std::shared_ptr<C2Mapper::ProfileLevelMapper> mapper =
                     C2Mapper::GetProfileLevelMapper(trait.mediaType);
