@@ -764,14 +764,8 @@ void C2SoftMpeg2Dec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &w
         buffer->setInfo(mIntf->getColorAspects_l());
     }
 
-    auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
-        uint32_t flags = 0;
-        if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
-                (c2_cntr64_t(index) == work->input.ordinal.frameIndex)) {
-            flags |= C2FrameData::FLAG_END_OF_STREAM;
-            ALOGV("signalling eos");
-        }
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
+    auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
@@ -885,6 +879,7 @@ void C2SoftMpeg2Dec::process(
             ALOGV("unsupported resolution : %dx%d", s_decode_op.u4_pic_wd, s_decode_op.u4_pic_ht);
             drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
             resetPlugin();
+            work->workletsProcessed = 0u;
             mWidth = s_decode_op.u4_pic_wd;
             mHeight = s_decode_op.u4_pic_ht;
 
@@ -916,6 +911,7 @@ void C2SoftMpeg2Dec::process(
             drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
             resetDecoder();
             resetPlugin();
+            work->workletsProcessed = 0u;
             continue;
         }
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
@@ -998,12 +994,9 @@ c2_status_t C2SoftMpeg2Dec::drainInternal(
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
         } else {
+            fillEmptyWork(work);
             break;
         }
-    }
-    if (drainMode == DRAIN_COMPONENT_WITH_EOS &&
-            work && work->workletsProcessed == 0u) {
-        fillEmptyWork(work);
     }
 
     return C2_OK;
