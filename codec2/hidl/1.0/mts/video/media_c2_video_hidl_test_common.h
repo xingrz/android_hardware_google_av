@@ -24,6 +24,7 @@
 #define ENC_NUM_FRAMES 32
 #define ENC_DEFAULT_FRAME_WIDTH 352
 #define ENC_DEFAULT_FRAME_HEIGHT 288
+#define MAX_ITERATIONS 128
 
 /*
  * Common video utils
