@@ -1169,11 +1169,13 @@ public:
 
     sp<Codec2Buffer> wrap(const std::shared_ptr<C2Buffer> &buffer) override {
         if (buffer == nullptr) {
-            return ConstGraphicBlockBuffer::AllocateEmpty(
+            sp<Codec2Buffer> c2buffer = ConstGraphicBlockBuffer::AllocateEmpty(
                     mFormat,
                     [lbp = mLocalBufferPool](size_t capacity) {
                         return lbp->newBuffer(capacity);
                     });
+            c2buffer->setRange(0, 0);
+            return c2buffer;
         } else {
             return ConstGraphicBlockBuffer::Allocate(
                     mFormat,
