@@ -1383,6 +1383,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
     sp<EncryptedLinearBlockBuffer> encryptedBuffer((EncryptedLinearBlockBuffer *)buffer.get());
 
     ssize_t result = -1;
+    ssize_t codecDataOffset = 0;
     if (mCrypto != nullptr) {
         ICrypto::DestinationBuffer destination;
         if (secure) {
@@ -1423,9 +1424,16 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
 
         CasStatus status = CasStatus::OK;
         hidl_string detailedError;
+        ScramblingControl sctrl = ScramblingControl::UNSCRAMBLED;
+
+        if (key != nullptr) {
+            sctrl = (ScramblingControl)key[0];
+            // Adjust for the PES offset
+            codecDataOffset = key[2] | (key[3] << 8);
+        }
 
         auto returnVoid = mDescrambler->descramble(
-                key != nullptr ? (ScramblingControl)key[0] : ScramblingControl::UNSCRAMBLED,
+                sctrl,
                 hidlSubSamples,
                 srcBuffer,
                 0,
@@ -1445,6 +1453,11 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
             return UNKNOWN_ERROR;
         }
 
+        if (result < codecDataOffset) {
+            ALOGD("invalid codec data offset: %zd, result %zd", codecDataOffset, result);
+            return BAD_VALUE;
+        }
+
         ALOGV("[%s] descramble succeeded, %zd bytes", mName, result);
 
         if (dstBuffer.type == BufferType::SHARED_MEMORY) {
@@ -1452,7 +1465,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
         }
     }
 
-    buffer->setRange(0, result);
+    buffer->setRange(codecDataOffset, result - codecDataOffset);
     return queueInputBufferInternal(buffer);
 }
 
