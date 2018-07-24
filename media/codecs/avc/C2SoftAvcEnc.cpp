@@ -1137,6 +1137,13 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
         return C2_OK;
     }
 
+    if (input->width() < mSize->width ||
+        input->height() < mSize->height) {
+        /* Expect width height to be configured */
+        ALOGW("unexpected Capacity Aspect %d(%d) x %d(%d)", input->width(),
+              mSize->width, input->height(), mSize->height);
+        return C2_BAD_VALUE;
+    }
     ALOGV("width = %d, height = %d", input->width(), input->height());
     const C2PlanarLayout &layout = input->layout();
     uint8_t *yPlane = const_cast<uint8_t *>(input->data()[C2PlanarLayout::PLANE_Y]);
@@ -1300,7 +1307,7 @@ void C2SoftAvcEnc::process(
             ALOGE("setEncodeArgs failed: %d", error);
             mSignalledError = true;
             work->workletsProcessed = 1u;
-            work->result = C2_CORRUPTED;
+            work->result = error;
             return;
         }
         status = ive_api_function(mCodecCtx, &s_encode_ip, &s_encode_op);
