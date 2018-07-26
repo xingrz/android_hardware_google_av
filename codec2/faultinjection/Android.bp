@@ -4,6 +4,7 @@ cc_library_shared {
 
     srcs: [
         "C2ComponentWrapper.cpp",
+        "SimpleMethodState.cpp",
     ],
 
     shared_libs: [

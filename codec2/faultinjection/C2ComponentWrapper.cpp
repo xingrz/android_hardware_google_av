@@ -30,37 +30,10 @@
 
 namespace android {
 
-void C2ComponentWrapper::setFlushMode(C2ComponentWrapper::FlushDrainFaultMode mode) {
-    mFlushMode = mode;
-}
+C2ComponentWrapper::Injecter::Injecter(C2ComponentWrapper *thiz) : mThiz(thiz) {}
 
-void C2ComponentWrapper::setDrainMode(C2ComponentWrapper::FlushDrainFaultMode mode) {
-    mDrainMode = mode;
-}
-
-void C2ComponentWrapper::setStartMode(C2ComponentWrapper::FaultMode mode) {
-    mStartMode = mode;
-}
-
-void C2ComponentWrapper::setStopMode(C2ComponentWrapper::FaultMode mode) {
-    mStopMode = mode;
-}
-
-void C2ComponentWrapper::setResetMode(C2ComponentWrapper::FaultMode mode) {
-    mResetMode = mode;
-}
-
-void C2ComponentWrapper::setReleaseMode(C2ComponentWrapper::FaultMode mode) {
-    mReleaseMode = mode;
-}
-
-void C2ComponentWrapper::Listener::setOnWorkDoneMode(C2ComponentWrapper::Listener::FaultMode mode) {
-    mWorkDoneMode = mode;
-}
-
-void C2ComponentWrapper::Listener::setAlteredListenerResult(c2_status_t status) {
-    mWorkDoneMode = IS_ALTERED;
-    mAlteredListenerResult = status;
+SimpleMethodState::Injecter C2ComponentWrapper::Injecter::start() {
+    return SimpleMethodState::Injecter(&mThiz->mStartState);
 }
 
 C2ComponentWrapper::Listener::Listener(
@@ -68,20 +41,6 @@ C2ComponentWrapper::Listener::Listener(
 
 void C2ComponentWrapper::Listener::onWorkDone_nb(std::weak_ptr<C2Component> component,
         std::list<std::unique_ptr<C2Work>> workItems) {
-    switch(mWorkDoneMode) {
-        case IS_INFINITE:
-            while(true) {
-                sleep(1);
-            }
-            break;
-        case IS_ALTERED:
-            for (const auto& work : workItems) {
-                work->result = mAlteredListenerResult;
-             }
-            break;
-        default:
-            break;
-    }
     mListener->onWorkDone_nb(component, std::move(workItems));
 }
 
@@ -104,14 +63,6 @@ c2_status_t C2ComponentWrapper::setListener_vb(
     return mComp->setListener_vb(mListener, mayBlock);
 }
 
-void C2ComponentWrapper::setAlteredFlushResult(c2_status_t status) {
-    mAlteredResult = status;
-}
-
-void C2ComponentWrapper::setAlteredDrainResult(c2_status_t status) {
-    mAlteredResult = status;
-}
-
 c2_status_t C2ComponentWrapper::queue_nb(std::list<std::unique_ptr<C2Work>>* const items) {
     return mComp->queue_nb(items);
 }
@@ -122,68 +73,35 @@ c2_status_t C2ComponentWrapper::announce_nb(const std::vector<C2WorkOutline> &it
 
 c2_status_t C2ComponentWrapper::flush_sm(
         C2Component::flush_mode_t mode, std::list<std::unique_ptr<C2Work>>* const flushedWork) {
-    switch(mFlushMode) {
-        case IS_HANG:
-            while(true) {
-                sleep(1);
-            }
-            break;
-        case IS_ALTERED:
-            return mAlteredResult;
-        default:
-            break;
-    }
     return mComp->flush_sm(mode, flushedWork);
 }
 
 c2_status_t C2ComponentWrapper::drain_nb(C2Component::drain_mode_t mode) {
-     switch(mDrainMode) {
-        case IS_HANG:
-            while(true) {
-                sleep(1);
-            }
-            break;
-        case IS_ALTERED:
-            return mAlteredResult;
-        default:
-            break;
-    }
     return mComp->drain_nb(mode);
 }
 
-c2_status_t C2ComponentWrapper::switchMode(FaultMode mode, std::function<c2_status_t()> func) {
-     switch (mode) {
-        case IS_CORRUPT: return C2_CORRUPTED;
-        case IS_TIMED_OUT: sleep(1); return C2_TIMED_OUT;
-        case IS_INFINITE:
-            while(true) {
-                sleep(1);
-            }
-        case HAS_NO_MEMORY: return C2_NO_MEMORY;
-        default:
-            return func();
-            
-    }
-}
-
 c2_status_t C2ComponentWrapper::start() {
-    return switchMode(mStartMode, [this] { return mComp->start(); });
+    return mComp->start();
 }
 
 c2_status_t C2ComponentWrapper::stop() {
-    return switchMode(mStopMode, [this] { return mComp->stop(); });
+    return mComp->stop();
 }
 
 c2_status_t C2ComponentWrapper::reset() {
-    return switchMode(mResetMode, [this] { return mComp->reset(); });
+    return mComp->reset();
 }
 
 c2_status_t C2ComponentWrapper::release() {
-    return switchMode(mReleaseMode, [this] { return mComp->release(); });
+    return mComp->release();
 }
 
 std::shared_ptr<C2ComponentInterface> C2ComponentWrapper::intf(){
     return mComp->intf();
+}
+
+C2ComponentWrapper::Injecter C2ComponentWrapper::inject() {
+    return Injecter(this);
 }
 
 }  // namespace android
