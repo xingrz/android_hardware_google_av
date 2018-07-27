@@ -31,7 +31,7 @@ static ComponentTestEnvironment* gEnv = nullptr;
 namespace {
 
 // google.codec2 Component test setup
-class Codec2ComponentHalTest : public ::testing::VtsHalHidlTargetTestBase {
+class Codec2ComponentHidlTest : public ::testing::VtsHalHidlTargetTestBase {
    private:
     typedef ::testing::VtsHalHidlTargetTestBase Super;
 
@@ -71,7 +71,7 @@ class Codec2ComponentHalTest : public ::testing::VtsHalHidlTargetTestBase {
 };
 
 // Test Empty Flush
-TEST_F(Codec2ComponentHalTest, EmptyFlush) {
+TEST_F(Codec2ComponentHidlTest, EmptyFlush) {
     ALOGV("Empty Flush Test");
     c2_status_t err = mComponent->start();
     ASSERT_EQ(err, C2_OK);
@@ -87,7 +87,7 @@ TEST_F(Codec2ComponentHalTest, EmptyFlush) {
 }
 
 // Test Queue Empty Work
-TEST_F(Codec2ComponentHalTest, QueueEmptyWork) {
+TEST_F(Codec2ComponentHidlTest, QueueEmptyWork) {
     ALOGV("Queue Empty Work Test");
     c2_status_t err = mComponent->start();
     ASSERT_EQ(err, C2_OK);
@@ -102,40 +102,36 @@ TEST_F(Codec2ComponentHalTest, QueueEmptyWork) {
 }
 
 // Test Component Configuration
-TEST_F(Codec2ComponentHalTest, Config) {
+TEST_F(Codec2ComponentHidlTest, Config) {
     ALOGV("Configuration Test");
 
     C2String name = mComponent->getName();
     EXPECT_NE(name.empty(), true) << "Invalid Component Name";
 
+    c2_status_t err = C2_OK;
+    std::vector<std::unique_ptr<C2Param>> queried;
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+
     // Query supported params by the component
     std::vector<std::shared_ptr<C2ParamDescriptor>> params;
-    c2_status_t err = mComponent->querySupportedParams(&params);
+    err = mComponent->querySupportedParams(&params);
     ASSERT_EQ(err, C2_OK);
     ALOGV("Number of total params - %zu", params.size());
 
-    // Query Component Domain Type
-    std::vector<std::unique_ptr<C2Param>> queried;
-    err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE},
-                            C2_DONT_BLOCK, &queried);
-    EXPECT_NE(queried.size(), 0u);
-    std::string inputDomain =
-        ((C2StreamMediaTypeSetting::input*)queried[0].get())->m.value;
-    EXPECT_NE(inputDomain.empty(), true) << "Invalid Component Domain";
-
-    // Configure Component Domain
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-    C2PortMediaTypeSetting::input* portMediaType =
-        C2PortMediaTypeSetting::input::From(queried[0].get());
-    err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
-    ASSERT_EQ(err, C2_OK);
-    ASSERT_EQ(failures.size(), 0u);
-
-    // TODO: Query/Config on other common Params
+    // Query and config all the supported params
+    for (std::shared_ptr<C2ParamDescriptor> p : params) {
+        ALOGD("Querying index %d", (int)p->index());
+        err = mComponent->query({}, {p->index()}, C2_DONT_BLOCK, &queried);
+        EXPECT_NE(queried.size(), 0u);
+        EXPECT_EQ(err, C2_OK);
+        err = mComponent->config({queried[0].get()}, C2_DONT_BLOCK, &failures);
+        ASSERT_EQ(err, C2_OK);
+        ASSERT_EQ(failures.size(), 0u);
+    }
 }
 
 // Test Multiple Start Stop Reset Test
-TEST_F(Codec2ComponentHalTest, MultipleStartStopReset) {
+TEST_F(Codec2ComponentHidlTest, MultipleStartStopReset) {
     ALOGV("Multiple Start Stop and Reset Test");
     c2_status_t err = C2_OK;
 
@@ -168,9 +164,36 @@ TEST_F(Codec2ComponentHalTest, MultipleStartStopReset) {
     ASSERT_NE(err, C2_OK);
 }
 
+// Test Component Release API
+TEST_F(Codec2ComponentHidlTest, MultipleRelease) {
+    ALOGV("Multiple Release Test");
+    c2_status_t err = mComponent->start();
+    ASSERT_EQ(err, C2_OK);
+
+    // Query Component Domain Type
+    std::vector<std::unique_ptr<C2Param>> queried;
+    err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE},
+                            C2_DONT_BLOCK, &queried);
+    EXPECT_NE(queried.size(), 0u);
+
+    // Configure Component Domain
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+    C2PortMediaTypeSetting::input* portMediaType =
+        C2PortMediaTypeSetting::input::From(queried[0].get());
+    err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
+    ASSERT_EQ(err, C2_OK);
+    ASSERT_EQ(failures.size(), 0u);
+
+#define MAX_RETRY 16
+    for (size_t i = 0; i < MAX_RETRY; i++) {
+        err = mComponent->release();
+        ASSERT_EQ(err, C2_OK);
+    }
+}
+
 }  // anonymous namespace
 
-// TODO: Add test for Invalid work, Invalid Config handling
+// TODO: Add test for Invalid work,
 // TODO: Add test for Invalid states
 int main(int argc, char** argv) {
     gEnv = new ComponentTestEnvironment();
