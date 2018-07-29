@@ -17,18 +17,40 @@
 #define LOG_NDEBUG 0
 #define LOG_TAG "C2ComponentWrapper"
 
-#include <inttypes.h>
-#include <unistd.h>
-#include <list>
+#include <chrono>
+#include <functional>
+#include <thread>
 
+#include <C2ComponentWrapper.h>
 #include <C2Config.h>
 #include <C2PlatformSupport.h>
 
-#include <C2ComponentWrapper.h>
-
-#include <functional>
-
 namespace android {
+
+namespace {
+
+using namespace std::chrono_literals;
+
+c2_status_t WrapSimpleMethod(
+        std::function<c2_status_t(void)> op, const SimpleMethodState &state) {
+    c2_status_t result = C2_OK;
+    switch (state.getMode()) {
+        case SimpleMethodState::EXECUTE:
+            result = op();
+            break;
+        case SimpleMethodState::NO_OP:
+            break;
+        case SimpleMethodState::HANG:
+            while (true) {
+                std::this_thread::sleep_for(1s);
+            }
+            break;
+    }
+    (void)state.overrideResult(&result);
+    return result;
+}
+
+}  // namespace
 
 C2ComponentWrapper::Injecter::Injecter(C2ComponentWrapper *thiz) : mThiz(thiz) {}
 
@@ -81,7 +103,7 @@ c2_status_t C2ComponentWrapper::drain_nb(C2Component::drain_mode_t mode) {
 }
 
 c2_status_t C2ComponentWrapper::start() {
-    return mComp->start();
+    return WrapSimpleMethod([this] { return mComp->start(); }, mStartState);
 }
 
 c2_status_t C2ComponentWrapper::stop() {
