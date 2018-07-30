@@ -31,6 +31,7 @@
 
 namespace android {
 
+#if 0
 static size_t getCpuCoreCount() {
     long cpuCoreCount = 1;
 #if defined(_SC_NPROCESSORS_ONLN)
@@ -43,6 +44,7 @@ static size_t getCpuCoreCount() {
     ALOGV("Number of CPU cores: %ld", cpuCoreCount);
     return (size_t)cpuCoreCount;
 }
+#endif
 
 C2SoftVpxEnc::C2SoftVpxEnc(const char* name, c2_node_id_t id,
                            const std::shared_ptr<IntfImpl>& intfImpl)
@@ -154,7 +156,8 @@ status_t C2SoftVpxEnc::initEncoder() {
 
     mCodecConfiguration->g_w = mSize->width;
     mCodecConfiguration->g_h = mSize->height;
-    mCodecConfiguration->g_threads = getCpuCoreCount();
+    //mCodecConfiguration->g_threads = getCpuCoreCount();
+    mCodecConfiguration->g_threads = 0;
     mCodecConfiguration->g_error_resilient = mErrorResilience;
 
     // timebase unit is microsecond
