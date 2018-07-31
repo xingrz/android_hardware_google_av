@@ -1817,7 +1817,7 @@ status_t CCodecBufferChannel::start(
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
-                ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
+                ALOGD("[%s] Query output allocators returned %zu params => %s (%u)",
                         mName, params.size(), asString(err), err);
             } else if (err == C2_OK && params.size() == 1) {
                 C2PortAllocatorsTuning::output *outputAllocators =
@@ -1835,11 +1835,39 @@ status_t CCodecBufferChannel::start(
                 }
             }
 
-            // use bufferqueue if outputting to a surface
-            if (pools->outputAllocatorId == C2PlatformAllocatorStore::GRALLOC
-                    && outputSurface
-                    && ((poolMask >> C2PlatformAllocatorStore::BUFFERQUEUE) & 1)) {
-                pools->outputAllocatorId = C2PlatformAllocatorStore::BUFFERQUEUE;
+            // use bufferqueue if outputting to a surface.
+            // query C2PortSurfaceAllocatorTuning::output from component, or use default allocator
+            // if unsuccessful.
+            if (outputSurface) {
+                params.clear();
+                err = mComponent->query({ },
+                                        { C2PortSurfaceAllocatorTuning::output::PARAM_TYPE },
+                                        C2_DONT_BLOCK,
+                                        &params);
+                if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
+                    ALOGD("[%s] Query output surface allocator returned %zu params => %s (%u)",
+                            mName, params.size(), asString(err), err);
+                } else if (err == C2_OK && params.size() == 1) {
+                    C2PortSurfaceAllocatorTuning::output *surfaceAllocator =
+                        C2PortSurfaceAllocatorTuning::output::From(params[0].get());
+                    if (surfaceAllocator) {
+                        std::shared_ptr<C2Allocator> allocator;
+                        // verify allocator IDs and resolve default allocator
+                        allocatorStore->fetchAllocator(surfaceAllocator->value, &allocator);
+                        if (allocator) {
+                            pools->outputAllocatorId = allocator->getId();
+                        } else {
+                            ALOGD("[%s] component requested invalid surface output allocator ID %u",
+                                    mName, surfaceAllocator->value);
+                            err = C2_BAD_VALUE;
+                        }
+                    }
+                }
+                if (pools->outputAllocatorId == C2PlatformAllocatorStore::GRALLOC
+                        && err != C2_OK
+                        && ((poolMask >> C2PlatformAllocatorStore::BUFFERQUEUE) & 1)) {
+                    pools->outputAllocatorId = C2PlatformAllocatorStore::BUFFERQUEUE;
+                }
             }
 
             if ((poolMask >> pools->outputAllocatorId) & 1) {

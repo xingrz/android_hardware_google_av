@@ -238,6 +238,8 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexMinFrameRate, // input-surface, float
     kParamIndexTimestampGapAdjustment, // input-surface, struct
 
+    kParamIndexSurfaceAllocator, // u32
+
     // deprecated indices due to renaming
     kParamIndexAacStreamFormat = kParamIndexAacPackaging,
     kParamIndexCsd = kParamIndexInitData,
@@ -902,6 +904,18 @@ constexpr char C2_PARAMKEY_OUTPUT_ALLOCATORS[] = "output.buffers.allocator-ids";
 typedef C2GlobalParam<C2Tuning, C2SimpleArrayStruct<C2Allocator::id_t>, kParamIndexAllocators>
         C2PrivateAllocatorsTuning;
 constexpr char C2_PARAMKEY_PRIVATE_ALLOCATORS[] = "algo.buffers.allocator-ids";
+
+/**
+ * Allocator to use for outputting to surface.
+ *
+ * Components can optionally request allocator type for outputting to surface.
+ *
+ * If none specified, client will use the default BufferQueue-backed allocator ID for outputting to
+ * surface.
+ */
+typedef C2PortParam<C2Tuning, C2Uint32Value, kParamIndexSurfaceAllocator>
+        C2PortSurfaceAllocatorTuning;
+constexpr char C2_PARAMKEY_OUTPUT_SURFACE_ALLOCATOR[] = "output.buffers.surface-allocator-id";
 
 /**
  * Block pools to use.
