@@ -19,7 +19,6 @@
 #include <utils/Log.h>
 
 #include <numeric>
-#include <thread>
 
 #include <C2AllocatorGralloc.h>
 #include <C2PlatformSupport.h>
@@ -1278,47 +1277,54 @@ private:
 
 CCodecBufferChannel::QueueGuard::QueueGuard(
         CCodecBufferChannel::QueueSync &sync) : mSync(sync) {
-    std::unique_lock<std::mutex> l(mSync.mMutex);
+    Mutex::Autolock l(mSync.mGuardLock);
     // At this point it's guaranteed that mSync is not under state transition,
     // as we are holding its mutex.
-    if (mSync.mCount == -1) {
+
+    Mutexed<CCodecBufferChannel::QueueSync::Counter>::Locked count(mSync.mCount);
+    if (count->value == -1) {
         mRunning = false;
     } else {
-        ++mSync.mCount;
+        ++count->value;
         mRunning = true;
     }
 }
 
 CCodecBufferChannel::QueueGuard::~QueueGuard() {
     if (mRunning) {
-        // We are not holding mutex at this point so that QueueSync::stop() can
+        // We are not holding mGuardLock at this point so that QueueSync::stop() can
         // keep holding the lock until mCount reaches zero.
-        --mSync.mCount;
+        Mutexed<CCodecBufferChannel::QueueSync::Counter>::Locked count(mSync.mCount);
+        --count->value;
+        count->cond.broadcast();
     }
 }
 
 void CCodecBufferChannel::QueueSync::start() {
-    std::unique_lock<std::mutex> l(mMutex);
+    Mutex::Autolock l(mGuardLock);
     // If stopped, it goes to running state; otherwise no-op.
-    int32_t expected = -1;
-    (void)mCount.compare_exchange_strong(expected, 0);
+    Mutexed<Counter>::Locked count(mCount);
+    if (count->value == -1) {
+        count->value = 0;
+    }
 }
 
 void CCodecBufferChannel::QueueSync::stop() {
-    std::unique_lock<std::mutex> l(mMutex);
-    if (mCount == -1) {
+    Mutex::Autolock l(mGuardLock);
+    Mutexed<Counter>::Locked count(mCount);
+    if (count->value == -1) {
         // no-op
         return;
     }
-    // Holding mutex here blocks creation of additional QueueGuard objects, so
+    // Holding mGuardLock here blocks creation of additional QueueGuard objects, so
     // mCount can only decrement. In other words, threads that acquired the lock
     // are allowed to finish execution but additional threads trying to acquire
     // the lock at this point will block, and then get QueueGuard at STOPPED
     // state.
-    int32_t expected = 0;
-    while (!mCount.compare_exchange_weak(expected, -1)) {
-        std::this_thread::yield();
+    while (count->value != 0) {
+        count.waitForCondition(count->cond);
     }
+    count->value = -1;
 }
 
 // CCodecBufferChannel::PipelineCapacity
