@@ -20,7 +20,6 @@
 
 #include <map>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 #include <C2Buffer.h>
@@ -168,7 +167,7 @@ private:
         /**
          * At construction the sync object is in STOPPED state.
          */
-        inline QueueSync() : mCount(-1) {}
+        inline QueueSync() {}
         ~QueueSync() = default;
 
         /**
@@ -185,8 +184,14 @@ private:
         void stop();
 
     private:
-        std::mutex mMutex;
-        std::atomic_int32_t mCount;
+        Mutex mGuardLock;
+
+        struct Counter {
+            inline Counter() : value(-1) {}
+            int32_t value;
+            Condition cond;
+        };
+        Mutexed<Counter> mCount;
 
         friend class CCodecBufferChannel::QueueGuard;
     };
