@@ -420,7 +420,6 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
                 work->result = C2_CORRUPTED;
                 return;
             }
-            mIsCodecConfigFlushRequired = true;
 
             if ((mSampFreq != prevSampleRate) ||
                 (mNumChannels != prevNumChannels)) {
@@ -451,10 +450,14 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
         signed int bytesConsumed = 0;
         int errorCode = 0;
         if (mIsCodecInitialized) {
+            mIsCodecConfigFlushRequired = true;
             errorCode = decodeXAACStream(inBuffer, inBufferLength,
                                          &bytesConsumed, &mNumOutBytes);
-        } else {
+        } else if (!mIsCodecConfigFlushRequired) {
             ALOGE("Assumption that first frame after header initializes decoder Failed!");
+            mSignalledError = true;
+            work->result = C2_CORRUPTED;
+            return;
         }
         size -= bytesConsumed;
         offset += bytesConsumed;
