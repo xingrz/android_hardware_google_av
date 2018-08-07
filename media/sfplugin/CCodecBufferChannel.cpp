@@ -1287,6 +1287,11 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     int64_t timeUs;
     CHECK(buffer->meta()->findInt64("timeUs", &timeUs));
 
+    if (mInputMetEos) {
+        ALOGD("[%s] buffers after EOS ignored (%lld us)", mName, (long long)timeUs);
+        return OK;
+    }
+
     int32_t flags = 0;
     int32_t tmp = 0;
     bool eos = false;
