@@ -2366,33 +2366,21 @@ bool CCodecBufferChannel::handleWork(
 }
 
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
-    if (newSurface != nullptr) {
+    static std::atomic_uint32_t surfaceGeneration{0};
+    uint32_t generation = (getpid() << 10) |
+            ((surfaceGeneration.fetch_add(1, std::memory_order_relaxed) + 1)
+                & ((1 << 10) - 1));
+
+    sp<IGraphicBufferProducer> producer;
+    if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
         newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
+        producer = newSurface->getIGraphicBufferProducer();
+        producer->setGenerationNumber(generation);
+    } else {
+        ALOGE("[%s] setting output surface to null", mName);
+        return INVALID_OPERATION;
     }
-
-//    if (newSurface == nullptr) {
-//        if (*surface != nullptr) {
-//            ALOGI("[%s] cannot unset a surface", mName);
-//            return INVALID_OPERATION;
-//        }
-//        return OK;
-//    }
-//
-//    if (*surface == nullptr) {
-//        ALOGI("[%s] component was not configured with a surface", mName);
-//        return INVALID_OPERATION;
-//    }
-
-    uint32_t generation;
-
-    ANativeWindowBuffer *buf;
-    ANativeWindow *window = newSurface.get();
-    int fenceFd;
-    window->dequeueBuffer(window, &buf, &fenceFd);
-    sp<GraphicBuffer> gbuf = GraphicBuffer::from(buf);
-    generation = gbuf->getGenerationNumber();
-    window->cancelBuffer(window, buf, fenceFd);
 
     std::shared_ptr<Codec2Client::Configurable> outputPoolIntf;
     C2BlockPool::local_id_t outputPoolId;
@@ -2405,7 +2393,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     if (outputPoolIntf) {
         if (mComponent->setOutputSurface(
                 outputPoolId,
-                newSurface->getIGraphicBufferProducer(),
+                producer,
                 generation) != C2_OK) {
             ALOGI("[%s] setSurface: component setOutputSurface failed", mName);
             return INVALID_OPERATION;
@@ -2415,7 +2403,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
         output->surface = newSurface;
-        output->generation = generation = gbuf->getGenerationNumber();
+        output->generation = generation;
     }
 
     return OK;
