@@ -189,9 +189,10 @@ c2_status_t Codec2ConfigurableClient::query(
                             continue;
                         }
                         if (!heapParams) {
-                            ALOGW("query -- extra stack param.");
+                            ALOGW("query -- unexpected extra stack param.");
+                        } else {
+                            heapParams->emplace_back(C2Param::Copy(*paramPointer));
                         }
-                        heapParams->emplace_back(C2Param::Copy(*paramPointer));
                     }
                     ++it;
                 }
