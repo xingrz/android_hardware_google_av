@@ -54,6 +54,7 @@ struct CCodecConfig {
      * commonly as masks.
      */
     enum Domain : uint32_t {
+        // component domain (domain & kind)
         GUARD_BIT   = (1 << 1),   ///< this is to prevent against accidental && or || usage
         IS_AUDIO    = (1 << 2),   ///< for audio codecs
         IS_VIDEO    = (1 << 3),   ///< for video codecs
@@ -64,10 +65,12 @@ struct CCodecConfig {
         IS_DECODER  = (1 << 7),   ///< for decoders
         OTHER_KIND  = (1 << 8),   ///< for other domains
 
+        // config domain
         IS_PARAM    = (1 << 9),   ///< for setParameter
         IS_CONFIG   = (1 << 10),  ///< for configure
         IS_READ     = (1 << 11),  ///< for getFormat
 
+        // port domain
         IS_INPUT    = (1 << 12),  ///< for input port (getFormat)
         IS_OUTPUT   = (1 << 13),  ///< for output port (getFormat)
         IS_RAW      = (1 << 14),  ///< for raw port (input-encoder, output-decoder)
@@ -102,6 +105,7 @@ struct CCodecConfig {
     Domain mDomain; // component domain
     Domain mInputDomain; // input port domain
     Domain mOutputDomain; // output port domain
+    std::string mCodingMediaType;  // media type of the coded stream
 
     // standard MediaCodec to Codec 2.0 params mapping
     std::shared_ptr<StandardParams> mStandardParams;
@@ -112,6 +116,8 @@ struct CCodecConfig {
 
     sp<AMessage> mInputFormat;
     sp<AMessage> mOutputFormat;
+
+    bool mUsingSurface; ///< using input or output surface
 
     std::shared_ptr<InputSurfaceWrapper> mInputSurface;
     std::unique_ptr<InputSurfaceWrapper::Config> mISConfig;
