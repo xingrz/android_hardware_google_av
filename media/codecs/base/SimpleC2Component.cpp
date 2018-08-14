@@ -451,6 +451,7 @@ void SimpleC2Component::processQueue() {
         listener->onWorkDone_nb(shared_from_this(), vec(work));
     } else {
         ALOGV("queue pending work");
+        work->input.buffers.clear();
         std::unique_ptr<C2Work> unexpected;
         {
             Mutexed<PendingWork>::Locked pending(mPendingWork);
