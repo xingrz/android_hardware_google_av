@@ -328,8 +328,111 @@ c2_status_t Codec2ConfigurableClient::querySupportedValues(
     return status;
 }
 
-// Codec2Client
+// Codec2Client::Component::HidlListener
+struct Codec2Client::Component::HidlListener : public IComponentListener {
+    std::weak_ptr<Component> component;
+    std::weak_ptr<Listener> base;
 
+    virtual Return<void> onWorkDone(const WorkBundle& workBundle) override {
+        std::list<std::unique_ptr<C2Work>> workItems;
+        c2_status_t status = objcpy(&workItems, workBundle);
+        if (status != C2_OK) {
+            ALOGI("onWorkDone -- received corrupted WorkBundle. "
+                    "status = %d.", static_cast<int>(status));
+            return Void();
+        }
+        // release input buffers potentially held by the component from queue
+        std::shared_ptr<Codec2Client::Component> strongComponent = component.lock();
+        if (strongComponent) {
+            strongComponent->handleOnWorkDone(workItems);
+        }
+        if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
+            listener->onWorkDone(component, workItems);
+        } else {
+            ALOGD("onWorkDone -- listener died.");
+        }
+        return Void();
+    }
+
+    virtual Return<void> onTripped(
+            const hidl_vec<SettingResult>& settingResults) override {
+        std::vector<std::shared_ptr<C2SettingResult>> c2SettingResults(
+                settingResults.size());
+        c2_status_t status;
+        for (size_t i = 0; i < settingResults.size(); ++i) {
+            std::unique_ptr<C2SettingResult> c2SettingResult;
+            status = objcpy(&c2SettingResult, settingResults[i]);
+            if (status != C2_OK) {
+                ALOGI("onTripped -- received corrupted SettingResult. "
+                        "status = %d.", static_cast<int>(status));
+                return Void();
+            }
+            c2SettingResults[i] = std::move(c2SettingResult);
+        }
+        if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
+            listener->onTripped(component, c2SettingResults);
+        } else {
+            ALOGD("onTripped -- listener died.");
+        }
+        return Void();
+    }
+
+    virtual Return<void> onError(Status s, uint32_t errorCode) override {
+        ALOGD("onError -- status = %d, errorCode = %u.",
+                static_cast<int>(s),
+                static_cast<unsigned>(errorCode));
+        if (std::shared_ptr<Listener> listener = base.lock()) {
+            listener->onError(component, s == Status::OK ?
+                    errorCode : static_cast<c2_status_t>(s));
+        } else {
+            ALOGD("onError -- listener died.");
+        }
+        return Void();
+    }
+
+    virtual Return<void> onFramesRendered(
+            const hidl_vec<RenderedFrame>& renderedFrames) override {
+        std::shared_ptr<Listener> listener = base.lock();
+        std::vector<Codec2Client::Listener::RenderedFrame> rfs;
+        rfs.reserve(renderedFrames.size());
+        for (const RenderedFrame& rf : renderedFrames) {
+            if (rf.slotId >= 0) {
+                if (listener) {
+                    rfs.emplace_back(rf.bufferQueueId,
+                                     rf.slotId,
+                                     rf.timestampNs);
+                }
+            } else {
+                std::shared_ptr<Codec2Client::Component> strongComponent =
+                        component.lock();
+                if (strongComponent) {
+                    uint64_t frameIndex = rf.bufferQueueId;
+                    size_t bufferIndex = static_cast<size_t>(~rf.slotId);
+                    ALOGV("Received death notification of input buffer: "
+                          "frameIndex = %llu, bufferIndex = %zu.",
+                          static_cast<long long unsigned>(frameIndex),
+                          bufferIndex);
+                    std::shared_ptr<C2Buffer> buffer =
+                            strongComponent->freeInputBuffer(
+                                frameIndex, bufferIndex);
+                    if (buffer) {
+                        listener->onInputBufferDone(buffer);
+                    }
+                }
+            }
+        }
+        if (!rfs.empty()) {
+            if (listener) {
+                listener->onFramesRendered(rfs);
+            } else {
+                ALOGD("onFramesRendered -- listener died.");
+            }
+        }
+        return Void();
+    }
+};
+
+// Codec2Client
 Codec2Client::Base* Codec2Client::base() const {
     return static_cast<Base*>(mBase.get());
 }
@@ -351,91 +454,9 @@ c2_status_t Codec2Client::createComponent(
 
     // TODO: Add support for Bufferpool
 
-    struct HidlListener : public IComponentListener {
-        std::weak_ptr<Component> component;
-        std::weak_ptr<Listener> base;
-
-        virtual Return<void> onWorkDone(const WorkBundle& workBundle) override {
-            std::list<std::unique_ptr<C2Work>> workItems;
-            c2_status_t status = objcpy(&workItems, workBundle);
-            if (status != C2_OK) {
-                ALOGE("onWorkDone -- received corrupted WorkBundle. "
-                        "status = %d.", static_cast<int>(status));
-                return Void();
-            }
-            // release input buffers potentially held by the component from queue
-            std::shared_ptr<Codec2Client::Component> strongComponent = component.lock();
-            if (strongComponent) {
-                strongComponent->handleOnWorkDone(workItems);
-            }
-            if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
-                listener->onWorkDone(component, workItems);
-            } else {
-                ALOGW("onWorkDone -- listener died.");
-            }
-            return Void();
-        }
-
-        virtual Return<void> onTripped(
-                const hidl_vec<SettingResult>& settingResults) override {
-            std::vector<std::shared_ptr<C2SettingResult>> c2SettingResults(
-                    settingResults.size());
-            c2_status_t status;
-            for (size_t i = 0; i < settingResults.size(); ++i) {
-                std::unique_ptr<C2SettingResult> c2SettingResult;
-                status = objcpy(&c2SettingResult, settingResults[i]);
-                if (status != C2_OK) {
-                    ALOGE("onTripped -- received corrupted SettingResult. "
-                            "status = %d.", static_cast<int>(status));
-                    return Void();
-                }
-                c2SettingResults[i] = std::move(c2SettingResult);
-            }
-            if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
-                listener->onTripped(component, c2SettingResults);
-            } else {
-                ALOGW("onTripped -- listener died.");
-            }
-            return Void();
-        }
-
-        virtual Return<void> onError(Status s, uint32_t errorCode) override {
-            ALOGE("onError -- status = %d, errorCode = %u.",
-                    static_cast<int>(s),
-                    static_cast<unsigned>(errorCode));
-            if (std::shared_ptr<Listener> listener = base.lock()) {
-                listener->onError(component, s == Status::OK ?
-                        errorCode : static_cast<c2_status_t>(s));
-            } else {
-                ALOGW("onError -- listener died.");
-            }
-            return Void();
-        }
-
-        virtual Return<void> onFramesRendered(
-                const hidl_vec<RenderedFrame>& renderedFrames) override {
-            if (std::shared_ptr<Listener> listener = base.lock()) {
-                std::vector<Codec2Client::Listener::RenderedFrame>
-                        rfs(renderedFrames.size());
-                for (size_t i = 0; i < rfs.size(); ++i) {
-                    rfs[i].bufferQueueId = static_cast<uint64_t>(
-                            renderedFrames[i].bufferQueueId);
-                    rfs[i].slotId = static_cast<int32_t>(
-                            renderedFrames[i].slotId);
-                    rfs[i].timestampNs = static_cast<int64_t>(
-                            renderedFrames[i].timestampNs);
-                }
-                listener->onFramesRendered(rfs);
-            } else {
-                ALOGW("onFramesRendered -- listener died.");
-            }
-            return Void();
-        }
-
-    };
 
     c2_status_t status;
-    sp<HidlListener> hidlListener = new HidlListener();
+    sp<Component::HidlListener> hidlListener = new Component::HidlListener();
     hidlListener->base = listener;
     Return<void> transStatus = base()->createComponent(
             name,
@@ -840,11 +861,15 @@ void Codec2Client::Component::handleOnWorkDone(
         for (uint64_t inputIndex : inputDone) {
             auto it = mInputBuffers.find(inputIndex);
             if (it == mInputBuffers.end()) {
-                ALOGI("unknown input index %llu in onWorkDone", (long long)inputIndex);
+                ALOGV("onWorkDone -- returned consumed/unknown "
+                      "input frame: index %llu",
+                        (long long)inputIndex);
             } else {
-                ALOGV("done with input index %llu with %zu buffers",
+                ALOGV("onWorkDone -- processed input frame: "
+                      "index %llu (containing %zu buffers)",
                         (long long)inputIndex, it->second.size());
                 mInputBuffers.erase(it);
+                mInputBufferCount.erase(inputIndex);
             }
         }
     }
@@ -861,6 +886,38 @@ void Codec2Client::Component::handleOnWorkDone(
     }
 }
 
+std::shared_ptr<C2Buffer> Codec2Client::Component::freeInputBuffer(
+        uint64_t frameIndex,
+        size_t bufferIndex) {
+    std::shared_ptr<C2Buffer> buffer;
+    std::lock_guard<std::mutex> lock(mInputBuffersMutex);
+    auto it = mInputBuffers.find(frameIndex);
+    if (it == mInputBuffers.end()) {
+        ALOGI("freeInputBuffer -- Unrecognized input frame index %llu.",
+              static_cast<long long unsigned>(frameIndex));
+        return nullptr;
+    }
+    if (bufferIndex >= it->second.size()) {
+        ALOGI("freeInputBuffer -- Input buffer no. %zu is invalid in "
+              "input frame index %llu.",
+              bufferIndex, static_cast<long long unsigned>(frameIndex));
+        return nullptr;
+    }
+    buffer = it->second[bufferIndex];
+    if (!buffer) {
+        ALOGI("freeInputBuffer -- Input buffer no. %zu in "
+              "input frame index %llu has already been freed.",
+              bufferIndex, static_cast<long long unsigned>(frameIndex));
+        return nullptr;
+    }
+    it->second[bufferIndex] = nullptr;
+    if (--mInputBufferCount[frameIndex] == 0) {
+        mInputBuffers.erase(it);
+        mInputBufferCount.erase(frameIndex);
+    }
+    return buffer;
+}
+
 c2_status_t Codec2Client::Component::queue(
         std::list<std::unique_ptr<C2Work>>* const items) {
     // remember input buffers queued to hold reference to them
@@ -870,15 +927,22 @@ c2_status_t Codec2Client::Component::queue(
             if (!work) {
                 continue;
             }
+            if (work->input.buffers.size() == 0) {
+                continue;
+            }
 
             uint64_t inputIndex = work->input.ordinal.frameIndex.peeku();
             auto res = mInputBuffers.emplace(inputIndex, work->input.buffers);
             if (!res.second) {
-                ALOGI("duplicate input index %llu in queue", (long long)inputIndex);
                 // TODO: append? - for now we are replacing
                 res.first->second = work->input.buffers;
+                ALOGI("queue -- duplicate input frame: index %llu. "
+                      "Discarding the old input frame...",
+                        (long long)inputIndex);
             }
-            ALOGV("qeueing input index %llu with %zu buffers",
+            mInputBufferCount[inputIndex] = work->input.buffers.size();
+            ALOGV("queue -- queueing input frame: "
+                  "index %llu (containing %zu buffers)",
                     (long long)inputIndex, work->input.buffers.size());
         }
     }
@@ -928,7 +992,14 @@ c2_status_t Codec2Client::Component::flush(
     std::vector<uint64_t> flushedIndices;
     for (const std::unique_ptr<C2Work> &work : *flushedWork) {
         if (work) {
-            flushedIndices.emplace_back(work->input.ordinal.frameIndex.peeku());
+            if (work->worklets.empty()
+                    || !work->worklets.back()
+                    || (work->worklets.back()->output.flags &
+                        C2FrameData::FLAG_INCOMPLETE) == 0) {
+                // input is complete
+                flushedIndices.emplace_back(
+                        work->input.ordinal.frameIndex.peeku());
+            }
         }
     }
 
@@ -937,11 +1008,15 @@ c2_status_t Codec2Client::Component::flush(
         std::lock_guard<std::mutex> lock(mInputBuffersMutex);
         auto it = mInputBuffers.find(flushedIndex);
         if (it == mInputBuffers.end()) {
-            ALOGI("unknown input index %llu in flush", (long long)flushedIndex);
+            ALOGV("flush -- returned consumed/unknown input frame: "
+                  "index %llu",
+                    (long long)flushedIndex);
         } else {
-            ALOGV("flushed input index %llu with %zu buffers",
-                    (long long)flushedIndex, it->second.size());
+            ALOGV("flush -- returned unprocessed input frame: "
+                  "index %llu (containing %zu buffers)",
+                    (long long)flushedIndex, mInputBufferCount[flushedIndex]);
             mInputBuffers.erase(it);
+            mInputBufferCount.erase(flushedIndex);
         }
     }
 
@@ -1004,6 +1079,7 @@ c2_status_t Codec2Client::Component::stop() {
     }
     mInputBuffersMutex.lock();
     mInputBuffers.clear();
+    mInputBufferCount.clear();
     mInputBuffersMutex.unlock();
     return status;
 }
@@ -1022,6 +1098,7 @@ c2_status_t Codec2Client::Component::reset() {
     }
     mInputBuffersMutex.lock();
     mInputBuffers.clear();
+    mInputBufferCount.clear();
     mInputBuffersMutex.unlock();
     return status;
 }
@@ -1040,6 +1117,7 @@ c2_status_t Codec2Client::Component::release() {
     }
     mInputBuffersMutex.lock();
     mInputBuffers.clear();
+    mInputBufferCount.clear();
     mInputBuffersMutex.unlock();
     return status;
 }

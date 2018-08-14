@@ -67,6 +67,7 @@ public:
 
     void initiateReleaseIfStuck();
     void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems);
+    void onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer);
 
 protected:
     virtual ~CCodec();
