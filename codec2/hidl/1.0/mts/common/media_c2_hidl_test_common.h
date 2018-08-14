@@ -81,6 +81,12 @@ struct CodecListener : public android::Codec2Client::Listener {
         (void)comp;
     }
 
+    virtual void onInputBufferDone(
+        const std::shared_ptr<C2Buffer>& buffer) override {
+        /* TODO */
+        (void)buffer;
+    }
+
     virtual void onFramesRendered(
         const std::vector<RenderedFrame>& renderedFrames) override {
         /* TODO */
