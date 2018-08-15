@@ -259,10 +259,29 @@ struct Codec2Client::Listener {
     virtual void onDeath(
             const std::weak_ptr<Component>& comp) = 0;
 
+    // This is called when an input buffer is no longer in use by the codec.
+    // Input buffers that have been returned by onWorkDone() or flush() will not
+    // trigger a call to this function.
+    virtual void onInputBufferDone(
+            const std::shared_ptr<C2Buffer>& buffer) = 0;
+
+    // This structure is used for transporting onFramesRendered() event to the
+    // client in the case where the output buffers are obtained from a
+    // bufferqueue.
     struct RenderedFrame {
+        // The id of the bufferqueue.
         uint64_t bufferQueueId;
+        // The slot of the buffer inside the bufferqueue.
         int32_t slotId;
+        // The timestamp.
         int64_t timestampNs;
+
+        RenderedFrame(uint64_t bufferQueueId, int32_t slotId,
+                      int64_t timestampNs)
+              : bufferQueueId(bufferQueueId),
+                slotId(slotId),
+                timestampNs(timestampNs) {}
+        RenderedFrame(const RenderedFrame&) = default;
     };
 
     virtual void onFramesRendered(
@@ -347,8 +366,6 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
 
     c2_status_t disconnectFromInputSurface();
 
-    void handleOnWorkDone(const std::list<std::unique_ptr<C2Work>> &workItems);
-
     // base cannot be null.
     Component(const sp<Base>& base);
 
@@ -357,9 +374,23 @@ struct Codec2Client::Component : public Codec2Client::Configurable {
 protected:
     Base* base() const;
 
+    // Mutex for mInputBuffers and mInputBufferCount.
     mutable std::mutex mInputBuffersMutex;
+
+    // Map: frameIndex -> vector of bufferIndices
+    //
+    // mInputBuffers[frameIndex][bufferIndex] may be null if the buffer in that
+    // slot has been freed.
     mutable std::map<uint64_t, std::vector<std::shared_ptr<C2Buffer>>>
             mInputBuffers;
+
+    // Map: frameIndex -> number of bufferIndices that have not been freed
+    //
+    // mInputBufferCount[frameIndex] keeps track of the number of non-null
+    // elements in mInputBuffers[frameIndex]. When mInputBufferCount[frameIndex]
+    // decreases to 0, frameIndex can be removed from both mInputBuffers and
+    // mInputBufferCount.
+    mutable std::map<uint64_t, size_t> mInputBufferCount;
 
     ::hardware::google::media::c2::V1_0::utils::DefaultBufferPoolSender
             mBufferPoolSender;
@@ -375,6 +406,12 @@ protected:
     sp<::android::hardware::hidl_death_recipient> mDeathRecipient;
 
     friend struct Codec2Client;
+
+    struct HidlListener;
+    void handleOnWorkDone(const std::list<std::unique_ptr<C2Work>> &workItems);
+    // Remove an input buffer from mInputBuffers and return it.
+    std::shared_ptr<C2Buffer> freeInputBuffer(uint64_t frameIndex, size_t bufferIndex);
+
 };
 
 struct Codec2Client::InputSurface {
