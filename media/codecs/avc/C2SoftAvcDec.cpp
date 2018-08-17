@@ -438,7 +438,7 @@ status_t C2SoftAvcDec::setNumCores() {
     return OK;
 }
 
-status_t C2SoftAvcDec::setParams(size_t stride) {
+status_t C2SoftAvcDec::setParams(size_t stride, IVD_VIDEO_DECODE_MODE_T dec_mode) {
     ivd_ctl_set_config_ip_t s_set_dyn_params_ip;
     ivd_ctl_set_config_op_t s_set_dyn_params_op;
 
@@ -448,7 +448,7 @@ status_t C2SoftAvcDec::setParams(size_t stride) {
     s_set_dyn_params_ip.u4_disp_wd = (UWORD32) stride;
     s_set_dyn_params_ip.e_frm_skip_mode = IVD_SKIP_NONE;
     s_set_dyn_params_ip.e_frm_out_mode = IVD_DISPLAY_FRAME_OUT;
-    s_set_dyn_params_ip.e_vid_dec_mode = IVD_DECODE_FRAME;
+    s_set_dyn_params_ip.e_vid_dec_mode = dec_mode;
     s_set_dyn_params_op.u4_size = sizeof(ivd_ctl_set_config_op_t);
     IV_API_CALL_STATUS_T status = ivdec_api_function(mDecHandle,
                                                      &s_set_dyn_params_ip,
@@ -491,7 +491,7 @@ status_t C2SoftAvcDec::initDecoder() {
     mSignalledError = false;
     resetPlugin();
     (void) setNumCores();
-    if (OK != setParams(mStride)) return UNKNOWN_ERROR;
+    if (OK != setParams(mStride, IVD_DECODE_FRAME)) return UNKNOWN_ERROR;
     (void) getVersion();
 
     return OK;
@@ -703,7 +703,7 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
     }
     if (mStride != ALIGN64(mWidth)) {
         mStride = ALIGN64(mWidth);
-        if (OK != setParams(mStride)) return C2_CORRUPTED;
+        if (OK != setParams(mStride, IVD_DECODE_FRAME)) return C2_CORRUPTED;
     }
     if (mOutBlock &&
             (mOutBlock->width() != mStride || mOutBlock->height() != mHeight)) {
@@ -808,7 +808,10 @@ void C2SoftAvcDec::process(
             resetDecoder();
             resetPlugin();
             work->workletsProcessed = 0u;
-            continue;
+
+            /* Decode header and get new dimensions */
+            setParams(mStride, IVD_DECODE_HEADER);
+            (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         }
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
             if (s_decode_op.u4_pic_wd != mWidth || s_decode_op.u4_pic_ht != mHeight) {
@@ -818,8 +821,16 @@ void C2SoftAvcDec::process(
 
                 C2VideoSizeStreamInfo::output size(0u, mWidth, mHeight);
                 std::vector<std::unique_ptr<C2SettingResult>> failures;
-                (void)mIntf->config({&size}, C2_MAY_BLOCK, &failures);
-                work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
+                c2_status_t err = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
+                if (err == OK) {
+                    work->worklets.front()->output.configUpdate.push_back(
+                        C2Param::Copy(size));
+                } else {
+                    ALOGE("Cannot set width and height");
+                    mSignalledError = true;
+                    work->result = C2_CORRUPTED;
+                    return;
+                }
                 continue;
             }
         }

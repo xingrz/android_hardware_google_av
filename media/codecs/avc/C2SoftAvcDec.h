@@ -117,7 +117,7 @@ public:
 private:
     status_t createDecoder();
     status_t setNumCores();
-    status_t setParams(size_t stride);
+    status_t setParams(size_t stride, IVD_VIDEO_DECODE_MODE_T dec_mode);
     void getVersion();
     status_t initDecoder();
     bool setDecodeArgs(ivd_video_decode_ip_t *ps_decode_ip,
