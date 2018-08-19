@@ -437,16 +437,16 @@ void C2SoftVpxEnc::process(
             work->result = C2_CORRUPTED;
             return;
         }
-    } else if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
-        ALOGV("Empty input Buffer with EOS");
-        work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
+    } else {
+        ALOGV("Empty input Buffer");
+        uint32_t flags = 0;
+        if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
+            flags |= C2FrameData::FLAG_END_OF_STREAM;
+        }
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->workletsProcessed = 1u;
-        return;
-    } else {
-        ALOGE("Empty input Buffer");
-        work->result = C2_BAD_VALUE;
         return;
     }
 
