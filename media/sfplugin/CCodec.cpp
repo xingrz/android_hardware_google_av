@@ -36,6 +36,7 @@
 #include <gui/Surface.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <media/omx/1.0/WGraphicBufferSource.h>
+#include <media/openmax/OMX_IndexExt.h>
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/PersistentSurface.h>
@@ -258,7 +259,19 @@ public:
             mConfig.mMinFps = config.mMinFps;
         }
 
-        // TODO: pts gap
+        // pts gap
+        if (config.mMinAdjustedFps > 0 || config.mFixedAdjustedFps > 0) {
+            if (mNode != nullptr) {
+                OMX_PARAM_U32TYPE ptrGapParam = {};
+                ptrGapParam.nSize = sizeof(OMX_PARAM_U32TYPE);
+                ptrGapParam.nU32 = (config.mMinAdjustedFps > 0)
+                        ? c2_min(INT32_MAX + 0., 1e6 / config.mMinAdjustedFps + 0.5)
+                        : c2_max(0. - INT32_MAX, -1e6 / config.mFixedAdjustedFps - 0.5);
+                (void)mNode->setParameter(
+                        (OMX_INDEXTYPE)OMX_IndexParamMaxFrameDurationForBitrateControl,
+                        &ptrGapParam, sizeof(ptrGapParam));
+            }
+        }
 
         // max fps
         // TRICKY: we do not unset max fps to 0 unless using fixed fps
