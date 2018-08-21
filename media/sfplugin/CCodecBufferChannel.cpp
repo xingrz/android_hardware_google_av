@@ -2117,7 +2117,12 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2FormatAudio) {
+        if (oStreamFormat.value == C2BufferData::LINEAR) {
+            // WORKAROUND: if we're using early CSD workaround we convert to
+            //             array mode, to appease apps assuming the output
+            //             buffers to be of the same size.
+            (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
+
             int32_t channelCount;
             int32_t sampleRate;
             if (outputFormat->findInt32(KEY_CHANNEL_COUNT, &channelCount)
@@ -2131,8 +2136,8 @@ status_t CCodecBufferChannel::start(
                     padding = 0;
                 }
                 if (delay || padding) {
-                    // We need write access to the buffers..
-                    (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
+                    // We need write access to the buffers, and we're already in
+                    // array mode.
                     (*buffers)->initSkipCutBuffer(delay, padding, sampleRate, channelCount);
                 }
             }
@@ -2200,7 +2205,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2FormatCompressed && i == 0) {
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
