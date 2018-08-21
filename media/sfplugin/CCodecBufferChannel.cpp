@@ -1454,6 +1454,10 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     std::unique_ptr<C2Work> work(new C2Work);
     work->input.ordinal.timestamp = timeUs;
     work->input.ordinal.frameIndex = mFrameIndex++;
+    // WORKAROUND: until codecs support handling work after EOS and max output sizing, use timestamp
+    // manipulation to achieve image encoding via video codec, and to constrain encoded output.
+    // Keep client timestamp in customOrdinal
+    work->input.ordinal.customOrdinal = timeUs;
     work->input.buffers.clear();
     if (buffer->size() > 0u) {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
@@ -1481,6 +1485,8 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
         work.reset(new C2Work);
         work->input.ordinal.timestamp = timeUs;
         work->input.ordinal.frameIndex = mFrameIndex++;
+        // WORKAROUND: keep client timestamp in customOrdinal
+        work->input.ordinal.customOrdinal = timeUs;
         work->input.buffers.clear();
         work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
 
@@ -2064,7 +2070,12 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2FormatAudio) {
+        if (oStreamFormat.value == C2BufferData::LINEAR) {
+            // WORKAROUND: if we're using early CSD workaround we convert to
+            //             array mode, to appease apps assuming the output
+            //             buffers to be of the same size.
+            (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
+
             int32_t channelCount;
             int32_t sampleRate;
             if (outputFormat->findInt32(KEY_CHANNEL_COUNT, &channelCount)
@@ -2078,8 +2089,8 @@ status_t CCodecBufferChannel::start(
                     padding = 0;
                 }
                 if (delay || padding) {
-                    // We need write access to the buffers..
-                    (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
+                    // We need write access to the buffers, and we're already in
+                    // array mode.
                     (*buffers)->initSkipCutBuffer(delay, padding, sampleRate, channelCount);
                 }
             }
@@ -2147,7 +2158,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2FormatCompressed && i == 0) {
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
@@ -2304,10 +2315,27 @@ bool CCodecBufferChannel::handleWork(
     bool feedNeeded = true;
     sp<MediaCodecBuffer> outBuffer;
     size_t index;
+
+    // WORKAROUND: adjust output timestamp based on client input timestamp and codec
+    // input timestamp. Codec output timestamp (in the timestamp field) shall correspond to
+    // the codec input timestamp, but client output timestamp should (reported in timeUs)
+    // shall correspond to the client input timesamp (in customOrdinal). By using the
+    // delta between the two, this allows for some timestamp deviation - e.g. if one input
+    // produces multiple output.
+    c2_cntr64_t timestamp =
+        worklet->output.ordinal.timestamp + work->input.ordinal.customOrdinal
+                - work->input.ordinal.timestamp;
+    ALOGV("[%s] onWorkDone: input %lld, codec %lld => output %lld => %lld",
+          mName,
+          work->input.ordinal.customOrdinal.peekll(),
+          work->input.ordinal.timestamp.peekll(),
+          worklet->output.ordinal.timestamp.peekll(),
+          timestamp.peekll());
+
     if (initData != nullptr) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         if ((*buffers)->registerCsd(initData, &index, &outBuffer)) {
-            outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
+            outBuffer->meta()->setInt64("timeUs", timestamp.peek());
             outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("[%s] onWorkDone: csd index = %zu [%p]", mName, index, outBuffer.get());
 
@@ -2357,7 +2385,7 @@ bool CCodecBufferChannel::handleWork(
         }
     }
 
-    outBuffer->meta()->setInt64("timeUs", worklet->output.ordinal.timestamp.peek());
+    outBuffer->meta()->setInt64("timeUs", timestamp.peek());
     outBuffer->meta()->setInt32("flags", flags);
     ALOGV("[%s] onWorkDone: out buffer index = %zu [%p] => %p + %zu",
             mName, index, outBuffer.get(), outBuffer->data(), outBuffer->size());
