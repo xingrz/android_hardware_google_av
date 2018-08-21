@@ -29,7 +29,7 @@ public:
     virtual ~InputSurfaceWrapper() = default;
 
     /**
-     * Connect the surface with |comp| and start pushing buffers. A surface can
+     * Connect the surface with |comp|. A surface can
      * connect to at most one component at a time.
      *
      * \return OK               successfully connected to |comp|
@@ -42,6 +42,11 @@ public:
      * Disconnect the surface from the component if any.
      */
     virtual void disconnect() = 0;
+
+    /**
+     * Start pushing buffers to the surface.
+     */
+    virtual status_t start() = 0;
 
     /**
      * Ref: GraphicBufferSource::signalEndOfInputStream.
