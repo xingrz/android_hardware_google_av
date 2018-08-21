@@ -154,6 +154,11 @@ public:
         }
     }
 
+    status_t start() override {
+        // InputSurface does not distinguish started state
+        return OK;
+    }
+
     status_t signalEndOfInputStream() override {
         C2InputSurfaceEosTuning eos(true);
         std::vector<std::unique_ptr<C2SettingResult>> failures;
@@ -194,16 +199,6 @@ public:
 
         // TODO: configure according to intf().
         // TODO: initial color aspects (dataspace)
-
-        sp<IOMXBufferSource> source = mNode->getSource();
-        if (source == nullptr) {
-            return NO_INIT;
-        }
-        constexpr size_t kNumSlots = 16;
-        for (size_t i = 0; i < kNumSlots; ++i) {
-            source->onInputBufferAdded(i);
-        }
-        source->onOmxExecuting();
         return OK;
     }
 
@@ -234,6 +229,20 @@ public:
             }
         }
         return err;
+    }
+
+    status_t start() override {
+        sp<IOMXBufferSource> source = mNode->getSource();
+        if (source == nullptr) {
+            return NO_INIT;
+        }
+        constexpr size_t kNumSlots = 16;
+        for (size_t i = 0; i < kNumSlots; ++i) {
+            source->onInputBufferAdded(i);
+        }
+
+        source->onOmxExecuting();
+        return OK;
     }
 
     status_t signalEndOfInputStream() override {
@@ -983,14 +992,14 @@ status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &s
     Mutexed<Config>::Locked config(mConfig);
     config->mInputSurface = surface;
     config->mUsingSurface = true;
+
     if (config->mISConfig) {
         surface->configure(*config->mISConfig);
     } else {
         ALOGD("ISConfig: no configuration");
     }
 
-    // TODO: configure |surface| with other settings.
-    return OK;
+    return surface->start();
 }
 
 void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
