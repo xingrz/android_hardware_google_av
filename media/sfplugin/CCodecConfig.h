@@ -223,6 +223,10 @@ struct CCodecConfig {
     bool updateConfiguration(
             std::vector<std::unique_ptr<C2Param>> &configUpdate, Domain domain);
 
+    /// Updates formats in the specific domain. Returns true if any of the formats have changed.
+    /// \param domain input/output bitmask
+    bool updateFormats(Domain domain);
+
     /**
      * Applies SDK configurations in a specific configuration domain.
      * Updates relevant input/output formats and subscribes to parameters specified in the
@@ -317,10 +321,6 @@ private:
             const std::shared_ptr<Codec2Client::Component> &component,
             const std::vector<C2Param::Index> &indices,
             c2_blocking_t blocking = C2_DONT_BLOCK);
-
-    /// Updates formats in the specific domain. Returns true if any of the formats have changed.
-    /// \param domain input/output bitmask
-    bool updateFormats(Domain domain);
 
     /// Gets SDK format from codec 2.0 reflected configuration
     /// \param domain input/output bitmask
