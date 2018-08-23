@@ -2159,6 +2159,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
     if (err != C2_OK) {
         return UNKNOWN_ERROR;
     }
+    std::vector<sp<MediaCodecBuffer>> toBeQueued;
     // TODO: use proper buffer depth instead of this random value
     for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
         size_t index;
@@ -2188,19 +2189,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     buffer->meta()->clear();
                     buffer->meta()->setInt64("timeUs", 0);
                     buffer->meta()->setInt32("csd", 1);
-                    configs.unlock();
-                    if (queueInputBufferInternal(buffer) == OK) {
-                        ALOGV("[%s] queued flushed codec config", mName);
-                        configs.lock();
-
-                        configs->pop_front();
-                        post = false;
-                    } else {
-                        ALOGD("[%s] failed to queue flushed codec config", mName);
-                        configs.lock();
-
-                        buffer->setRange(0, buffer->capacity());
-                    }
+                    post = false;
                 } else {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
@@ -2211,18 +2200,23 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                 buffer->setRange(0, 0);
                 buffer->meta()->clear();
                 buffer->meta()->setInt64("timeUs", 0);
-                (void)queueInputBufferInternal(buffer);
+                post = false;
             }
-            if (post) {
-                if (mAvailablePipelineCapacity.allocate(
-                        "requestInitialInputBuffers")) {
+            if (mAvailablePipelineCapacity.allocate("requestInitialInputBuffers")) {
+                if (post) {
                     mCallback->onInputBufferAvailable(index, buffer);
                 } else {
-                    ALOGD("[%s] pipeline is full while "
-                          "requesting %zu-th input buffer",
-                            mName, i);
+                    toBeQueued.emplace_back(buffer);
                 }
+            } else {
+                ALOGD("[%s] pipeline is full while requesting %zu-th input buffer",
+                        mName, i);
             }
+        }
+    }
+    for (const sp<MediaCodecBuffer> &buffer : toBeQueued) {
+        if (queueInputBufferInternal(buffer) != OK) {
+            mAvailablePipelineCapacity.free("requestInitialInputBuffers");
         }
     }
     return OK;
