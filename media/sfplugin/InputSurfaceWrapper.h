@@ -18,6 +18,7 @@
 #define INPUT_SURFACE_WRAPPER_H_
 
 #include <codec2/hidl/client.h>
+#include <system/graphics.h>
 
 namespace android {
 
@@ -26,6 +27,10 @@ namespace android {
  */
 class InputSurfaceWrapper {
 public:
+    InputSurfaceWrapper()
+        : mDataSpace(HAL_DATASPACE_UNKNOWN) {
+    }
+
     virtual ~InputSurfaceWrapper() = default;
 
     /**
@@ -83,6 +88,18 @@ public:
      *               reconfiguring)
      */
     virtual status_t configure(Config &config) = 0;
+
+    /**
+     * Configures desired data space.
+     *
+     * \param dataSpace desired data space
+     */
+    inline void setDataSpace(android_dataspace dataSpace) {
+        mDataSpace = dataSpace;
+    }
+
+protected:
+    android_dataspace mDataSpace;
 };
 
 }  // namespace android

@@ -440,17 +440,18 @@ void CCodecConfig::initializeStandardParams() {
     add(ConfigMapper("color-matrix",        C2_PARAMKEY_COLOR_ASPECTS,   "matrix")
         .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::CODED));
 
-    // read back coded aspects for encoders (on the raw port)
+    // read back coded aspects for encoders (on the raw port), but also configure
+    // desired aspects here.
     add(ConfigMapper(KEY_COLOR_RANGE,       C2_PARAMKEY_VUI_COLOR_ASPECTS,   "range")
-        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW)
         .withC2Mappers<C2Color::range_t>());
     add(ConfigMapper(KEY_COLOR_TRANSFER,    C2_PARAMKEY_VUI_COLOR_ASPECTS,   "transfer")
-        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ)
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW)
         .withC2Mappers<C2Color::transfer_t>());
     add(ConfigMapper("color-primaries",     C2_PARAMKEY_VUI_COLOR_ASPECTS,   "primaries")
-        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW));
     add(ConfigMapper("color-matrix",        C2_PARAMKEY_VUI_COLOR_ASPECTS,   "matrix")
-        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW & D::READ));
+        .limitTo((D::VIDEO | D::IMAGE) & D::ENCODER  & D::RAW));
 
     // Dataspace
     add(ConfigMapper("android._dataspace", C2_PARAMKEY_DATA_SPACE, "value")
@@ -1118,8 +1119,6 @@ sp<AMessage> CCodecConfig::getSdkFormatForDomain(
     }
 
     { // convert color info
-        // TODO: apply platform default to decoder output
-
         C2Color::primaries_t primaries;
         C2Color::matrix_t matrix;
         if (msg->findInt32("color-primaries", (int32_t*)&primaries)
