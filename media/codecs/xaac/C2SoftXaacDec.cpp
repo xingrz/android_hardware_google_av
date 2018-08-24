@@ -327,7 +327,10 @@ IA_ERRORCODE C2SoftXaacDec::initDecoder() {
         return IA_FATAL_ERROR;
     }
 
-    mOutputDrainBuffer = new short[kOutputDrainBufferSize];
+    if (!mOutputDrainBuffer) {
+        mOutputDrainBuffer = new (std::nothrow) char[kOutputDrainBufferSize];
+        if (!mOutputDrainBuffer) return IA_FATAL_ERROR;
+    }
 
     err_code = initXAACDrc();
     RETURN_IF_FATAL(err_code,  "initXAACDrc");
@@ -442,6 +445,7 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
     mCurFrameIndex = work->input.ordinal.frameIndex.peeku();
     mCurTimestamp = work->input.ordinal.timestamp.peeku();
     mOutputDrainBufferWritePos = 0;
+    char* tempOutputDrainBuffer = mOutputDrainBuffer;
     while (size > 0u) {
         if ((kOutputDrainBufferSize * sizeof(int16_t) -
              mOutputDrainBufferWritePos) <
@@ -588,7 +592,8 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
 
             // fall through
         }
-        memcpy(mOutputDrainBuffer, mOutputBuffer, mNumOutBytes);
+        memcpy(tempOutputDrainBuffer, mOutputBuffer, mNumOutBytes);
+        tempOutputDrainBuffer += mNumOutBytes;
         mOutputDrainBufferWritePos += mNumOutBytes;
     }
 
