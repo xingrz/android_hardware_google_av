@@ -186,19 +186,18 @@ public:
             const sp<BGraphicBufferSource> &source,
             uint32_t width,
             uint32_t height)
-        : mSource(source), mWidth(width), mHeight(height) {}
+        : mSource(source), mWidth(width), mHeight(height) {
+        mDataSpace = HAL_DATASPACE_BT709;
+    }
     ~GraphicBufferSourceWrapper() override = default;
 
     status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
-        // TODO: proper color aspect & dataspace
-        android_dataspace dataSpace = HAL_DATASPACE_BT709;
-
         mNode = new C2OMXNode(comp);
         mNode->setFrameSize(mWidth, mHeight);
-        mSource->configure(mNode, dataSpace);
 
-        // TODO: configure according to intf().
-        // TODO: initial color aspects (dataspace)
+        // NOTE: we do not use/pass through color aspects from GraphicBufferSource as we
+        // communicate that directly to the component.
+        mSource->configure(mNode, mDataSpace);
         return OK;
     }
 
@@ -984,14 +983,30 @@ void CCodec::createInputSurface() {
 }
 
 status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface) {
+    Mutexed<Config>::Locked config(mConfig);
+    config->mUsingSurface = true;
+
+    // we are now using surface - apply default color aspects to input format - as well as
+    // get dataspace
+    bool inputFormatChanged = config->updateFormats(config->IS_INPUT);
+    ALOGD("input format %s to %s",
+            inputFormatChanged ? "changed" : "unchanged",
+            config->mInputFormat->debugString().c_str());
+
+    // configure dataspace
+    static_assert(sizeof(int32_t) == sizeof(android_dataspace), "dataspace size mismatch");
+    android_dataspace dataSpace = HAL_DATASPACE_UNKNOWN;
+    (void)config->mInputFormat->findInt32("android._dataspace", (int32_t*)&dataSpace);
+    surface->setDataSpace(dataSpace);
+
     status_t err = mChannel->setInputSurface(surface);
     if (err != OK) {
+        // undo input format update
+        config->mUsingSurface = false;
+        (void)config->updateFormats(config->IS_INPUT);
         return err;
     }
-
-    Mutexed<Config>::Locked config(mConfig);
     config->mInputSurface = surface;
-    config->mUsingSurface = true;
 
     if (config->mISConfig) {
         surface->configure(*config->mISConfig);
