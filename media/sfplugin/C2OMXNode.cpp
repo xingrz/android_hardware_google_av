@@ -309,7 +309,11 @@ status_t C2OMXNode::dispatchMessage(const omx_message& msg) {
     if (msg.u.event_data.event != OMX_EventDataSpaceChanged) {
         return ERROR_UNSUPPORTED;
     }
-    // TODO: fill intf() with info inside |msg|.
+    android_dataspace dataSpace = (android_dataspace)msg.u.event_data.data1;
+    uint32_t pixelFormat = msg.u.event_data.data3;
+
+    // TODO: set dataspace on component to see if it impacts color aspects
+    ALOGD("dataspace changed to %#x pixel format: %#x", dataSpace, pixelFormat);
     return OK;
 }
 
