@@ -120,6 +120,7 @@ struct C2SoftHevcDec : public SimpleC2Component {
     uint32_t mStride;
     bool mSignalledOutputEos;
     bool mSignalledError;
+    bool mHeaderDecoded;
 
     // Color aspects. These are ISO values and are meant to detect changes in aspects to avoid
     // converting them to C2 values for each frame

@@ -324,7 +324,8 @@ C2SoftHevcDec::C2SoftHevcDec(
         mOutBufferFlush(nullptr),
         mIvColorformat(IV_YUV_420P),
         mWidth(320),
-        mHeight(240) {
+        mHeight(240),
+        mHeaderDecoded(false) {
 }
 
 C2SoftHevcDec::~C2SoftHevcDec() {
@@ -628,7 +629,7 @@ status_t C2SoftHevcDec::resetDecoder() {
     mStride = 0;
     (void) setNumCores();
     mSignalledError = false;
-
+    mHeaderDecoded = false;
     return OK;
 }
 
@@ -780,6 +781,11 @@ void C2SoftHevcDec::process(
             work->result = C2_CORRUPTED;
             return;
         }
+
+        if (false == mHeaderDecoded) {
+            /* Decode header and get dimensions */
+            setParams(mStride, IVD_DECODE_HEADER);
+        }
         WORD32 delay;
         GETTIME(&mTimeStart, nullptr);
         TIME_DIFF(mTimeEnd, mTimeStart, delay);
@@ -811,6 +817,10 @@ void C2SoftHevcDec::process(
             (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         }
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
+            if (mHeaderDecoded == false) {
+                mHeaderDecoded = true;
+                setParams(ALIGN64(s_decode_op.u4_pic_wd), IVD_DECODE_FRAME);
+            }
             if (s_decode_op.u4_pic_wd != mWidth ||  s_decode_op.u4_pic_ht != mHeight) {
                 mWidth = s_decode_op.u4_pic_wd;
                 mHeight = s_decode_op.u4_pic_ht;
@@ -836,6 +846,10 @@ void C2SoftHevcDec::process(
         hasPicture |= (1 == s_decode_op.u4_frame_decoded_flag);
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
+        }
+        if (0 == s_decode_op.u4_num_bytes_consumed) {
+            ALOGD("Bytes consumed is zero. Ignoring remaining bytes");
+            break;
         }
         inPos += s_decode_op.u4_num_bytes_consumed;
         if (hasPicture && (inSize - inPos)) {
