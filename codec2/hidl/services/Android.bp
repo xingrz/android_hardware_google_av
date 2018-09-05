@@ -39,7 +39,8 @@ cc_binary {
 
 cc_library_shared {
     name: "libmedia_codecserviceregistrant",
-    soc_specific: true,
+    // need vendor version for update packaging, system version may have more dependencies
+    vendor_available: true,
     srcs: [
         "C2SoftwareCodecServiceRegistrant.cpp",
     ],
@@ -49,13 +50,10 @@ cc_library_shared {
     ],
 
     shared_libs: [
-        "android.hardware.media.omx@1.0",
         "hardware.google.media.c2@1.0",
         "liblog",
         "libcodec2_hidl_utils@1.0",
         "libstagefright_codec2_vndk",
-        "libstagefright_omx",
-        "libstagefright_xmlparser",
         "libutils",
     ],
 
