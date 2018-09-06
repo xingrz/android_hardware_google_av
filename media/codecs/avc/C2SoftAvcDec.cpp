@@ -737,8 +737,10 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
 void C2SoftAvcDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 0u;
+    work->worklets.front()->output.flags = work->input.flags;
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -767,6 +769,7 @@ void C2SoftAvcDec::process(
     while (inPos < inSize) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -783,6 +786,7 @@ void C2SoftAvcDec::process(
             if (!setDecodeArgs(&s_decode_ip, &s_decode_op, &rView, &wView,
                                inOffset + inPos, inSize - inPos, workIndex)) {
                 mSignalledError = true;
+                work->workletsProcessed = 1u;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -804,13 +808,15 @@ void C2SoftAvcDec::process(
         }
         if (IVD_MEM_ALLOC_FAILED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGE("allocation failure in decoder");
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         } else if (IVD_STREAM_WIDTH_HEIGHT_NOT_SUPPORTED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGE("unsupported resolution : %dx%d", mWidth, mHeight);
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         } else if (IVD_RES_CHANGED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGV("resolution changed");
@@ -842,6 +848,7 @@ void C2SoftAvcDec::process(
                 } else {
                     ALOGE("Cannot set width and height");
                     mSignalledError = true;
+                    work->workletsProcessed = 1u;
                     work->result = C2_CORRUPTED;
                     return;
                 }
@@ -889,6 +896,7 @@ c2_status_t C2SoftAvcDec::drainInternal(
     while (true) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return C2_CORRUPTED;
         }
@@ -901,6 +909,7 @@ c2_status_t C2SoftAvcDec::drainInternal(
         ivd_video_decode_op_t s_decode_op;
         if (!setDecodeArgs(&s_decode_ip, &s_decode_op, nullptr, &wView, 0, 0, 0)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             return C2_CORRUPTED;
         }
         (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);

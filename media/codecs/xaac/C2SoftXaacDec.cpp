@@ -391,9 +391,12 @@ void C2SoftXaacDec::finishWork(const std::unique_ptr<C2Work>& work,
 
 void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
                          const std::shared_ptr<C2BlockPool>& pool) {
-    work->workletsProcessed = 0u;
+    // Initialize output work
     work->result = C2_OK;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -416,7 +419,6 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
     bool eos = (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0;
     bool codecConfig =
         (work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) != 0;
-
     if (codecConfig) {
         if (size == 0u) {
             ALOGE("empty codec config");
@@ -439,7 +441,6 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
         work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
-        work->workletsProcessed = 1u;
         return;
     }
 

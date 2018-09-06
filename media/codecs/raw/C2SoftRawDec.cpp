@@ -134,7 +134,8 @@ void C2SoftRawDec::process(
         const std::shared_ptr<C2BlockPool> &pool) {
     (void)pool;
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
+
     if (mSignalledEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -149,7 +150,6 @@ void C2SoftRawDec::process(
     if (!work->input.buffers.empty()) {
         work->worklets.front()->output.buffers.push_back(work->input.buffers[0]);
     }
-    work->workletsProcessed = 1u;
     if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
         mSignalledEos = true;
         ALOGV("signalled EOS");

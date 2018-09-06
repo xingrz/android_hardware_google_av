@@ -523,9 +523,12 @@ void C2SoftAacDec::drainRingBuffer(
 void C2SoftAacDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
-    work->workletsProcessed = 0u;
+    // Initialize output work
     work->result = C2_OK;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError) {
         return;
     }
@@ -572,7 +575,6 @@ void C2SoftAacDec::process(
         work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
-        work->workletsProcessed = 1u;
         return;
     }
 
@@ -779,7 +781,7 @@ void C2SoftAacDec::process(
     int32_t outputDelay = mStreamInfo->outputDelay * mStreamInfo->numChannels;
 
     mBuffersInfo.push_back(std::move(inInfo));
-
+    work->workletsProcessed = 0u;
     if (!eos && mOutputDelayCompensated < outputDelay) {
         // discard outputDelay at the beginning
         int32_t toCompensate = outputDelay - mOutputDelayCompensated;

@@ -450,8 +450,8 @@ bool C2SoftMpeg4Dec::handleResChange(const std::unique_ptr<C2Work> &work) {
             if (!PVInitVideoDecoder(
                     mDecHandle, vol_data, &vol_size, 1, mIntf->getMaxWidth(), mIntf->getMaxHeight(), H263_MODE)) {
                 ALOGE("Error in PVInitVideoDecoder H263_MODE while resChanged was set to true");
-                work->result = C2_CORRUPTED;
                 mSignalledError = true;
+                work->result = C2_CORRUPTED;
                 return true;
             }
         }
@@ -495,12 +495,14 @@ static void copyOutputBufferToYV12Frame(uint8_t *dst, uint8_t *src, size_t dstYS
 void C2SoftMpeg4Dec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
-        work->workletsProcessed = 1u;
         return;
     }
 
@@ -552,18 +554,16 @@ void C2SoftMpeg4Dec::process(
                 mDecHandle, vol_data, &vol_size, 1,
                 mIntf->getMaxWidth(), mIntf->getMaxHeight(), mode)) {
             ALOGE("PVInitVideoDecoder failed. Unsupported content?");
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
         mInitialized = true;
         MP4DecodingMode actualMode = PVGetDecBitstreamMode(mDecHandle);
         if (mode != actualMode) {
             ALOGE("Decoded mode not same as actual mode of the decoder");
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -580,7 +580,6 @@ void C2SoftMpeg4Dec::process(
                 ALOGE("Config update size failed");
                 mSignalledError = true;
                 work->result = C2_CORRUPTED;
-                work->workletsProcessed = 1u;
                 return;
             }
         }
@@ -596,23 +595,20 @@ void C2SoftMpeg4Dec::process(
         if (C2_OK != err) {
             mSignalledError = true;
             work->result = err;
-            work->workletsProcessed = 1u;
             return;
         }
         C2GraphicView wView = mOutBlock->map().get();
         if (wView.error()) {
             ALOGE("graphic view map failed %d", wView.error());
             work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             return;
         }
 
         uint32_t yFrameSize = sizeof(uint8) * mDecHandle->size;
         if (mOutputBufferSize < yFrameSize * 3 / 2){
             ALOGE("Too small output buffer: %zu bytes", mOutputBufferSize);
-            work->result = C2_NO_MEMORY;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_NO_MEMORY;
             return;
         }
 
@@ -632,9 +628,8 @@ void C2SoftMpeg4Dec::process(
                     &header_info, &useExtTimestamp,
                     mOutputBuffer[mNumSamplesOutput & 1]) != PV_TRUE) {
             ALOGE("failed to decode vop header.");
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -642,9 +637,8 @@ void C2SoftMpeg4Dec::process(
         // decoder may detect size change after PVDecodeVopHeader.
         bool resChange = handleResChange(work);
         if (mIsMpeg4 && resChange) {
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         } else if (resChange) {
             ALOGI("Setting width and height");
@@ -657,7 +651,6 @@ void C2SoftMpeg4Dec::process(
                 ALOGE("Config update size failed");
                 mSignalledError = true;
                 work->result = C2_CORRUPTED;
-                work->workletsProcessed = 1u;
                 return;
             }
             continue;
@@ -665,15 +658,13 @@ void C2SoftMpeg4Dec::process(
 
         if (PVDecodeVopBody(mDecHandle, &tmpInSize) != PV_TRUE) {
             ALOGE("failed to decode video frame.");
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
         if (handleResChange(work)) {
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 

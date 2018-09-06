@@ -399,8 +399,10 @@ c2_status_t C2SoftMpeg4Enc::initEncoder() {
 void C2SoftMpeg4Enc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -436,8 +438,8 @@ void C2SoftMpeg4Enc::process(
         int32_t outputSize = mOutBufferSize;
         if (!PVGetVolHeader(mHandle, outPtr, &outputSize, 0)) {
             ALOGE("Failed to get VOL header");
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         } else {
             ALOGV("Bytes Generated in header %d\n", outputSize);
