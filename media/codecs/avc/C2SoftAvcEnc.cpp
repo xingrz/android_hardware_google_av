@@ -1085,11 +1085,15 @@ c2_status_t C2SoftAvcEnc::releaseEncoder() {
     /* Free memory records */
     ps_mem_rec = mMemRecords;
     for (size_t i = 0; i < s_retrieve_mem_op.u4_num_mem_rec_filled; i++) {
-        ive_aligned_free(ps_mem_rec->pv_base);
+        if (ps_mem_rec) ive_aligned_free(ps_mem_rec->pv_base);
+        else {
+            ALOGE("memory record is null.");
+            return C2_CORRUPTED;
+        }
         ps_mem_rec++;
     }
 
-    free(mMemRecords);
+    if (mMemRecords) free(mMemRecords);
 
     // clear other pointers into the space being free()d
     mCodecCtx = nullptr;
@@ -1326,6 +1330,12 @@ void C2SoftAvcEnc::process(
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(s_encode_op.s_out_buf.u4_bytes, 0u);
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, header, s_encode_op.s_out_buf.u4_bytes);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 

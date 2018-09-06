@@ -379,8 +379,10 @@ c2_status_t C2SoftMpeg2Dec::onFlush_sm() {
         }
     }
 
-    ivd_aligned_free(mOutBufferDrain);
-    mOutBufferDrain = nullptr;
+    if (mOutBufferDrain) {
+        ivd_aligned_free(mOutBufferDrain);
+        mOutBufferDrain = nullptr;
+    }
 
     return C2_OK;
 }

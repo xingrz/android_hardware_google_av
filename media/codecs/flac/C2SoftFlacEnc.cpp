@@ -208,7 +208,12 @@ void C2SoftFlacEnc::process(
     if (!mWroteHeader) {
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(mHeaderOffset, 0u);
-        // TODO: check NO_MEMORY
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, mHeader, mHeaderOffset);
         ALOGV("put csd, %d bytes", mHeaderOffset);
 

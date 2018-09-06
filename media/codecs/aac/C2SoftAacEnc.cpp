@@ -320,7 +320,12 @@ void C2SoftAacEnc::process(
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(encInfo.confSize, 0u);
-        // TODO: check NO_MEMORY
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, encInfo.confBuf, encInfo.confSize);
         ALOGV("put csd");
 #if defined(LOG_NDEBUG) && !LOG_NDEBUG

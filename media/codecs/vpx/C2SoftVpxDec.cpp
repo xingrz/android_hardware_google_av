@@ -320,6 +320,10 @@ status_t C2SoftVpxDec::initDecoder() {
     if (!mCodecCtx) {
         mCodecCtx = new vpx_codec_ctx_t;
     }
+    if (!mCodecCtx) {
+        ALOGE("mCodecCtx is null");
+        return NO_MEMORY;
+    }
 
     vpx_codec_dec_cfg_t cfg;
     memset(&cfg, 0, sizeof(vpx_codec_dec_cfg_t));

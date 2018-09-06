@@ -915,7 +915,7 @@ IA_ERRORCODE C2SoftXaacDec::deInitXAACDecoder() {
 
     /* Irrespective of error returned in IA_API_CMD_INPUT_OVER, free allocated memory */
     for (void* buf : mMemoryVec) {
-        free(buf);
+        if (buf) free(buf);
     }
     mMemoryVec.clear();
     mXheaacCodecHandle = nullptr;
@@ -927,7 +927,7 @@ IA_ERRORCODE C2SoftXaacDec::deInitMPEGDDDrc() {
     ALOGV("deInitMPEGDDDrc");
 
     for (void* buf : mDrcMemoryVec) {
-        free(buf);
+        if (buf) free(buf);
     }
     mDrcMemoryVec.clear();
     return IA_NO_ERROR;

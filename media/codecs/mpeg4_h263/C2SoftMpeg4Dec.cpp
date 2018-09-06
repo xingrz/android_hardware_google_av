@@ -324,6 +324,10 @@ status_t C2SoftMpeg4Dec::initDecoder() {
     if (!mDecHandle) {
         mDecHandle = new tagvideoDecControls;
     }
+    if (!mDecHandle) {
+        ALOGE("mDecHandle is null");
+        return NO_MEMORY;
+    }
     memset(mDecHandle, 0, sizeof(tagvideoDecControls));
 
     /* TODO: bring these values to 352 and 288. It cannot be done as of now

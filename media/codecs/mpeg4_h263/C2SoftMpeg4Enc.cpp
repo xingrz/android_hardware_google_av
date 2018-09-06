@@ -253,9 +253,13 @@ c2_status_t C2SoftMpeg4Enc::onInit() {
     if (!mHandle) {
         mHandle = new tagvideoEncControls;
     }
+
     if (!mEncParams) {
         mEncParams = new tagvideoEncOptions;
     }
+
+    if (!(mEncParams && mHandle)) return C2_NO_MEMORY;
+
     mSignalledOutputEos = false;
     mSignalledError = false;
 
@@ -442,6 +446,12 @@ void C2SoftMpeg4Enc::process(
         ++mNumInputFrames;
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(outputSize, 0u);
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, outPtr, outputSize);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
     }

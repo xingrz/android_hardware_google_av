@@ -382,8 +382,10 @@ c2_status_t C2SoftHevcDec::onFlush_sm() {
         }
     }
 
-    ivd_aligned_free(nullptr, mOutBufferFlush);
-    mOutBufferFlush = nullptr;
+    if (mOutBufferFlush) {
+        ivd_aligned_free(nullptr, mOutBufferFlush);
+        mOutBufferFlush = nullptr;
+    }
 
     return C2_OK;
 }
