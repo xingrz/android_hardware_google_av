@@ -357,7 +357,11 @@ void C2SoftXaacDec::finishWork(const std::unique_ptr<C2Work>& work,
     // TODO: error handling, proper usage, etc.
     c2_status_t err =
         pool->fetchLinearBlock(mOutputDrainBufferWritePos, usage, &block);
-    if (err != C2_OK) ALOGE("err = %d", err);
+    if (err != C2_OK) {
+        ALOGE("fetchLinearBlock failed : err = %d", err);
+        work->result = C2_NO_MEMORY;
+        return;
+    }
     C2WriteView wView = block->map().get();
     int16_t* outBuffer = reinterpret_cast<int16_t*>(wView.data());
     memcpy(outBuffer, mOutputDrainBuffer, mOutputDrainBufferWritePos);
@@ -537,7 +541,7 @@ void C2SoftXaacDec::process(const std::unique_ptr<C2Work>& work,
                     work->worklets.front()->output.configUpdate.push_back(
                         C2Param::Copy(channelCountInfo));
                 } else {
-                    ALOGE("Cannot set width and height");
+                    ALOGE("Config Update failed");
                     mSignalledError = true;
                     work->result = C2_CORRUPTED;
                     return;

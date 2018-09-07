@@ -1285,6 +1285,7 @@ void C2SoftAvcEnc::process(
         if (C2_OK != initEncoder()) {
             ALOGE("Failed to initialize encoder");
             work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1413,9 +1414,9 @@ void C2SoftAvcEnc::process(
         error = setEncodeArgs(
                 &s_encode_ip, &s_encode_op, view.get(), wView.base(), wView.capacity(), timestamp);
         if (error != C2_OK) {
-            mSignalledError = true;
             ALOGE("setEncodeArgs failed : %d", error);
             work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = error;
             return;
         }

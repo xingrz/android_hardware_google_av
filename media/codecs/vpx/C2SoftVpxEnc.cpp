@@ -457,6 +457,7 @@ void C2SoftVpxEnc::process(
         ALOGE("unexpected Input buffer attributes %d(%d) x %d(%d)",
               inBuffer.width(), mSize->width, inBuffer.height(),
               mSize->height);
+        mSignalledError = true;
         work->result = C2_BAD_VALUE;
         return;
     }
@@ -563,6 +564,7 @@ void C2SoftVpxEnc::process(
             if (res != VPX_CODEC_OK) {
                 ALOGE("vpx encoder failed to update bitrate: %s",
                       vpx_codec_err_to_string(res));
+                mSignalledError = true;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -589,6 +591,7 @@ void C2SoftVpxEnc::process(
                                                     VPX_DL_REALTIME);
     if (codec_return != VPX_CODEC_OK) {
         ALOGE("vpx encoder failed to encode frame");
+        mSignalledError = true;
         work->result = C2_CORRUPTED;
         return;
     }

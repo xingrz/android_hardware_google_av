@@ -299,8 +299,8 @@ void C2SoftAacEnc::process(
 
         if (AACENC_OK != aacEncEncode(mAACEncoder, nullptr, nullptr, nullptr, nullptr)) {
             ALOGE("Unable to initialize encoder for profile / sample-rate / bit-rate / channels");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -313,8 +313,8 @@ void C2SoftAacEnc::process(
         AACENC_InfoStruct encInfo;
         if (AACENC_OK != aacEncInfo(mAACEncoder, &encInfo)) {
             ALOGE("Failed to get AAC encoder info");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -426,7 +426,9 @@ void C2SoftAacEnc::process(
             // TODO: error handling, proper usage, etc.
             c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
             if (err != C2_OK) {
-                ALOGE("err = %d", err);
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
             }
 
             wView.reset(new C2WriteView(block->map().get()));
@@ -489,7 +491,9 @@ void C2SoftAacEnc::process(
             // TODO: error handling, proper usage, etc.
             c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
             if (err != C2_OK) {
-                ALOGE("err = %d", err);
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
             }
 
             wView.reset(new C2WriteView(block->map().get()));
