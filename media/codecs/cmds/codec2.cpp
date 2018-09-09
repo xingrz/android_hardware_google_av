@@ -33,7 +33,6 @@
 #include <media/DataSource.h>
 #include <media/ICrypto.h>
 #include <media/IMediaHTTPService.h>
-#include <media/MediaExtractor.h>
 #include <media/MediaSource.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ALooper.h>
@@ -450,8 +449,7 @@ int main(int argc, char **argv) {
 
         size_t i;
         for (i = 0; i < numTracks; ++i) {
-            meta = extractor->getTrackMetaData(
-                    i, MediaExtractor::kIncludeExtensiveMetaData);
+            meta = extractor->getTrackMetaData(i, 0);
 
             if (meta == nullptr) {
                 break;
