@@ -2112,12 +2112,6 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
     if (mInputSurface) {
         return OK;
     }
-
-    C2StreamFormatConfig::output oStreamFormat(0u);
-    c2_status_t err = mComponent->query({ &oStreamFormat }, {}, C2_DONT_BLOCK, nullptr);
-    if (err != C2_OK) {
-        return UNKNOWN_ERROR;
-    }
     std::vector<sp<MediaCodecBuffer>> toBeQueued;
     // TODO: use proper buffer depth instead of this random value
     for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
@@ -2153,13 +2147,6 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
-                // WORKAROUND: Some apps expect CSD available without queueing
-                //             any input. Queue an empty buffer to get the CSD.
-                buffer->setRange(0, 0);
-                buffer->meta()->clear();
-                buffer->meta()->setInt64("timeUs", 0);
-                post = false;
             }
             if (mAvailablePipelineCapacity.allocate("requestInitialInputBuffers")) {
                 if (post) {
