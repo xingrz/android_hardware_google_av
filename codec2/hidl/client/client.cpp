@@ -342,12 +342,13 @@ struct Codec2Client::Component::HidlListener : public IComponentListener {
             return Void();
         }
         // release input buffers potentially held by the component from queue
+        size_t numDiscardedInputBuffers = 0;
         std::shared_ptr<Codec2Client::Component> strongComponent = component.lock();
         if (strongComponent) {
-            strongComponent->handleOnWorkDone(workItems);
+            numDiscardedInputBuffers = strongComponent->handleOnWorkDone(workItems);
         }
         if (std::shared_ptr<Codec2Client::Listener> listener = base.lock()) {
-            listener->onWorkDone(component, workItems);
+            listener->onWorkDone(component, workItems, numDiscardedInputBuffers);
         } else {
             ALOGD("onWorkDone -- listener died.");
         }
@@ -841,7 +842,7 @@ c2_status_t Codec2Client::Component::destroyBlockPool(
     return static_cast<c2_status_t>(static_cast<Status>(transResult));
 }
 
-void Codec2Client::Component::handleOnWorkDone(
+size_t Codec2Client::Component::handleOnWorkDone(
         const std::list<std::unique_ptr<C2Work>> &workItems) {
     // Input buffers' lifetime management
     std::vector<uint64_t> inputDone;
@@ -856,6 +857,7 @@ void Codec2Client::Component::handleOnWorkDone(
         }
     }
 
+    size_t numDiscardedInputBuffers = 0;
     {
         std::lock_guard<std::mutex> lock(mInputBuffersMutex);
         for (uint64_t inputIndex : inputDone) {
@@ -870,6 +872,7 @@ void Codec2Client::Component::handleOnWorkDone(
                         (long long)inputIndex, it->second.size());
                 mInputBuffers.erase(it);
                 mInputBufferCount.erase(inputIndex);
+                ++numDiscardedInputBuffers;
             }
         }
     }
@@ -884,6 +887,7 @@ void Codec2Client::Component::handleOnWorkDone(
     if (igbp) {
         holdBufferQueueBlocks(workItems, igbp, bqId, generation);
     }
+    return numDiscardedInputBuffers;
 }
 
 std::shared_ptr<C2Buffer> Codec2Client::Component::freeInputBuffer(
