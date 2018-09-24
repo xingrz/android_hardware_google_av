@@ -1405,7 +1405,7 @@ int CCodecBufferChannel::PipelineCapacity::freeInputSlots(
             prevInput + static_cast<int>(numDiscardedInputBuffers),
             component.load(std::memory_order_relaxed),
             output.load(std::memory_order_relaxed));
-    return prevInput + numDiscardedInputBuffers;
+    return prevInput + static_cast<int>(numDiscardedInputBuffers);
 }
 
 int CCodecBufferChannel::PipelineCapacity::freeComponentSlot(
