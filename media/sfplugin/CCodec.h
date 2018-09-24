@@ -66,7 +66,8 @@ public:
     virtual void signalRequestIDRFrame() override;
 
     void initiateReleaseIfStuck();
-    void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems);
+    void onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems,
+                    size_t numDiscardedInputBuffers);
     void onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer);
 
 protected:
@@ -172,6 +173,7 @@ private:
     typedef CCodecConfig Config;
     Mutexed<Config> mConfig;
     Mutexed<std::list<std::unique_ptr<C2Work>>> mWorkDoneQueue;
+    Mutexed<std::list<size_t>> mNumDiscardedInputBuffersQueue;
 
     friend class CCodecCallbackImpl;
 
