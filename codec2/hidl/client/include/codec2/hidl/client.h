@@ -243,19 +243,31 @@ protected:
 
 struct Codec2Client::Listener {
 
+    // This is called when the component produces some output.
+    //
+    // numDiscardedInputBuffers is the number of input buffers contained in
+    // workItems that have just become unused. Note that workItems may contain
+    // more input buffers than numDiscardedInputBuffers because buffers that
+    // have been previously reported by onInputBufferDone() are not counted
+    // towards numDiscardedInputBuffers, but may still show up in workItems.
     virtual void onWorkDone(
             const std::weak_ptr<Component>& comp,
-            std::list<std::unique_ptr<C2Work>>& workItems) = 0;
+            std::list<std::unique_ptr<C2Work>>& workItems,
+            size_t numDiscardedInputBuffers) = 0;
 
+    // This is called when the component goes into a tripped state.
     virtual void onTripped(
             const std::weak_ptr<Component>& comp,
             const std::vector<std::shared_ptr<C2SettingResult>>& settingResults
             ) = 0;
 
+    // This is called when the component encounters an error.
     virtual void onError(
             const std::weak_ptr<Component>& comp,
             uint32_t errorCode) = 0;
 
+    // This is called when the process that hosts the component shuts down
+    // unexpectedly.
     virtual void onDeath(
             const std::weak_ptr<Component>& comp) = 0;
 
@@ -284,6 +296,7 @@ struct Codec2Client::Listener {
         RenderedFrame(const RenderedFrame&) = default;
     };
 
+    // This is called when the component becomes aware of frames being rendered.
     virtual void onFramesRendered(
             const std::vector<RenderedFrame>& renderedFrames) = 0;
 
@@ -408,7 +421,8 @@ protected:
     friend struct Codec2Client;
 
     struct HidlListener;
-    void handleOnWorkDone(const std::list<std::unique_ptr<C2Work>> &workItems);
+    // Return the number of input buffers that should be discarded.
+    size_t handleOnWorkDone(const std::list<std::unique_ptr<C2Work>> &workItems);
     // Remove an input buffer from mInputBuffers and return it.
     std::shared_ptr<C2Buffer> freeInputBuffer(uint64_t frameIndex, size_t bufferIndex);
 
