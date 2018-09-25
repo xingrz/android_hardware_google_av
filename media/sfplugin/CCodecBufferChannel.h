@@ -125,10 +125,14 @@ public:
      * @param workItems   finished work item.
      * @param outputFormat new output format if it has changed, otherwise nullptr
      * @param initData    new init data (CSD) if it has changed, otherwise nullptr
+     * @param numDiscardedInputBuffers the number of input buffers that are
+     *                    returned for the first time (not previously returned by
+     *                    onInputBufferDone()).
      */
     void onWorkDone(
             std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
-            const C2StreamInitDataInfo::output *initData);
+            const C2StreamInitDataInfo::output *initData,
+            size_t numDiscardedInputBuffers);
 
     /**
      * Make an input buffer available for the client as it is no longer needed
@@ -283,11 +287,6 @@ private:
     struct PipelineCapacity {
         // The number of available input capacity.
         std::atomic_int input;
-        // The number of input buffers that have been released by
-        // onInputBufferDone() but not onWorkDone(). Once onWorkDone() is
-        // called, this number will decrease unless it is already zero; in
-        // which case #input will increase instead.
-        std::atomic_int lentInput;
         // The number of available component capacity.
         std::atomic_int component;
         // The number of available output capacity.
@@ -318,41 +317,31 @@ private:
         // essentially undoes an allocate() call.
         void free(const char* callerTag = nullptr);
 
-        // Increase #input and #lentInput by 1.
+        // Increase #input by @p numDiscardedInputBuffers.
         //
         // callerTag is used for logging only.
         //
-        // lendInputSlot() is called by CCodecBufferChannel when
-        // onInputBufferDone() is called. This means an input buffer has been
-        // freed, but a subsequent call to onWorkDone() will not free an input
-        // buffer.
-        int lendInputSlot(const char* callerTag = nullptr);
-
-        // Increase #input by one if #lentInput is 0; otherwise, decrease
-        // #lentInput by 1.
-        //
-        // callerTag is used for logging only.
-        //
-        // freeInputSlot() is called by CCodecBufferChannel when onWorkDone() is
-        // called. If #lentInput is not zero, that means the input buffer for
-        // the returned work has already been freed, so #input will not
-        // increase.
-        int freeInputSlot(const char* callerTag = nullptr);
+        // freeInputSlots() is called by CCodecBufferChannel when onWorkDone()
+        // or onInputBufferDone() is called. @p numDiscardedInputBuffers is
+        // provided in onWorkDone(), and is 1 in onInputBufferDone().
+        int freeInputSlots(size_t numDiscardedInputBuffers,
+                           const char* callerTag = nullptr);
 
         // Increase #component by one and return the updated value.
         //
         // callerTag is used for logging only.
         //
-        // freeComponentSlot() is called by CCodecBufferChannel when onWorkDone() is
-        // called.
+        // freeComponentSlot() is called by CCodecBufferChannel when
+        // onWorkDone() is called.
         int freeComponentSlot(const char* callerTag = nullptr);
 
         // Increase #output by one and return the updated value.
         //
         // callerTag is used for logging only.
         //
-        // freeOutputSlot() is called by CCodecBufferChannel when discardBuffer() is
-        // called on an output buffer or when renderOutputBuffer() is called.
+        // freeOutputSlot() is called by CCodecBufferChannel when
+        // discardBuffer() is called on an output buffer or when
+        // renderOutputBuffer() is called.
         int freeOutputSlot(const char* callerTag = nullptr);
 
     private:
