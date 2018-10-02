@@ -1330,7 +1330,7 @@ void CCodecBufferChannel::QueueSync::stop() {
 // CCodecBufferChannel::PipelineCapacity
 
 CCodecBufferChannel::PipelineCapacity::PipelineCapacity()
-      : input(0), lentInput(0), component(0), output(0),
+      : input(0), component(0), output(0),
         mName("<UNKNOWN COMPONENT>") {
 }
 
@@ -1341,15 +1341,14 @@ void CCodecBufferChannel::PipelineCapacity::initialize(
         const char* newName,
         const char* callerTag) {
     input.store(newInput, std::memory_order_relaxed);
-    lentInput.store(0, std::memory_order_relaxed);
     component.store(newComponent, std::memory_order_relaxed);
     output.store(newOutput, std::memory_order_relaxed);
     mName = newName;
     ALOGV("[%s] %s -- PipelineCapacity::initialize(): "
           "pipeline availability initialized ==> "
-          "input = %d (-%d), component = %d, output = %d",
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
-            newInput, 0, newComponent, newOutput);
+            newInput, newComponent, newOutput);
 }
 
 bool CCodecBufferChannel::PipelineCapacity::allocate(const char* callerTag) {
@@ -1359,10 +1358,9 @@ bool CCodecBufferChannel::PipelineCapacity::allocate(const char* callerTag) {
     if (prevInput > 0 && prevComponent > 0 && prevOutput > 0) {
         ALOGV("[%s] %s -- PipelineCapacity::allocate() returns true: "
               "pipeline availability -1 all ==> "
-              "input = %d (-%d), component = %d, output = %d",
+              "input = %d, component = %d, output = %d",
                 mName, callerTag ? callerTag : "*",
                 prevInput - 1,
-                lentInput.load(std::memory_order_relaxed),
                 prevComponent - 1,
                 prevOutput - 1);
         return true;
@@ -1372,10 +1370,9 @@ bool CCodecBufferChannel::PipelineCapacity::allocate(const char* callerTag) {
     output.fetch_add(1, std::memory_order_relaxed);
     ALOGV("[%s] %s -- PipelineCapacity::allocate() returns false: "
           "pipeline availability unchanged ==> "
-          "input = %d (-%d), component = %d, output = %d",
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
             prevInput,
-            lentInput.load(std::memory_order_relaxed),
             prevComponent,
             prevOutput);
     return false;
@@ -1387,54 +1384,28 @@ void CCodecBufferChannel::PipelineCapacity::free(const char* callerTag) {
     int prevOutput = output.fetch_add(1, std::memory_order_relaxed);
     ALOGV("[%s] %s -- PipelineCapacity::free(): "
           "pipeline availability +1 all ==> "
-          "input = %d (-%d), component = %d, output = %d",
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
             prevInput + 1,
-            lentInput.load(std::memory_order_relaxed),
             prevComponent + 1,
             prevOutput + 1);
 }
 
-int CCodecBufferChannel::PipelineCapacity::lendInputSlot(
+int CCodecBufferChannel::PipelineCapacity::freeInputSlots(
+        size_t numDiscardedInputBuffers,
         const char* callerTag) {
-    int prevInput = input.fetch_add(1, std::memory_order_relaxed);
-    int prevLentInput = lentInput.fetch_add(1, std::memory_order_relaxed);
-    ALOGV("[%s] %s -- PipelineCapacity::lendInputSlot(): "
-          "pipeline availability +1 (-1) input ==> "
-          "input = %d (-%d), component = %d, output = %d",
+    int prevInput = input.fetch_add(numDiscardedInputBuffers,
+                                    std::memory_order_relaxed);
+    ALOGV("[%s] %s -- PipelineCapacity::freeInputSlots(%zu): "
+          "pipeline availability +%zu input ==> "
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
-            prevInput + 1,
-            prevLentInput + 1,
+            numDiscardedInputBuffers,
+            numDiscardedInputBuffers,
+            prevInput + static_cast<int>(numDiscardedInputBuffers),
             component.load(std::memory_order_relaxed),
             output.load(std::memory_order_relaxed));
-    return prevInput + 1;
-}
-
-int CCodecBufferChannel::PipelineCapacity::freeInputSlot(
-        const char* callerTag) {
-    int prevLentInput = lentInput.fetch_sub(1, std::memory_order_relaxed);
-    if (prevLentInput > 0) {
-        ALOGV("[%s] %s -- PipelineCapacity::freeInputSlot(): "
-              "pipeline availability +0 (+1) input ==> "
-              "input = %d (-%d), component = %d, output = %d",
-                mName, callerTag ? callerTag : "*",
-                input.load(std::memory_order_relaxed),
-                prevLentInput - 1,
-                component.load(std::memory_order_relaxed),
-                output.load(std::memory_order_relaxed));
-        return input.load(std::memory_order_relaxed);
-    }
-    lentInput.fetch_add(1, std::memory_order_relaxed);
-    int prevInput = input.fetch_add(1, std::memory_order_relaxed);
-    ALOGV("[%s] %s -- PipelineCapacity::freeInputSlot(): "
-          "pipeline availability +1 (+0) input ==> "
-          "input = %d (-%d), component = %d, output = %d",
-            mName, callerTag ? callerTag : "*",
-            prevInput + 1,
-            prevLentInput,
-            component.load(std::memory_order_relaxed),
-            output.load(std::memory_order_relaxed));
-    return prevInput + 1;
+    return prevInput + static_cast<int>(numDiscardedInputBuffers);
 }
 
 int CCodecBufferChannel::PipelineCapacity::freeComponentSlot(
@@ -1442,10 +1413,9 @@ int CCodecBufferChannel::PipelineCapacity::freeComponentSlot(
     int prevComponent = component.fetch_add(1, std::memory_order_relaxed);
     ALOGV("[%s] %s -- PipelineCapacity::freeComponentSlot(): "
           "pipeline availability +1 component ==> "
-          "input = %d (-%d), component = %d, output = %d",
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
             input.load(std::memory_order_relaxed),
-            lentInput.load(std::memory_order_relaxed),
             prevComponent + 1,
             output.load(std::memory_order_relaxed));
     return prevComponent + 1;
@@ -1456,10 +1426,9 @@ int CCodecBufferChannel::PipelineCapacity::freeOutputSlot(
     int prevOutput = output.fetch_add(1, std::memory_order_relaxed);
     ALOGV("[%s] %s -- PipelineCapacity::freeOutputSlot(): "
           "pipeline availability +1 output ==> "
-          "input = %d (-%d), component = %d, output = %d",
+          "input = %d, component = %d, output = %d",
             mName, callerTag ? callerTag : "*",
             input.load(std::memory_order_relaxed),
-            lentInput.load(std::memory_order_relaxed),
             component.load(std::memory_order_relaxed),
             prevOutput + 1);
     return prevOutput + 1;
@@ -1859,8 +1828,10 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
     bool released = false;
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
-        if (*buffers) {
-            released = (*buffers)->releaseBuffer(buffer, nullptr);
+        if (*buffers && (*buffers)->releaseBuffer(buffer, nullptr)) {
+            buffers.unlock();
+            released = true;
+            mAvailablePipelineCapacity.freeInputSlots(1, "discardBuffer");
         }
     }
     {
@@ -2147,7 +2118,8 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2BufferData::LINEAR) {
+        if (oStreamFormat.value == C2BufferData::LINEAR
+                && mComponentName.find("c2.qti.") == std::string::npos) {
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
@@ -2182,6 +2154,12 @@ status_t CCodecBufferChannel::start(
 status_t CCodecBufferChannel::requestInitialInputBuffers() {
     if (mInputSurface) {
         return OK;
+    }
+
+    C2StreamFormatConfig::output oStreamFormat(0u);
+    c2_status_t err = mComponent->query({ &oStreamFormat }, {}, C2_DONT_BLOCK, nullptr);
+    if (err != C2_OK) {
+        return UNKNOWN_ERROR;
     }
     std::vector<sp<MediaCodecBuffer>> toBeQueued;
     // TODO: use proper buffer depth instead of this random value
@@ -2218,6 +2196,14 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0
+                    && mComponentName.find("c2.qti.") == std::string::npos) {
+                // WORKAROUND: Some apps expect CSD available without queueing
+                //             any input. Queue an empty buffer to get the CSD.
+                buffer->setRange(0, 0);
+                buffer->meta()->clear();
+                buffer->meta()->setInt64("timeUs", 0);
+                post = false;
             }
             if (mAvailablePipelineCapacity.allocate("requestInitialInputBuffers")) {
                 if (post) {
@@ -2233,7 +2219,8 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
     }
     for (const sp<MediaCodecBuffer> &buffer : toBeQueued) {
         if (queueInputBufferInternal(buffer) != OK) {
-            mAvailablePipelineCapacity.free("requestInitialInputBuffers");
+            mAvailablePipelineCapacity.freeComponentSlot("requestInitialInputBuffers");
+            mAvailablePipelineCapacity.freeOutputSlot("requestInitialInputBuffers");
         }
     }
     return OK;
@@ -2283,8 +2270,10 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
 
 void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
-        const C2StreamInitDataInfo::output *initData) {
-    mAvailablePipelineCapacity.freeInputSlot("onWorkDone");
+        const C2StreamInitDataInfo::output *initData,
+        size_t numDiscardedInputBuffers) {
+    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers,
+                                              "onWorkDone");
     mAvailablePipelineCapacity.freeComponentSlot("onWorkDone");
     if (handleWork(std::move(work), outputFormat, initData)) {
         mAvailablePipelineCapacity.freeOutputSlot("onWorkDone");
@@ -2300,7 +2289,7 @@ void CCodecBufferChannel::onInputBufferDone(
         newInputSlotAvailable = (*buffers)->expireComponentBuffer(buffer);
     }
     if (newInputSlotAvailable) {
-        mAvailablePipelineCapacity.lendInputSlot("onInputBufferDone");
+        mAvailablePipelineCapacity.freeInputSlots(1, "onInputBufferDone");
         feedInputBufferIfAvailable();
     }
 }
