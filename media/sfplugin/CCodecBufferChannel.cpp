@@ -1503,6 +1503,7 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     // Keep client timestamp in customOrdinal
     work->input.ordinal.customOrdinal = timeUs;
     work->input.buffers.clear();
+
     if (buffer->size() > 0u) {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         std::shared_ptr<C2Buffer> c2buffer;
@@ -1510,8 +1511,11 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
             return -ENOENT;
         }
         work->input.buffers.push_back(c2buffer);
-    } else if (eos) {
-        flags |= C2FrameData::FLAG_END_OF_STREAM;
+    } else {
+        mAvailablePipelineCapacity.freeInputSlots(1, "queueInputBufferInternal");
+        if (eos) {
+            flags |= C2FrameData::FLAG_END_OF_STREAM;
+        }
     }
     work->input.flags = (C2FrameData::flags_t)flags;
     // TODO: fill info's
