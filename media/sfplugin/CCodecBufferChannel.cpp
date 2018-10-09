@@ -600,7 +600,6 @@ public:
             if (mBuffers[i].clientBuffer == buffer) {
                 if (!mBuffers[i].ownedByClient) {
                     ALOGD("[%s] Client returned a buffer it does not own according to our record: %zu", mName, i);
-                    return false;
                 }
                 clientBuffer = mBuffers[i].clientBuffer;
                 mBuffers[i].ownedByClient = false;
@@ -1051,7 +1050,7 @@ public:
                     return clientBuffer->canCopy(buffer);
                 });
         if (err != OK) {
-            ALOGV("[%s] grabBuffer failed: %d", mName, err);
+            ALOGD("[%s] grabBuffer failed: %d", mName, err);
             return false;
         }
         c2Buffer->setFormat(mFormat);
@@ -1678,16 +1677,6 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
         ALOGV("[%s] We're not running --- no input buffer reported", mName);
         return;
     }
-    {
-        Mutexed<std::list<PendingBufferInfo>>::Locked pending(mPendingOutputBuffers);
-        if (!pending->empty()) {
-            ALOGV("[%s] We still have %zu pending output buffers, "
-                  "so not reporting input buffers.",
-                  mName,
-                  pending->size());
-            return;
-        }
-    }
     feedInputBufferIfAvailableInternal();
 }
 
@@ -1723,7 +1712,6 @@ status_t CCodecBufferChannel::renderOutputBuffer(
     if (!c2Buffer) {
         return INVALID_OPERATION;
     }
-    sendPendingOutputBuffers();
 
 #if 0
     const std::vector<std::shared_ptr<const C2Info>> infoParams = c2Buffer->info();
@@ -1870,9 +1858,7 @@ status_t CCodecBufferChannel::discardBuffer(const sp<MediaCodecBuffer> &buffer) 
     feedInputBufferIfAvailable();
     if (!released) {
         ALOGD("[%s] MediaCodec discarded an unknown buffer", mName);
-        return INVALID_OPERATION;
     }
-    sendPendingOutputBuffers();
     return OK;
 }
 
@@ -2292,7 +2278,6 @@ void CCodecBufferChannel::stop() {
 
 void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) {
     ALOGV("[%s] flush", mName);
-    mFirstValidFrameIndex = mFrameIndex.load();
     {
         Mutexed<std::list<sp<ABuffer>>>::Locked configs(mFlushedConfigs);
         for (const std::unique_ptr<C2Work> &work : flushedWork) {
@@ -2374,7 +2359,7 @@ bool CCodecBufferChannel::handleWork(
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
-    if ((work->input.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
+    if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
         // Discard frames from previous generation.
         ALOGD("[%s] Discard frames from previous generation.", mName);
         return true;
@@ -2479,40 +2464,23 @@ bool CCodecBufferChannel::handleWork(
     }
 
     {
-        Mutexed<std::list<PendingBufferInfo>>::Locked pending(mPendingOutputBuffers);
-        pending->emplace_back(buffer, timestamp.peek(), flags);
+        Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
+        if (!(*buffers)->registerBuffer(buffer, &index, &outBuffer)) {
+            ALOGD("[%s] onWorkDone: unable to register output buffer", mName);
+            // TODO
+            // buffers.unlock();
+            // mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            // buffers.lock();
+            return false;
+        }
     }
-    sendPendingOutputBuffers();
+
+    outBuffer->meta()->setInt64("timeUs", timestamp.peek());
+    outBuffer->meta()->setInt32("flags", flags);
+    ALOGV("[%s] onWorkDone: out buffer index = %zu [%p] => %p + %zu",
+            mName, index, outBuffer.get(), outBuffer->data(), outBuffer->size());
+    mCallback->onOutputBufferAvailable(index, outBuffer);
     return false;
-}
-
-void CCodecBufferChannel::sendPendingOutputBuffers() {
-    while (true) {
-        Mutexed<std::list<PendingBufferInfo>>::Locked pending(mPendingOutputBuffers);
-        sp<MediaCodecBuffer> outBuffer;
-        if (pending->empty()) {
-            break;
-        }
-        std::shared_ptr<C2Buffer> buffer = pending->front().buffer;
-        int64_t timestamp = pending->front().timestamp;
-        int32_t flags = pending->front().flags;
-        size_t index;
-        ALOGV("[%s] %zu buffers pending", mName, pending->size());
-        {
-            Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-            if (!(*buffers)->registerBuffer(buffer, &index, &outBuffer)) {
-                ALOGV("[%s] sendPendingOutputBuffers: unable to register output buffer", mName);
-                break;
-            }
-        }
-        pending->pop_front();
-
-        outBuffer->meta()->setInt64("timeUs", timestamp);
-        outBuffer->meta()->setInt32("flags", flags);
-        ALOGV("[%s] sendPendingOutputBuffers: out buffer index = %zu [%p] => %p + %zu",
-                mName, index, outBuffer.get(), outBuffer->data(), outBuffer->size());
-        mCallback->onOutputBufferAvailable(index, outBuffer);
-    }
 }
 
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {

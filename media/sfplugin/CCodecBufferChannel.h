@@ -217,7 +217,6 @@ private:
     bool handleWork(
             std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
             const C2StreamInitDataInfo::output *initData);
-    void sendPendingOutputBuffers();
 
     QueueSync mSync;
     sp<MemoryDealer> mDealer;
@@ -352,19 +351,6 @@ private:
     PipelineCapacity mAvailablePipelineCapacity;
 
     std::atomic_bool mInputMetEos;
-
-    struct PendingBufferInfo {
-        inline PendingBufferInfo(
-                const std::shared_ptr<C2Buffer> &b,
-                int64_t t,
-                int32_t f)
-            : buffer(b), timestamp(t), flags(f) {}
-
-        std::shared_ptr<C2Buffer> buffer;
-        int64_t timestamp;
-        int32_t flags;
-    };
-    Mutexed<std::list<PendingBufferInfo>> mPendingOutputBuffers;
 
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != nullptr || mDescrambler != nullptr;
