@@ -1434,6 +1434,19 @@ int CCodecBufferChannel::PipelineCapacity::freeOutputSlot(
     return prevOutput + 1;
 }
 
+int CCodecBufferChannel::PipelineCapacity::forceAllocateOutputSlot(
+        const char* callerTag) {
+    int prevOutput = output.fetch_sub(1, std::memory_order_relaxed);
+    ALOGV("[%s] %s -- PipelineCapacity::forceAllocateOutputSlot(): "
+          "pipeline availability -1 output ==> "
+          "input = %d, component = %d, output = %d",
+            mName, callerTag ? callerTag : "*",
+            input.load(std::memory_order_relaxed),
+            component.load(std::memory_order_relaxed),
+            prevOutput - 1);
+    return prevOutput - 1;
+}
+
 // CCodecBufferChannel
 
 CCodecBufferChannel::CCodecBufferChannel(
@@ -1901,29 +1914,6 @@ status_t CCodecBufferChannel::start(
         return UNKNOWN_ERROR;
     }
 
-    // Query delays
-    C2PortRequestedDelayTuning::input inputDelay;
-    C2PortRequestedDelayTuning::output outputDelay;
-    C2RequestedPipelineDelayTuning pipelineDelay;
-#if 0
-    err = mComponent->query(
-            { &inputDelay, &pipelineDelay, &outputDelay },
-            {},
-            C2_DONT_BLOCK,
-            nullptr);
-    mAvailablePipelineCapacity.initialize(
-            inputDelay,
-            inputDelay + pipelineDelay,
-            inputDelay + pipelineDelay + outputDelay,
-            mName);
-#else
-    mAvailablePipelineCapacity.initialize(
-            kMinInputBufferArraySize,
-            kMaxPipelineCapacity,
-            kMinOutputBufferArraySize,
-            mName);
-#endif
-
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
@@ -2191,6 +2181,34 @@ status_t CCodecBufferChannel::start(
         }
     }
 
+    // Set up pipeline control. This has to be done after mInputBuffers and
+    // mOutputBuffers are initialized to make sure that lingering callbacks
+    // about buffers from the previous generation do not interfere with the
+    // newly initialized pipeline capacity.
+
+    // Query delays
+    C2PortRequestedDelayTuning::input inputDelay;
+    C2PortRequestedDelayTuning::output outputDelay;
+    C2RequestedPipelineDelayTuning pipelineDelay;
+#if 0
+    err = mComponent->query(
+            { &inputDelay, &pipelineDelay, &outputDelay },
+            {},
+            C2_DONT_BLOCK,
+            nullptr);
+    mAvailablePipelineCapacity.initialize(
+            inputDelay,
+            inputDelay + pipelineDelay,
+            inputDelay + pipelineDelay + outputDelay,
+            mName);
+#else
+    mAvailablePipelineCapacity.initialize(
+            kMinInputBufferArraySize,
+            kMaxPipelineCapacity,
+            kMinOutputBufferArraySize,
+            mName);
+#endif
+
     mInputMetEos = false;
     mSync.start();
     return OK;
@@ -2273,7 +2291,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
 
 void CCodecBufferChannel::stop() {
     mSync.stop();
-    mFirstValidFrameIndex = mFrameIndex.load();
+    mFirstValidFrameIndex = mFrameIndex.load(std::memory_order_relaxed);
     if (mInputSurface != nullptr) {
         mInputSurface->disconnect();
         mInputSurface.reset();
@@ -2317,13 +2335,11 @@ void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData,
         size_t numDiscardedInputBuffers) {
-    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers,
-                                              "onWorkDone");
-    mAvailablePipelineCapacity.freeComponentSlot("onWorkDone");
     if (handleWork(std::move(work), outputFormat, initData)) {
-        mAvailablePipelineCapacity.freeOutputSlot("onWorkDone");
+        mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers,
+                                                  "onWorkDone");
+        feedInputBufferIfAvailable();
     }
-    feedInputBufferIfAvailable();
 }
 
 void CCodecBufferChannel::onInputBufferDone(
@@ -2332,9 +2348,11 @@ void CCodecBufferChannel::onInputBufferDone(
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         newInputSlotAvailable = (*buffers)->expireComponentBuffer(buffer);
+        if (newInputSlotAvailable) {
+            mAvailablePipelineCapacity.freeInputSlots(1, "onInputBufferDone");
+        }
     }
     if (newInputSlotAvailable) {
-        mAvailablePipelineCapacity.freeInputSlots(1, "onInputBufferDone");
         feedInputBufferIfAvailable();
     }
 }
@@ -2343,12 +2361,21 @@ bool CCodecBufferChannel::handleWork(
         std::unique_ptr<C2Work> work,
         const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
+    if ((work->input.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
+        // Discard frames from previous generation.
+        ALOGD("[%s] Discard frames from previous generation.", mName);
+        return false;
+    }
+
+    mAvailablePipelineCapacity.freeComponentSlot("handleWork");
+
+    if (work->result == C2_NOT_FOUND) {
+        ALOGD("[%s] flushed work; ignored.", mName);
+        mAvailablePipelineCapacity.freeOutputSlot("handleWork (flushed)");
+        return true;
+    }
+
     if (work->result != C2_OK) {
-        if (work->result == C2_NOT_FOUND) {
-            // TODO: Define what flushed work's result is.
-            ALOGD("[%s] flushed work; ignored.", mName);
-            return true;
-        }
         ALOGD("[%s] work failed to complete: %d", mName, work->result);
         mCCodecCallback->onError(work->result, ACTION_CODE_FATAL);
         return false;
@@ -2363,11 +2390,7 @@ bool CCodecBufferChannel::handleWork(
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
-    if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
-        // Discard frames from previous generation.
-        ALOGD("[%s] Discard frames from previous generation.", mName);
-        return true;
-    }
+
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {
@@ -2406,7 +2429,7 @@ bool CCodecBufferChannel::handleWork(
         ALOGV("[%s] onWorkDone: output EOS", mName);
     }
 
-    bool feedNeeded = true;
+    bool csdReported = false;
     sp<MediaCodecBuffer> outBuffer;
     size_t index;
 
@@ -2436,7 +2459,7 @@ bool CCodecBufferChannel::handleWork(
             buffers.unlock();
             mCallback->onOutputBufferAvailable(index, outBuffer);
             buffers.lock();
-            feedNeeded = false;
+            csdReported = true;
         } else {
             ALOGD("[%s] onWorkDone: unable to register csd", mName);
             buffers.unlock();
@@ -2449,7 +2472,12 @@ bool CCodecBufferChannel::handleWork(
     if (!buffer && !flags) {
         ALOGV("[%s] onWorkDone: Not reporting output buffer (%lld)",
               mName, work->input.ordinal.frameIndex.peekull());
-        return feedNeeded;
+        if (!csdReported) {
+            // onOutputBufferAvailable() has not been and will not be called for
+            // this work item.
+            mAvailablePipelineCapacity.freeOutputSlot("handleWork (no csd)");
+        }
+        return true;
     }
 
     if (buffer) {
@@ -2483,8 +2511,11 @@ bool CCodecBufferChannel::handleWork(
     outBuffer->meta()->setInt32("flags", flags);
     ALOGV("[%s] onWorkDone: out buffer index = %zu [%p] => %p + %zu",
             mName, index, outBuffer.get(), outBuffer->data(), outBuffer->size());
+    if (csdReported) {
+        mAvailablePipelineCapacity.forceAllocateOutputSlot("handleWork");
+    }
     mCallback->onOutputBufferAvailable(index, outBuffer);
-    return false;
+    return true;
 }
 
 status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
