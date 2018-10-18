@@ -807,6 +807,7 @@ public:
             const sp<MemoryDealer> &dealer,
             const sp<ICrypto> &crypto,
             int32_t heapSeqNum,
+            size_t capacity,
             const char *componentName, const char *name = "EncryptedInput")
         : LinearInputBuffers(componentName, name),
           mUsage({0, 0}),
@@ -819,7 +820,7 @@ public:
             mUsage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         }
         for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
-            sp<IMemory> memory = mDealer->allocate(kLinearBufferSize);
+            sp<IMemory> memory = mDealer->allocate(capacity);
             if (memory == nullptr) {
                 ALOGD("[%s] Failed to allocate memory from dealer: only %zu slots allocated", mName, i);
                 break;
@@ -1992,12 +1993,18 @@ status_t CCodecBufferChannel::start(
             }
         } else {
             if (hasCryptoOrDescrambler()) {
+                int32_t capacity = kLinearBufferSize;
+                (void)inputFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+                if ((size_t)capacity > kMaxLinearBufferSize) {
+                    ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+                    capacity = kMaxLinearBufferSize;
+                }
                 if (mDealer == nullptr) {
                     mDealer = new MemoryDealer(
-                            align(kLinearBufferSize, MemoryDealer::getAllocationAlignment())
+                            align(capacity, MemoryDealer::getAllocationAlignment())
                                 * (kMinInputBufferArraySize + 1),
                             "EncryptedLinearInputBuffers");
-                    mDecryptDestination = mDealer->allocate(kLinearBufferSize);
+                    mDecryptDestination = mDealer->allocate((size_t)capacity);
                 }
                 if (mCrypto != nullptr && mHeapSeqNum < 0) {
                     mHeapSeqNum = mCrypto->setHeap(mDealer->getMemoryHeap());
@@ -2005,7 +2012,7 @@ status_t CCodecBufferChannel::start(
                     mHeapSeqNum = -1;
                 }
                 buffers->reset(new EncryptedLinearInputBuffers(
-                        secure, mDealer, mCrypto, mHeapSeqNum, mName));
+                        secure, mDealer, mCrypto, mHeapSeqNum, (size_t)capacity, mName));
             } else {
                 buffers->reset(new LinearInputBuffers(mName));
             }
