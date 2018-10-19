@@ -25,6 +25,7 @@
 
 #include <C2Buffer.h>
 #include <C2Component.h>
+#include <Codec2Mapper.h>
 
 #include <codec2/hidl/client.h>
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
@@ -42,6 +43,7 @@ public:
     virtual ~CCodecCallback() = default;
     virtual void onError(status_t err, enum ActionCode actionCode) = 0;
     virtual void onOutputFramesRendered(int64_t mediaTimeUs, nsecs_t renderTimeNs) = 0;
+    virtual void onWorkQueued(bool eos) = 0;
 };
 
 /**
@@ -95,10 +97,20 @@ public:
     status_t signalEndOfInputStream();
 
     /**
+     * Set parameters.
+     */
+    status_t setParameters(std::vector<std::unique_ptr<C2Param>> &params);
+
+    /**
      * Start queueing buffers to the component. This object should never queue
-     * buffers before this call.
+     * buffers before this call has completed.
      */
     status_t start(const sp<AMessage> &inputFormat, const sp<AMessage> &outputFormat);
+
+    /**
+     * Request initial input buffers to be filled by client.
+     */
+    status_t requestInitialInputBuffers();
 
     /**
      * Stop queueing buffers to the component. This object should never queue
@@ -195,11 +207,15 @@ private:
     int32_t mHeapSeqNum;
 
     std::shared_ptr<Codec2Client::Component> mComponent;
+    std::string mComponentName; ///< component name for debugging
+    const char *mName; ///< C-string version of component name
     std::shared_ptr<CCodecCallback> mCCodecCallback;
     std::shared_ptr<C2BlockPool> mInputAllocator;
     QueueSync mQueueSync;
+    std::vector<std::unique_ptr<C2Param>> mParamsToBeSet;
 
     Mutexed<std::unique_ptr<InputBuffers>> mInputBuffers;
+    Mutexed<std::list<sp<ABuffer>>> mFlushedConfigs;
     Mutexed<std::unique_ptr<OutputBuffers>> mOutputBuffers;
 
     std::atomic_uint64_t mFrameIndex;
@@ -226,11 +242,42 @@ private:
 
     MetaMode mMetaMode;
     std::atomic_int32_t mPendingFeed;
+    std::atomic_bool mInputMetEos;
 
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != NULL || mDescrambler != NULL;
     }
 };
+
+// Conversion of a c2_status_t value to a status_t value may depend on the
+// operation that returns the c2_status_t value.
+enum c2_operation_t {
+    C2_OPERATION_NONE,
+    C2_OPERATION_Component_connectToOmxInputSurface,
+    C2_OPERATION_Component_createBlockPool,
+    C2_OPERATION_Component_destroyBlockPool,
+    C2_OPERATION_Component_disconnectFromInputSurface,
+    C2_OPERATION_Component_drain,
+    C2_OPERATION_Component_flush,
+    C2_OPERATION_Component_queue,
+    C2_OPERATION_Component_release,
+    C2_OPERATION_Component_reset,
+    C2_OPERATION_Component_setOutputSurface,
+    C2_OPERATION_Component_start,
+    C2_OPERATION_Component_stop,
+    C2_OPERATION_ComponentStore_copyBuffer,
+    C2_OPERATION_ComponentStore_createComponent,
+    C2_OPERATION_ComponentStore_createInputSurface,
+    C2_OPERATION_ComponentStore_createInterface,
+    C2_OPERATION_Configurable_config,
+    C2_OPERATION_Configurable_query,
+    C2_OPERATION_Configurable_querySupportedParams,
+    C2_OPERATION_Configurable_querySupportedValues,
+    C2_OPERATION_InputSurface_connectToComponent,
+    C2_OPERATION_InputSurfaceConnection_disconnect,
+};
+
+status_t toStatusT(c2_status_t c2s, c2_operation_t c2op = C2_OPERATION_NONE);
 
 }  // namespace android
 

@@ -249,7 +249,7 @@ Return<Status> Component::setOutputSurface(
                 hidl_vec<IComponentListener::RenderedFrame> rendered;
                 rendered.resize(1);
                 rendered[0] = { producer, slot, nsecs };
-                mListener->onFramesRendered(rendered);
+                (void)mListener->onFramesRendered(rendered).isOk();
         };
         if (bqPool) {
             bqPool->setRenderCallback(cb);
@@ -278,7 +278,9 @@ namespace /* unnamed */ {
 
 struct BlockPoolIntf : public ConfigurableC2Intf {
     BlockPoolIntf(const std::shared_ptr<C2BlockPool>& pool) :
-        ConfigurableC2Intf("C2BlockPool:" + std::to_string(pool->getLocalId())),
+        ConfigurableC2Intf("C2BlockPool:" +
+                           (pool ? std::to_string(pool->getLocalId()) :
+                           "null")),
         mPool(pool) {
     }
 

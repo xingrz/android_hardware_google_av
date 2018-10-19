@@ -26,8 +26,9 @@
 #include <type_traits>
 #include <vector>
 
+#include <android-base/properties.h>
 #include <bufferpool/ClientManager.h>
-#include <cutils/properties.h>
+#include <cutils/native_handle.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <hidl/HidlSupport.h>
 #include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
@@ -62,22 +63,18 @@ namespace /* unnamed */ {
 // c2_status_t value that corresponds to hwbinder transaction failure.
 constexpr c2_status_t C2_TRANSACTION_FAILED = C2_CORRUPTED;
 
-// List of known IComponentStore services.
+// List of known IComponentStore services in the decreasing order of preference.
 constexpr const char* kClientNames[] = {
         "default",
         "software",
     };
 
-typedef std::array<
-        std::shared_ptr<Codec2Client>,
-        std::extent<decltype(kClientNames)>::value> ClientList;
+// Number of known IComponentStore services.
+constexpr size_t kNumClients = std::extent<decltype(kClientNames)>::value;
+
+typedef std::array<std::shared_ptr<Codec2Client>, kNumClients> ClientList;
 
 // Convenience methods to obtain known clients.
-size_t getClientCount() {
-    // TODO: this may not work if there is no default service
-    return std::extent<decltype(kClientNames)>::value;
-}
-
 std::shared_ptr<Codec2Client> getClient(size_t index) {
     return Codec2Client::CreateFromService(kClientNames[index]);
 }
@@ -508,10 +505,14 @@ c2_status_t Codec2Client::createInputSurface(
         ALOGE("createInputSurface -- failed transaction.");
         return C2_TRANSACTION_FAILED;
     }
-    *inputSurface = std::make_shared<InputSurface>(
-            static_cast<sp<IInputSurface>>(transResult));
+    sp<IInputSurface> result = static_cast<sp<IInputSurface>>(transResult);
+    if (!result) {
+        *inputSurface = nullptr;
+        return C2_OK;
+    }
+    *inputSurface = std::make_shared<InputSurface>(result);
     if (!*inputSurface) {
-        ALOGE("createInputSurface -- failed to create client.");
+        ALOGE("createInputSurface -- unknown error.");
         return C2_CORRUPTED;
     }
     return C2_OK;
@@ -631,7 +632,7 @@ c2_status_t Codec2Client::ForAllStores(
     // client fails, retry once. We do this by pushing the last known client in front of the
     // list of all clients.
     std::deque<size_t> indices;
-    for (size_t index = getClientCount(); index > 0; ) {
+    for (size_t index = kNumClients; index > 0; ) {
         indices.push_front(--index);
     }
 
@@ -713,6 +714,24 @@ std::shared_ptr<Codec2Client::Interface>
         ALOGI("Could not create interface '%s' (%s)", interfaceName, asString(status));
     }
     return interface;
+}
+
+std::shared_ptr<Codec2Client::InputSurface> Codec2Client::CreateInputSurface() {
+    uint32_t serviceMask = ::android::base::GetUintProperty(
+            "debug.stagefright.c2inputsurface", uint32_t(0));
+    for (size_t i = 0; i < kNumClients; ++i) {
+        if ((1 << i) & serviceMask) {
+            std::shared_ptr<Codec2Client> client = getClient(i);
+            std::shared_ptr<Codec2Client::InputSurface> inputSurface;
+            if (client &&
+                    client->createInputSurface(&inputSurface) == C2_OK &&
+                    inputSurface) {
+                return inputSurface;
+            }
+        }
+    }
+    ALOGW("Could not create an input surface from any Codec2.0 services.");
+    return nullptr;
 }
 
 const std::vector<C2Component::Traits>& Codec2Client::ListComponents() {
@@ -806,7 +825,12 @@ void Codec2Client::Component::handleOnWorkDone(
     std::vector<uint64_t> inputDone;
     for (const std::unique_ptr<C2Work> &work : workItems) {
         if (work) {
-            inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
+            if (work->worklets.empty()
+                    || !work->worklets.back()
+                    || (work->worklets.back()->output.flags & C2FrameData::FLAG_INCOMPLETE) == 0) {
+                // input is complete
+                inputDone.emplace_back(work->input.ordinal.frameIndex.peeku());
+            }
         }
     }
 
@@ -1058,9 +1082,11 @@ status_t Codec2Client::Component::queueToOutputSurface(
         const C2ConstGraphicBlock& block,
         const QueueBufferInput& input,
         QueueBufferOutput* output) {
+    uint32_t generation;
     uint64_t bqId;
     int32_t bqSlot;
-    if (!getBufferQueueAssignment(block, &bqId, &bqSlot) || bqId == 0) {
+    if (!getBufferQueueAssignment(block, &generation, &bqId, &bqSlot) ||
+            bqId == 0) {
         // Block not from bufferqueue -- it must be attached before queuing.
 
         mOutputBufferQueueMutex.lock();
@@ -1092,29 +1118,35 @@ status_t Codec2Client::Component::queueToOutputSurface(
     mOutputBufferQueueMutex.lock();
     sp<IGraphicBufferProducer> outputIgbp = mOutputIgbp;
     uint64_t outputBqId = mOutputBqId;
+    uint32_t outputGeneration = mOutputGeneration;
     mOutputBufferQueueMutex.unlock();
 
     if (!outputIgbp) {
-        ALOGE("queueToOutputSurface -- output surface is null.");
+        ALOGV("queueToOutputSurface -- output surface is null.");
         return NO_INIT;
     }
 
     if (bqId != outputBqId) {
-        ALOGE("queueToOutputSurface -- bufferqueue ids mismatch.");
+        ALOGV("queueToOutputSurface -- bufferqueue ids mismatch.");
+        return DEAD_OBJECT;
+    }
+
+    if (generation != outputGeneration) {
+        ALOGV("queueToOutputSurface -- generation numbers mismatch.");
         return DEAD_OBJECT;
     }
 
     status_t status = outputIgbp->queueBuffer(static_cast<int>(bqSlot),
                                               input, output);
     if (status != OK) {
-        ALOGE("queueToOutputSurface -- queueBuffer() failed "
+        ALOGD("queueToOutputSurface -- queueBuffer() failed "
                 "on bufferqueue-based block. "
                 "Error code = %d.",
                 static_cast<int>(status));
         return status;
     }
     if (!yieldBufferQueueBlock(block)) {
-        ALOGE("queueToOutputSurface -- cannot yield bufferqueue-based block "
+        ALOGD("queueToOutputSurface -- cannot yield bufferqueue-based block "
                 "to the bufferqueue.");
         return UNKNOWN_ERROR;
     }
@@ -1246,6 +1278,10 @@ std::shared_ptr<Codec2Client::Configurable>
 const sp<IGraphicBufferProducer>&
         Codec2Client::InputSurface::getGraphicBufferProducer() const {
     return mGraphicBufferProducer;
+}
+
+const sp<IInputSurface>& Codec2Client::InputSurface::getHalInterface() const {
+    return mBase;
 }
 
 // Codec2Client::InputSurfaceConnection
