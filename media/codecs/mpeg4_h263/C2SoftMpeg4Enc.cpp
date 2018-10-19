@@ -93,8 +93,8 @@ class C2SoftMpeg4Enc::IntfImpl : public C2InterfaceHelper {
                     C2F(mSize, width).inRange(16, 176, 16),
                     C2F(mSize, height).inRange(16, 144, 16),
 #else
-                    C2F(mSize, width).inRange(176, 176, 16),
-                    C2F(mSize, height).inRange(144, 144, 16),
+                    C2F(mSize, width).oneOf({176, 352}),
+                    C2F(mSize, height).oneOf({144, 288}),
 #endif
                 })
                 .withSetter(SizeSetter)
