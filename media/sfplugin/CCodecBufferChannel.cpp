@@ -1815,6 +1815,8 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         hdr.cta8613 = cta861_meta;
         qbi.setHdrMetadata(hdr);
     }
+    // we don't have dirty regions
+    qbi.setSurfaceDamage(Region::INVALID_REGION);
     android::IGraphicBufferProducer::QueueBufferOutput qbo;
     status_t result = mComponent->queueToOutputSurface(block, qbi, &qbo);
     if (result != OK) {
