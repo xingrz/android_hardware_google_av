@@ -807,12 +807,16 @@ void CCodec::configure(const sp<AMessage> &msg) {
             config->mInputFormat->setInt32("using-sw-read-often", true);
         }
 
-        // use client specified input size if specified
-        bool clientInputSize = msg->findInt32(KEY_MAX_INPUT_SIZE, (int32_t*)&maxInputSize.value);
-
+        // NOTE: we don't blindly use client specified input size if specified as clients
+        // at times specify too small size. Instead, mimic the behavior from OMX, where the
+        // client specified size is only used to ask for bigger buffers than component suggested
+        // size.
+        int32_t clientInputSize = 0;
+        bool clientSpecifiedInputSize =
+            msg->findInt32(KEY_MAX_INPUT_SIZE, &clientInputSize) && clientInputSize > 0;
         // TEMP: enforce minimum buffer size of 1MB for video decoders
         // and 16K / 4K for audio encoders/decoders
-        if (!clientInputSize && maxInputSize.value == 0) {
+        if (maxInputSize.value == 0) {
             if (config->mDomain & Config::IS_AUDIO) {
                 maxInputSize.value = encoder ? 16384 : 4096;
             } else if (!encoder) {
@@ -832,20 +836,15 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         // TODO: do this based on component requiring linear allocator for input
         if ((config->mDomain & Config::IS_DECODER) || (config->mDomain & Config::IS_AUDIO)) {
-            // For audio decoder, override client's max input size if necessary.
-            if ((config->mDomain & Config::IS_DECODER) && (config->mDomain & Config::IS_AUDIO)) {
-                int32_t compSize;
-                if (config->mInputFormat->findInt32(KEY_MAX_INPUT_SIZE, &compSize)
-                        && maxInputSize.value > 0
-                        && compSize > 0
-                        && maxInputSize.value < (uint32_t)compSize) {
-                    ALOGD("client requested max input size %u, which is smaller than "
-                          "what component recommended (%d); overriding with component "
-                          "recommendation.", maxInputSize.value, compSize);
+            // For decoders, warn that overriding client's max input size if necessary.
+            if ((config->mDomain & Config::IS_DECODER)) {
+                if (clientSpecifiedInputSize && (uint32_t)clientInputSize < maxInputSize.value) {
+                    ALOGD("client requested max input size %d, which is smaller than "
+                          "what component recommended (%u); overriding with component "
+                          "recommendation.", clientInputSize, maxInputSize.value);
                     ALOGW("This behavior is subject to change. It is recommended that "
                           "app developers double check whether the requested "
                           "max input size is in reasonable range.");
-                    maxInputSize.value = compSize;
                 }
             }
             // Pass max input size on input format to the buffer channel (if supplied by the
