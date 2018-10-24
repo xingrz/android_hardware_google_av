@@ -836,15 +836,17 @@ void CCodec::configure(const sp<AMessage> &msg) {
 
         // TODO: do this based on component requiring linear allocator for input
         if ((config->mDomain & Config::IS_DECODER) || (config->mDomain & Config::IS_AUDIO)) {
-            // For decoders, warn that overriding client's max input size if necessary.
-            if ((config->mDomain & Config::IS_DECODER)) {
-                if (clientSpecifiedInputSize && (uint32_t)clientInputSize < maxInputSize.value) {
+            if (clientSpecifiedInputSize) {
+                // Warn that we're overriding client's max input size if necessary.
+                if ((uint32_t)clientInputSize < maxInputSize.value) {
                     ALOGD("client requested max input size %d, which is smaller than "
                           "what component recommended (%u); overriding with component "
                           "recommendation.", clientInputSize, maxInputSize.value);
                     ALOGW("This behavior is subject to change. It is recommended that "
                           "app developers double check whether the requested "
                           "max input size is in reasonable range.");
+                } else {
+                    maxInputSize.value = clientInputSize;
                 }
             }
             // Pass max input size on input format to the buffer channel (if supplied by the
