@@ -1295,6 +1295,10 @@ void CCodec::flush() {
 
     std::list<std::unique_ptr<C2Work>> flushedWork;
     c2_status_t err = comp->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+    {
+        Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
+        flushedWork.splice(flushedWork.end(), *queue);
+    }
     if (err != C2_OK) {
         // TODO: convert err into status_t
         mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
@@ -1541,7 +1545,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 (new AMessage(kWhatWorkDone, this))->post();
             }
 
-            subQueuedWorkCount(1);
+            if (work->worklets.empty()
+                    || !(work->worklets.front()->output.flags & C2FrameData::FLAG_INCOMPLETE)) {
+                subQueuedWorkCount(1);
+            }
             // handle configuration changes in work done
             Mutexed<Config>::Locked config(mConfig);
             bool changed = false;
