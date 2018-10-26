@@ -345,7 +345,7 @@ vpx_enc_frame_flags_t C2SoftVpxEnc::getEncodeFlags() {
               break;
           case kTemporalUpdateGoldenWithoutDependency:
               flags |= VP8_EFLAG_NO_REF_GF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateGolden:
               flags |= VP8_EFLAG_NO_REF_ARF;
               flags |= VP8_EFLAG_NO_UPD_ARF;
@@ -354,14 +354,14 @@ vpx_enc_frame_flags_t C2SoftVpxEnc::getEncodeFlags() {
           case kTemporalUpdateAltrefWithoutDependency:
               flags |= VP8_EFLAG_NO_REF_ARF;
               flags |= VP8_EFLAG_NO_REF_GF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateAltref:
               flags |= VP8_EFLAG_NO_UPD_GF;
               flags |= VP8_EFLAG_NO_UPD_LAST;
               break;
           case kTemporalUpdateNoneNoRefAltref:
               flags |= VP8_EFLAG_NO_REF_ARF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateNone:
               flags |= VP8_EFLAG_NO_UPD_GF;
               flags |= VP8_EFLAG_NO_UPD_ARF;

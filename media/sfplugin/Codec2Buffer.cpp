@@ -296,7 +296,7 @@ public:
                             break;
                         }
                     }
-                    // fall through if we could not wrap
+                    [[fallthrough]];
 
                     case COLOR_FormatYUV420Planar:
                     case COLOR_FormatYUV420PackedPlanar:

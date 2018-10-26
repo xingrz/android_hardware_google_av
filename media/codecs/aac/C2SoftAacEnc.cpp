@@ -478,7 +478,8 @@ c2_status_t C2SoftAacEnc::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
     switch (drainMode) {
-        case DRAIN_COMPONENT_NO_EOS:  // fall-through
+        case DRAIN_COMPONENT_NO_EOS:
+            [[fallthrough]];
         case NO_DRAIN:
             // no-op
             return C2_OK;
