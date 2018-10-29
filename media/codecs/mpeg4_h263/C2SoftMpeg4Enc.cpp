@@ -493,7 +493,7 @@ void C2SoftMpeg4Enc::process(
     size_t yPlaneSize = width * height;
     switch (layout.type) {
         case C2PlanarLayout::TYPE_RGB:
-        // fall-through
+            [[fallthrough]];
         case C2PlanarLayout::TYPE_RGBA: {
             MemoryBlock conversionBuffer = mConversionBuffers.fetch(yPlaneSize * 3 / 2);
             mConversionBuffersInUse.emplace(conversionBuffer.data(), conversionBuffer);
