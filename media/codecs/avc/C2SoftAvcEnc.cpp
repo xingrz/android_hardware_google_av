@@ -270,7 +270,7 @@ public:
 
     IV_PROFILE_T getProfile_l() const {
         switch (mProfileLevel->profile) {
-        case PROFILE_AVC_CONSTRAINED_BASELINE:  // fall-through
+        case PROFILE_AVC_CONSTRAINED_BASELINE:  [[fallthrough]];
         case PROFILE_AVC_BASELINE: return IV_PROFILE_BASE;
         case PROFILE_AVC_MAIN:     return IV_PROFILE_MAIN;
         default:
@@ -1155,7 +1155,7 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
 
     switch (layout.type) {
         case C2PlanarLayout::TYPE_RGB:
-            // fall-through
+            [[fallthrough]];
         case C2PlanarLayout::TYPE_RGBA: {
             ALOGV("yPlaneSize = %zu", yPlaneSize);
             MemoryBlock conversionBuffer = mConversionBuffers.fetch(yPlaneSize * 3 / 2);
