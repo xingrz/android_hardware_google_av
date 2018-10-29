@@ -379,8 +379,10 @@ c2_status_t C2SoftMpeg2Dec::onFlush_sm() {
         }
     }
 
-    ivd_aligned_free(mOutBufferDrain);
-    mOutBufferDrain = nullptr;
+    if (mOutBufferDrain) {
+        ivd_aligned_free(mOutBufferDrain);
+        mOutBufferDrain = nullptr;
+    }
 
     return C2_OK;
 }
@@ -764,14 +766,8 @@ void C2SoftMpeg2Dec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &w
         buffer->setInfo(mIntf->getColorAspects_l());
     }
 
-    auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
-        uint32_t flags = 0;
-        if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
-                (c2_cntr64_t(index) == work->input.ordinal.frameIndex)) {
-            flags |= C2FrameData::FLAG_END_OF_STREAM;
-            ALOGV("signalling eos");
-        }
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
+    auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
@@ -821,9 +817,12 @@ c2_status_t C2SoftMpeg2Dec::ensureDecoderState(const std::shared_ptr<C2BlockPool
 void C2SoftMpeg2Dec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 0u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -852,6 +851,7 @@ void C2SoftMpeg2Dec::process(
     while (inPos < inSize) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -867,6 +867,7 @@ void C2SoftMpeg2Dec::process(
         if (!setDecodeArgs(&s_decode_ip, &s_decode_op, &rView, &wView,
                            inOffset + inPos, inSize - inPos, workIndex)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -885,6 +886,7 @@ void C2SoftMpeg2Dec::process(
             ALOGV("unsupported resolution : %dx%d", s_decode_op.u4_pic_wd, s_decode_op.u4_pic_ht);
             drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
             resetPlugin();
+            work->workletsProcessed = 0u;
             mWidth = s_decode_op.u4_pic_wd;
             mHeight = s_decode_op.u4_pic_ht;
 
@@ -900,6 +902,7 @@ void C2SoftMpeg2Dec::process(
             } else {
                 ALOGE("Cannot set width and height");
                 mSignalledError = true;
+                work->workletsProcessed = 1u;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -907,6 +910,7 @@ void C2SoftMpeg2Dec::process(
             if (OK != reInitDecoder()) {
                 ALOGE("Failed to reinitialize decoder");
                 mSignalledError = true;
+                work->workletsProcessed = 1u;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -916,6 +920,7 @@ void C2SoftMpeg2Dec::process(
             drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
             resetDecoder();
             resetPlugin();
+            work->workletsProcessed = 0u;
             continue;
         }
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
@@ -936,6 +941,7 @@ void C2SoftMpeg2Dec::process(
                 } else {
                     ALOGE("Cannot set width and height");
                     mSignalledError = true;
+                    work->workletsProcessed = 1u;
                     work->result = C2_CORRUPTED;
                     return;
                 }
@@ -947,6 +953,7 @@ void C2SoftMpeg2Dec::process(
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
         }
+
         inPos += s_decode_op.u4_num_bytes_consumed;
         if (hasPicture && (inSize - inPos) != 0) {
             ALOGD("decoded frame in current access nal, ignoring further trailing bytes %d",
@@ -980,6 +987,7 @@ c2_status_t C2SoftMpeg2Dec::drainInternal(
     while (true) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return C2_CORRUPTED;
         }
@@ -992,18 +1000,16 @@ c2_status_t C2SoftMpeg2Dec::drainInternal(
         ivd_video_decode_op_t s_decode_op;
         if (!setDecodeArgs(&s_decode_ip, &s_decode_op, nullptr, &wView, 0, 0, 0)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             return C2_CORRUPTED;
         }
         (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
         } else {
+            fillEmptyWork(work);
             break;
         }
-    }
-    if (drainMode == DRAIN_COMPONENT_WITH_EOS &&
-            work && work->workletsProcessed == 0u) {
-        fillEmptyWork(work);
     }
 
     return C2_OK;
