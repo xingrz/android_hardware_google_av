@@ -320,6 +320,10 @@ status_t C2SoftVpxDec::initDecoder() {
     if (!mCodecCtx) {
         mCodecCtx = new vpx_codec_ctx_t;
     }
+    if (!mCodecCtx) {
+        ALOGE("mCodecCtx is null");
+        return NO_MEMORY;
+    }
 
     vpx_codec_dec_cfg_t cfg;
     memset(&cfg, 0, sizeof(vpx_codec_dec_cfg_t));
@@ -389,9 +393,12 @@ void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wor
 void C2SoftVpxDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 0u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -440,9 +447,9 @@ void C2SoftVpxDec::process(
                 mCodecCtx, bitstream, inSize, &frameIndex, 0);
         if (err != VPX_CODEC_OK) {
             ALOGE("on2 decoder failed to decode frame. err: %d", err);
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         }
     }
@@ -510,8 +517,8 @@ bool C2SoftVpxDec::outputBuffer(
         } else {
             ALOGE("Config update size failed");
             mSignalledError = true;
-            work->result = C2_CORRUPTED;
             work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return false;
         }
 

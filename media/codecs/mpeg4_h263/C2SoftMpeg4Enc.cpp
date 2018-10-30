@@ -253,9 +253,13 @@ c2_status_t C2SoftMpeg4Enc::onInit() {
     if (!mHandle) {
         mHandle = new tagvideoEncControls;
     }
+
     if (!mEncParams) {
         mEncParams = new tagvideoEncOptions;
     }
+
+    if (!(mEncParams && mHandle)) return C2_NO_MEMORY;
+
     mSignalledOutputEos = false;
     mSignalledError = false;
 
@@ -395,8 +399,10 @@ c2_status_t C2SoftMpeg4Enc::initEncoder() {
 void C2SoftMpeg4Enc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -432,8 +438,8 @@ void C2SoftMpeg4Enc::process(
         int32_t outputSize = mOutBufferSize;
         if (!PVGetVolHeader(mHandle, outPtr, &outputSize, 0)) {
             ALOGE("Failed to get VOL header");
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         } else {
             ALOGV("Bytes Generated in header %d\n", outputSize);
@@ -442,6 +448,12 @@ void C2SoftMpeg4Enc::process(
         ++mNumInputFrames;
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(outputSize, 0u);
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, outPtr, outputSize);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
     }
@@ -493,7 +505,7 @@ void C2SoftMpeg4Enc::process(
     size_t yPlaneSize = width * height;
     switch (layout.type) {
         case C2PlanarLayout::TYPE_RGB:
-        // fall-through
+            [[fallthrough]];
         case C2PlanarLayout::TYPE_RGBA: {
             MemoryBlock conversionBuffer = mConversionBuffers.fetch(yPlaneSize * 3 / 2);
             mConversionBuffersInUse.emplace(conversionBuffer.data(), conversionBuffer);

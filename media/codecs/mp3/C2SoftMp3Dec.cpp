@@ -336,9 +336,12 @@ c2_status_t C2SoftMP3::drain(
 void C2SoftMP3::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -361,7 +364,6 @@ void C2SoftMP3::process(
         work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.ordinal = work->input.ordinal;
-        work->workletsProcessed = 1u;
         return;
     }
     ALOGV("in buffer attr. size %zu timestamp %d frameindex %d", inSize,
@@ -494,7 +496,6 @@ void C2SoftMP3::process(
     mProcessedSamples += ((outSize - outOffset) / (numChannels * sizeof(int16_t)));
     ALOGV("out buffer attr. offset %d size %d timestamp %u", outOffset, outSize - outOffset,
           (uint32_t)(mAnchorTimeStamp + outTimeStamp));
-
     decodedSizes.clear();
     work->worklets.front()->output.flags = work->input.flags;
     work->worklets.front()->output.buffers.clear();
@@ -502,7 +503,6 @@ void C2SoftMP3::process(
             createLinearBuffer(block, outOffset, outSize - outOffset));
     work->worklets.front()->output.ordinal = work->input.ordinal;
     work->worklets.front()->output.ordinal.timestamp = mAnchorTimeStamp + outTimeStamp;
-    work->workletsProcessed = 1u;
     if (eos) {
         mSignalledOutputEos = true;
         ALOGV("signalled EOS");

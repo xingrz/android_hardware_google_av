@@ -348,7 +348,7 @@ vpx_enc_frame_flags_t C2SoftVpxEnc::getEncodeFlags() {
               break;
           case kTemporalUpdateGoldenWithoutDependency:
               flags |= VP8_EFLAG_NO_REF_GF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateGolden:
               flags |= VP8_EFLAG_NO_REF_ARF;
               flags |= VP8_EFLAG_NO_UPD_ARF;
@@ -357,14 +357,14 @@ vpx_enc_frame_flags_t C2SoftVpxEnc::getEncodeFlags() {
           case kTemporalUpdateAltrefWithoutDependency:
               flags |= VP8_EFLAG_NO_REF_ARF;
               flags |= VP8_EFLAG_NO_REF_GF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateAltref:
               flags |= VP8_EFLAG_NO_UPD_GF;
               flags |= VP8_EFLAG_NO_UPD_LAST;
               break;
           case kTemporalUpdateNoneNoRefAltref:
               flags |= VP8_EFLAG_NO_REF_ARF;
-              // Deliberately no break here.
+              [[fallthrough]];
           case kTemporalUpdateNone:
               flags |= VP8_EFLAG_NO_UPD_GF;
               flags |= VP8_EFLAG_NO_UPD_ARF;
@@ -412,8 +412,11 @@ vpx_enc_frame_flags_t C2SoftVpxEnc::getEncodeFlags() {
 void C2SoftVpxEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -457,6 +460,7 @@ void C2SoftVpxEnc::process(
         ALOGE("unexpected Input buffer attributes %d(%d) x %d(%d)",
               inBuffer.width(), mSize->width, inBuffer.height(),
               mSize->height);
+        mSignalledError = true;
         work->result = C2_BAD_VALUE;
         return;
     }
@@ -563,6 +567,7 @@ void C2SoftVpxEnc::process(
             if (res != VPX_CODEC_OK) {
                 ALOGE("vpx encoder failed to update bitrate: %s",
                       vpx_codec_err_to_string(res));
+                mSignalledError = true;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -589,6 +594,7 @@ void C2SoftVpxEnc::process(
                                                     VPX_DL_REALTIME);
     if (codec_return != VPX_CODEC_OK) {
         ALOGE("vpx encoder failed to encode frame");
+        mSignalledError = true;
         work->result = C2_CORRUPTED;
         return;
     }

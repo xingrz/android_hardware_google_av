@@ -270,7 +270,7 @@ public:
 
     IV_PROFILE_T getProfile_l() const {
         switch (mProfileLevel->profile) {
-        case PROFILE_AVC_CONSTRAINED_BASELINE:  // fall-through
+        case PROFILE_AVC_CONSTRAINED_BASELINE:  [[fallthrough]];
         case PROFILE_AVC_BASELINE: return IV_PROFILE_BASE;
         case PROFILE_AVC_MAIN:     return IV_PROFILE_MAIN;
         default:
@@ -1085,11 +1085,15 @@ c2_status_t C2SoftAvcEnc::releaseEncoder() {
     /* Free memory records */
     ps_mem_rec = mMemRecords;
     for (size_t i = 0; i < s_retrieve_mem_op.u4_num_mem_rec_filled; i++) {
-        ive_aligned_free(ps_mem_rec->pv_base);
+        if (ps_mem_rec) ive_aligned_free(ps_mem_rec->pv_base);
+        else {
+            ALOGE("memory record is null.");
+            return C2_CORRUPTED;
+        }
         ps_mem_rec++;
     }
 
-    free(mMemRecords);
+    if (mMemRecords) free(mMemRecords);
 
     // clear other pointers into the space being free()d
     mCodecCtx = nullptr;
@@ -1162,7 +1166,7 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
 
     switch (layout.type) {
         case C2PlanarLayout::TYPE_RGB:
-            // fall-through
+            [[fallthrough]];
         case C2PlanarLayout::TYPE_RGBA: {
             ALOGV("yPlaneSize = %zu", yPlaneSize);
             MemoryBlock conversionBuffer = mConversionBuffers.fetch(yPlaneSize * 3 / 2);
@@ -1273,8 +1277,10 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
 void C2SoftAvcEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
 
     IV_STATUS_T status;
     WORD32 timeDelay, timeTaken;
@@ -1284,7 +1290,7 @@ void C2SoftAvcEnc::process(
     if (mCodecCtx == nullptr) {
         if (C2_OK != initEncoder()) {
             ALOGE("Failed to initialize encoder");
-            work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1306,8 +1312,7 @@ void C2SoftAvcEnc::process(
         if (error != C2_OK) {
             ALOGE("setEncodeArgs failed: %d", error);
             mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = error;
+            work->result = C2_CORRUPTED;
             return;
         }
         status = ive_api_function(mCodecCtx, &s_encode_ip, &s_encode_op);
@@ -1325,6 +1330,12 @@ void C2SoftAvcEnc::process(
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(s_encode_op.s_out_buf.u4_bytes, 0u);
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, header, s_encode_op.s_out_buf.u4_bytes);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
@@ -1398,14 +1409,12 @@ void C2SoftAvcEnc::process(
         c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
         if (err != C2_OK) {
             ALOGE("fetch linear block err = %d", err);
-            work->workletsProcessed = 1u;
             work->result = err;
             return;
         }
         C2WriteView wView = block->map().get();
         if (wView.error() != C2_OK) {
             ALOGE("write view map err = %d", wView.error());
-            work->workletsProcessed = 1u;
             work->result = wView.error();
             return;
         }
@@ -1413,9 +1422,8 @@ void C2SoftAvcEnc::process(
         error = setEncodeArgs(
                 &s_encode_ip, &s_encode_op, view.get(), wView.base(), wView.capacity(), timestamp);
         if (error != C2_OK) {
-            mSignalledError = true;
             ALOGE("setEncodeArgs failed : %d", error);
-            work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = error;
             return;
         }
@@ -1439,7 +1447,6 @@ void C2SoftAvcEnc::process(
             ALOGE("Encode Frame failed = 0x%x\n",
                     s_encode_op.u4_error_code);
             mSignalledError = true;
-            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1485,7 +1492,6 @@ void C2SoftAvcEnc::process(
         }
         work->worklets.front()->output.buffers.push_back(buffer);
     }
-    work->workletsProcessed = 1u;
 
     if (s_encode_op.u4_is_last) {
         // outputBufferHeader->nFlags |= OMX_BUFFERFLAG_EOS;

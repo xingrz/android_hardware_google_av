@@ -486,7 +486,6 @@ void C2SoftAacDec::drainRingBuffer(
                         numSamples * sizeof(int16_t), usage, &block);
                 if (err != C2_OK) {
                     ALOGD("failed to fetch a linear block (%d)", err);
-                    mSignalledError = true;
                     return std::bind(fillEmptyWork, _1, C2_NO_MEMORY);
                 }
                 C2WriteView wView = block->map().get();
@@ -524,9 +523,12 @@ void C2SoftAacDec::drainRingBuffer(
 void C2SoftAacDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
-    work->workletsProcessed = 0u;
+    // Initialize output work
     work->result = C2_OK;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError) {
         return;
     }
@@ -567,13 +569,12 @@ void C2SoftAacDec::process(
         if (decoderErr != AAC_DEC_OK) {
             ALOGE("aacDecoder_ConfigRaw decoderErr = 0x%4.4x", decoderErr);
             mSignalledError = true;
-            // TODO: error
+            work->result = C2_CORRUPTED;
             return;
         }
         work->worklets.front()->output.flags = work->input.flags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.buffers.clear();
-        work->workletsProcessed = 1u;
         return;
     }
 
@@ -629,7 +630,7 @@ void C2SoftAacDec::process(
 
             if (signalError) {
                 mSignalledError = true;
-                // TODO: notify(OMX_EventError, OMX_ErrorStreamCorrupt, ERROR_MALFORMED, NULL);
+                work->result = C2_CORRUPTED;
                 return;
             }
         } else {
@@ -687,7 +688,7 @@ void C2SoftAacDec::process(
             if (bytesValid[0] != 0) {
                 ALOGE("bytesValid[0] != 0 should never happen");
                 mSignalledError = true;
-                // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
+                work->result = C2_CORRUPTED;
                 return;
             }
 
@@ -698,7 +699,7 @@ void C2SoftAacDec::process(
                 if (!outputDelayRingBufferPutSamples(tmpOutBuffer,
                         mStreamInfo->frameSize * mStreamInfo->numChannels)) {
                     mSignalledError = true;
-                    // TODO: notify(OMX_EventError, OMX_ErrorUndefined, decoderErr, NULL);
+                    work->result = C2_CORRUPTED;
                     return;
                 }
             } else {
@@ -709,7 +710,7 @@ void C2SoftAacDec::process(
                 if (!outputDelayRingBufferPutSamples(tmpOutBuffer,
                         mStreamInfo->frameSize * mStreamInfo->numChannels)) {
                     mSignalledError = true;
-                    // TODO: notify(OMX_EventError, OMX_ErrorUndefined, decoderErr, NULL);
+                    work->result = C2_CORRUPTED;
                     return;
                 }
 
@@ -766,8 +767,12 @@ void C2SoftAacDec::process(
                     C2FrameData &output = work->worklets.front()->output;
                     output.configUpdate.push_back(C2Param::Copy(sampleRateInfo));
                     output.configUpdate.push_back(C2Param::Copy(channelCountInfo));
+                } else {
+                    ALOGE("Config Update failed");
+                    mSignalledError = true;
+                    work->result = C2_CORRUPTED;
+                    return;
                 }
-                // TODO: error handling
             }
             ALOGV("size = %zu", size);
         } while (decoderErr == AAC_DEC_OK);
@@ -776,7 +781,7 @@ void C2SoftAacDec::process(
     int32_t outputDelay = mStreamInfo->outputDelay * mStreamInfo->numChannels;
 
     mBuffersInfo.push_back(std::move(inInfo));
-
+    work->workletsProcessed = 0u;
     if (!eos && mOutputDelayCompensated < outputDelay) {
         // discard outputDelay at the beginning
         int32_t toCompensate = outputDelay - mOutputDelayCompensated;

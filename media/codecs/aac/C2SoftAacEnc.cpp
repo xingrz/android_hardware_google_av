@@ -282,8 +282,10 @@ status_t C2SoftAacEnc::setAudioParams() {
 void C2SoftAacEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
 
     if (mSignalledError) {
         return;
@@ -299,8 +301,8 @@ void C2SoftAacEnc::process(
 
         if (AACENC_OK != aacEncEncode(mAACEncoder, nullptr, nullptr, nullptr, nullptr)) {
             ALOGE("Unable to initialize encoder for profile / sample-rate / bit-rate / channels");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -313,14 +315,19 @@ void C2SoftAacEnc::process(
         AACENC_InfoStruct encInfo;
         if (AACENC_OK != aacEncInfo(mAACEncoder, &encInfo)) {
             ALOGE("Failed to get AAC encoder info");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(encInfo.confSize, 0u);
-        // TODO: check NO_MEMORY
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, encInfo.confBuf, encInfo.confSize);
         ALOGV("put csd");
 #if defined(LOG_NDEBUG) && !LOG_NDEBUG
@@ -426,7 +433,9 @@ void C2SoftAacEnc::process(
             // TODO: error handling, proper usage, etc.
             c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
             if (err != C2_OK) {
-                ALOGE("err = %d", err);
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
             }
 
             wView.reset(new C2WriteView(block->map().get()));
@@ -489,7 +498,9 @@ void C2SoftAacEnc::process(
             // TODO: error handling, proper usage, etc.
             c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
             if (err != C2_OK) {
-                ALOGE("err = %d", err);
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
             }
 
             wView.reset(new C2WriteView(block->map().get()));
@@ -523,7 +534,8 @@ c2_status_t C2SoftAacEnc::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
     switch (drainMode) {
-        case DRAIN_COMPONENT_NO_EOS:  // fall-through
+        case DRAIN_COMPONENT_NO_EOS:
+            [[fallthrough]];
         case NO_DRAIN:
             // no-op
             return C2_OK;
