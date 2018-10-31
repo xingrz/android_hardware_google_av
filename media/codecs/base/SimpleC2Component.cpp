@@ -102,7 +102,7 @@ void SimpleC2Component::WorkHandler::onMessageReceived(const sp<AMessage> &msg) 
         case kWhatInit: {
             int32_t err = thiz->onInit();
             Reply(msg, &err);
-            // fall-through
+            [[fallthrough]];
         }
         case kWhatStart: {
             mRunning = true;
