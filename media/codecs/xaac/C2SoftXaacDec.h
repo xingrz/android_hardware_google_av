@@ -97,7 +97,7 @@ private:
     size_t mOutputBufferCount __unused;
     bool mSignalledOutputEos;
     bool mSignalledError;
-    short* mOutputDrainBuffer;
+    char* mOutputDrainBuffer;
     uint32_t mOutputDrainBufferWritePos;
 
     IA_ERRORCODE initDecoder();
