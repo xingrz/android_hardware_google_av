@@ -1445,6 +1445,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mMetaMode(MODE_NONE),
       mAvailablePipelineCapacity(),
       mInputMetEos(false) {
+    Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+    buffers->reset(new DummyInputBuffers(""));
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
