@@ -43,6 +43,7 @@ public:
     virtual void onError(status_t err, enum ActionCode actionCode) = 0;
     virtual void onOutputFramesRendered(int64_t mediaTimeUs, nsecs_t renderTimeNs) = 0;
     virtual void onWorkQueued(bool eos) = 0;
+    virtual void onOutputBuffersChanged() = 0;
 };
 
 /**
