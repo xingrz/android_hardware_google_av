@@ -2011,6 +2011,11 @@ status_t CCodecBufferChannel::start(
         if (!iStreamFormat || !oStreamFormat) {
             return UNKNOWN_ERROR;
         }
+    } else if (err != C2_OK) {
+        return UNKNOWN_ERROR;
+    }
+
+    {
         Mutexed<ReorderStash>::Locked reorder(mReorderStash);
         reorder->clear();
         if (reorderDepth) {
@@ -2019,10 +2024,7 @@ status_t CCodecBufferChannel::start(
         if (reorderKey) {
             reorder->setKey(reorderKey.value);
         }
-    } else if (err != C2_OK) {
-        return UNKNOWN_ERROR;
     }
-
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
