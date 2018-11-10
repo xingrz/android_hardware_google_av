@@ -169,7 +169,7 @@ public:
      * index and MediaCodecBuffer object. Returns false if registration
      * fails.
      */
-    virtual bool registerBuffer(
+    virtual status_t registerBuffer(
             const std::shared_ptr<C2Buffer> &buffer,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) = 0;
@@ -178,7 +178,7 @@ public:
      * Register codec specific data as a buffer to be consistent with
      * MediaCodec behavior.
      */
-    virtual bool registerCsd(
+    virtual status_t registerCsd(
             const C2StreamCsdInfo::output * /* csd */,
             size_t * /* index */,
             sp<MediaCodecBuffer> * /* clientBuffer */) = 0;
@@ -272,7 +272,7 @@ private:
 namespace {
 
 // TODO: get this info from component
-const static size_t kMinInputBufferArraySize = 8;
+const static size_t kMinInputBufferArraySize = 4;
 const static size_t kMaxPipelineCapacity = 18;
 const static size_t kChannelOutputDelay = 0;
 const static size_t kMinOutputBufferArraySize = kMaxPipelineCapacity +
@@ -561,25 +561,33 @@ public:
      * \param match[in]     a function to test whether the buffer matches the
      *                      criteria or not.
      * \return OK           if successful,
-     *         NO_MEMORY    if there's no available slot meets the criteria.
+     *         WOULD_BLOCK  if slots are being used,
+     *         NO_MEMORY    if no slot matches the criteria, even though it's
+     *                      available
      */
     status_t grabBuffer(
             size_t *index,
             sp<Codec2Buffer> *buffer,
             std::function<bool(const sp<Codec2Buffer> &)> match =
                 [](const sp<Codec2Buffer> &) { return true; }) {
+        // allBuffersDontMatch remains true if all buffers are available but
+        // match() returns false for every buffer.
+        bool allBuffersDontMatch = true;
         for (size_t i = 0; i < mBuffers.size(); ++i) {
-            if (!mBuffers[i].ownedByClient && mBuffers[i].compBuffer.expired()
-                    && match(mBuffers[i].clientBuffer)) {
-                mBuffers[i].ownedByClient = true;
-                *buffer = mBuffers[i].clientBuffer;
-                (*buffer)->meta()->clear();
-                (*buffer)->setRange(0, (*buffer)->capacity());
-                *index = i;
-                return OK;
+            if (!mBuffers[i].ownedByClient && mBuffers[i].compBuffer.expired()) {
+                if (match(mBuffers[i].clientBuffer)) {
+                    mBuffers[i].ownedByClient = true;
+                    *buffer = mBuffers[i].clientBuffer;
+                    (*buffer)->meta()->clear();
+                    (*buffer)->setRange(0, (*buffer)->capacity());
+                    *index = i;
+                    return OK;
+                }
+            } else {
+                allBuffersDontMatch = false;
             }
         }
-        return NO_MEMORY;
+        return allBuffersDontMatch ? NO_MEMORY : WOULD_BLOCK;
     }
 
     /**
@@ -660,6 +668,14 @@ public:
     void flush() {
         for (Entry &entry : mBuffers) {
             entry.ownedByClient = false;
+        }
+    }
+
+    void realloc(std::function<sp<Codec2Buffer>()> alloc) {
+        size_t size = mBuffers.size();
+        mBuffers.clear();
+        for (size_t i = 0; i < size; ++i) {
+            mBuffers.push_back({ alloc(), std::weak_ptr<C2Buffer>(), false });
         }
     }
 
@@ -1038,7 +1054,7 @@ public:
         return nullptr;
     }
 
-    bool registerBuffer(
+    status_t registerBuffer(
             const std::shared_ptr<C2Buffer> &buffer,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
@@ -1049,22 +1065,25 @@ public:
                 [buffer](const sp<Codec2Buffer> &clientBuffer) {
                     return clientBuffer->canCopy(buffer);
                 });
-        if (err != OK) {
-            ALOGV("[%s] grabBuffer failed: %d", mName, err);
-            return false;
+        if (err == WOULD_BLOCK) {
+            ALOGV("[%s] buffers temporarily not available", mName);
+            return err;
+        } else if (err != OK) {
+            ALOGD("[%s] grabBuffer failed: %d", mName, err);
+            return err;
         }
         c2Buffer->setFormat(mFormat);
         if (!c2Buffer->copy(buffer)) {
             ALOGD("[%s] copy buffer failed", mName);
-            return false;
+            return WOULD_BLOCK;
         }
         submit(c2Buffer);
         *clientBuffer = c2Buffer;
         ALOGV("[%s] grabbed buffer %zu", mName, *index);
-        return true;
+        return OK;
     }
 
-    bool registerCsd(
+    status_t registerCsd(
             const C2StreamCsdInfo::output *csd,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
@@ -1077,13 +1096,13 @@ public:
                             && clientBuffer->capacity() >= csd->flexCount();
                 });
         if (err != OK) {
-            return false;
+            return err;
         }
         memcpy(c2Buffer->base(), csd->m.value, csd->flexCount());
         c2Buffer->setRange(0, csd->flexCount());
         c2Buffer->setFormat(mFormat);
         *clientBuffer = c2Buffer;
-        return true;
+        return OK;
     }
 
     bool releaseBuffer(
@@ -1103,6 +1122,36 @@ public:
         mImpl.getArray(array);
     }
 
+    void realloc(const std::shared_ptr<C2Buffer> &c2buffer) {
+        std::function<sp<Codec2Buffer>()> alloc;
+        switch (c2buffer->data().type()) {
+            case C2BufferData::LINEAR: {
+                uint32_t size = kLinearBufferSize;
+                const C2ConstLinearBlock &block = c2buffer->data().linearBlocks().front();
+                if (block.size() < kMaxLinearBufferSize / 2) {
+                    size = block.size() * 2;
+                } else {
+                    size = kMaxLinearBufferSize;
+                }
+                alloc = [format = mFormat, size] {
+                    return new LocalLinearBuffer(format, new ABuffer(size));
+                };
+                break;
+            }
+
+            // TODO: add support
+            case C2BufferData::GRAPHIC:         FALLTHROUGH_INTENDED;
+
+            case C2BufferData::INVALID:         FALLTHROUGH_INTENDED;
+            case C2BufferData::LINEAR_CHUNKS:   FALLTHROUGH_INTENDED;
+            case C2BufferData::GRAPHIC_CHUNKS:  FALLTHROUGH_INTENDED;
+            default:
+                ALOGD("Unsupported type: %d", (int)c2buffer->data().type());
+                return;
+        }
+        mImpl.realloc(alloc);
+    }
+
 private:
     BuffersArrayImpl mImpl;
 };
@@ -1113,7 +1162,7 @@ public:
         : OutputBuffers(componentName, name),
           mImpl(mName) { }
 
-    bool registerBuffer(
+    status_t registerBuffer(
             const std::shared_ptr<C2Buffer> &buffer,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) override {
@@ -1122,10 +1171,10 @@ public:
         *index = mImpl.assignSlot(newBuffer);
         *clientBuffer = newBuffer;
         ALOGV("[%s] registered buffer %zu", mName, *index);
-        return true;
+        return OK;
     }
 
-    bool registerCsd(
+    status_t registerCsd(
             const C2StreamCsdInfo::output *csd,
             size_t *index,
             sp<MediaCodecBuffer> *clientBuffer) final {
@@ -1133,7 +1182,7 @@ public:
                 mFormat, ABuffer::CreateAsCopy(csd->m.value, csd->flexCount()));
         *index = mImpl.assignSlot(newBuffer);
         *clientBuffer = newBuffer;
-        return true;
+        return OK;
     }
 
     bool releaseBuffer(
@@ -2501,7 +2550,7 @@ bool CCodecBufferChannel::handleWork(
 
     if (initData != nullptr) {
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        if ((*buffers)->registerCsd(initData, &index, &outBuffer)) {
+        if ((*buffers)->registerCsd(initData, &index, &outBuffer) == OK) {
             outBuffer->meta()->setInt64("timeUs", timestamp.peek());
             outBuffer->meta()->setInt32("flags", MediaCodec::BUFFER_FLAG_CODECCONFIG);
             ALOGV("[%s] onWorkDone: csd index = %zu [%p]", mName, index, outBuffer.get());
@@ -2567,9 +2616,15 @@ void CCodecBufferChannel::sendOutputBuffers() {
             }
         }
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
-        if (!(*buffers)->registerBuffer(entry.buffer, &index, &outBuffer)) {
-            ALOGV("[%s] sendOutputBuffers: unable to register output buffer", mName);
+        status_t err = (*buffers)->registerBuffer(entry.buffer, &index, &outBuffer);
+        if (err != OK) {
+            if (err != WOULD_BLOCK) {
+                OutputBuffersArray *array = (OutputBuffersArray *)buffers->get();
+                array->realloc(entry.buffer);
+                mCCodecCallback->onOutputBuffersChanged();
+            }
             buffers.unlock();
+            ALOGV("[%s] sendOutputBuffers: unable to register output buffer", mName);
             mReorderStash.lock()->defer(entry);
             return;
         }
