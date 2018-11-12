@@ -533,10 +533,6 @@ public:
         mCodec->onWorkQueued(eos);
     }
 
-    void onOutputBuffersChanged() override {
-        mCodec->mCallback->onOutputBuffersChanged();
-    }
-
 private:
     CCodec *mCodec;
 };
