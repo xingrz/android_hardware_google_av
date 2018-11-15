@@ -2477,7 +2477,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMinInputBufferArraySize);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {
