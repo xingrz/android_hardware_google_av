@@ -771,8 +771,13 @@ public:
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode(
             size_t size) final {
         int32_t capacity = kLinearBufferSize;
-        (void)mFormat->findInt32(C2_NAME_STREAM_MAX_BUFFER_SIZE_SETTING, &capacity);
-
+        (void)mFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+        if ((size_t)capacity > kMaxLinearBufferSize) {
+            ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+            capacity = kMaxLinearBufferSize;
+        }
+        // TODO: proper max input size
+        // TODO: read usage from intf
         std::unique_ptr<InputBuffersArray> array(
                 new InputBuffersArray(mComponentName.c_str(), "1D-Input[N]"));
         array->setPool(mPool);
