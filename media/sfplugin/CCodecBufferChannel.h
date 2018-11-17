@@ -305,8 +305,7 @@ private:
         //
         // allocate() is called by CCodecBufferChannel to check whether it can
         // receive another input buffer. If the return value is true,
-        // onInputBufferAvailable() and onOutputBufferAvailable() can be called
-        // afterwards.
+        // onInputBufferAvailable() can (and will) be called afterwards.
         bool allocate(const char* callerTag = nullptr);
 
         // Increase #input, #component and #output by one.
@@ -344,15 +343,6 @@ private:
         // discardBuffer() is called on an output buffer or when
         // renderOutputBuffer() is called.
         int freeOutputSlot(const char* callerTag = nullptr);
-
-        // Force-allocate an output slot.
-        //
-        // callerTag is used for logging only.
-        //
-        // forceAllocateOutputSlot() is called by CCodecBufferChannel to report
-        // a configuration change. #output may become negative when
-        // forceAllocateOutputSlot() returns.
-        int forceAllocateOutputSlot(const char* callerTag = nullptr);
 
     private:
         // Component name. Used for logging.
