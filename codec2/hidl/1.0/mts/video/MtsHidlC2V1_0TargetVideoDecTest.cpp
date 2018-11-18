@@ -489,8 +489,8 @@ TEST_F(Codec2VideoDecHidlTest, DecodeTest) {
         if (!(eleInfo >> bytesCount)) break;
         eleInfo >> flags;
         eleInfo >> timestamp;
-        bool codecConfig =
-            ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0;
+        bool codecConfig = flags ?
+            ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0 : 0;
         if (mTimestampDevTest && !codecConfig)
             mTimestampUslist.push_back(timestamp);
         Info.push_back({bytesCount, flags, timestamp});
@@ -560,8 +560,9 @@ TEST_F(Codec2VideoDecHidlTest, AdaptiveDecodeTest) {
             eleInfo >> timestamp;
             timestamp += timestampOffset;
             Info.push_back({bytesCount, flags, timestamp});
-            bool codecConfig =
-                ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0;
+            bool codecConfig = flags ?
+                ((1 << (flags - 1)) & C2FrameData::FLAG_CODEC_CONFIG) != 0 : 0;
+
             {
                 ULock l(mQueueLock);
                 if (mTimestampDevTest && !codecConfig)
@@ -677,8 +678,8 @@ TEST_F(Codec2VideoDecHidlTest, ThumbnailTest) {
         EXPECT_GE(mFramesReceived, 1U);
         ASSERT_EQ(mEos, true);
         ASSERT_EQ(mComponent->stop(), C2_OK);
-        ASSERT_EQ(mComponent->release(), C2_OK);
     }
+    ASSERT_EQ(mComponent->release(), C2_OK);
 }
 
 TEST_F(Codec2VideoDecHidlTest, EOSTest) {
