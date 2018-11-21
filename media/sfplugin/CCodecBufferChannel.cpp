@@ -2250,7 +2250,6 @@ void CCodecBufferChannel::stop() {
     mSync.stop();
     mFirstValidFrameIndex = mFrameIndex.load();
     if (mInputSurface != nullptr) {
-        mInputSurface->disconnect();
         mInputSurface.reset();
     }
 }
