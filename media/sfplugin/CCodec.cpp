@@ -1016,7 +1016,7 @@ status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &s
         ALOGD("ISConfig: no configuration");
     }
 
-    return surface->start();
+    return OK;
 }
 
 void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
@@ -1103,12 +1103,20 @@ void CCodec::start() {
     }
     sp<AMessage> inputFormat;
     sp<AMessage> outputFormat;
+    status_t err2 = OK;
     {
         Mutexed<Config>::Locked config(mConfig);
         inputFormat = config->mInputFormat;
         outputFormat = config->mOutputFormat;
+        if (config->mInputSurface) {
+            err2 = config->mInputSurface->start();
+        }
     }
-    status_t err2 = mChannel->start(inputFormat, outputFormat);
+    if (err2 != OK) {
+        mCallback->onError(err2, ACTION_CODE_FATAL);
+        return;
+    }
+    err2 = mChannel->start(inputFormat, outputFormat);
     if (err2 != OK) {
         mCallback->onError(err2, ACTION_CODE_FATAL);
         return;
@@ -1182,6 +1190,13 @@ void CCodec::stop() {
         mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
     }
 
+    // NOTE: ACodec releases GBS only at stop(), counter-intuitively.
+    {
+        Mutexed<Config>::Locked config(mConfig);
+        if (config->mInputSurface) {
+            config->mInputSurface->disconnect();
+        }
+    }
     {
         Mutexed<State>::Locked state(mState);
         if (state->get() == STOPPING) {
