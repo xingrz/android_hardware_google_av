@@ -10,8 +10,8 @@ cc_test {
     ],
 
     shared_libs: [
+        "libcodec2",
         "libstagefright_ccodec",
-        "libstagefright_codec2",
         "libstagefright_foundation",
         "libutils",
     ],
@@ -35,12 +35,12 @@ cc_test {
 
     shared_libs: [
         "libbinder",
+        "libcodec2",
         "libgui",
         "libmedia",
         "libmedia_omx",
         "libstagefright",
         "libstagefright_ccodec",
-        "libstagefright_codec2",
         "libstagefright_foundation",
         "libutils",
     ],
