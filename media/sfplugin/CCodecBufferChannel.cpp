@@ -283,6 +283,8 @@ const static size_t kLinearBufferSize = 1048576;
 // This can fit 4K RGBA frame, and most likely client won't need more than this.
 const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
 
+const static size_t kDequeueTimeoutNs = 18000000;
+
 /**
  * Simple local buffer pool backed by std::vector.
  */
@@ -2511,6 +2513,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
         newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMinInputBufferArraySize);
+        newSurface->setDequeueTimeout(kDequeueTimeoutNs);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {
