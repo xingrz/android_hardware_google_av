@@ -38,7 +38,7 @@ cc_binary {
 }
 
 cc_library_shared {
-    name: "libmedia_codecserviceregistrant",
+    name: "libcodec2_serviceregistrant",
     // need vendor version for update packaging, system version may have more dependencies
     vendor_available: true,
     srcs: [
