@@ -1993,6 +1993,7 @@ status_t CCodecBufferChannel::start(
             pools->inputPool = pool;
         }
 
+        bool forceArrayMode = false;
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         if (graphic) {
             if (mInputSurface) {
@@ -2024,6 +2025,7 @@ status_t CCodecBufferChannel::start(
                 }
                 buffers->reset(new EncryptedLinearInputBuffers(
                         secure, mDealer, mCrypto, mHeapSeqNum, (size_t)capacity, mName));
+                forceArrayMode = true;
             } else {
                 buffers->reset(new LinearInputBuffers(mName));
             }
@@ -2034,6 +2036,10 @@ status_t CCodecBufferChannel::start(
             (*buffers)->setPool(pool);
         } else {
             // TODO: error
+        }
+
+        if (forceArrayMode) {
+            *buffers = (*buffers)->toArrayMode(kMinInputBufferArraySize);
         }
     }
 
