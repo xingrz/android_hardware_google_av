@@ -298,27 +298,6 @@ public:
                     }
                     // fall through if we could not wrap
 
-                    case COLOR_FormatYUV420Planar:
-                    case COLOR_FormatYUV420PackedPlanar:
-                        mediaImage->mPlane[mediaImage->Y].mOffset = 0;
-                        mediaImage->mPlane[mediaImage->Y].mColInc = 1;
-                        mediaImage->mPlane[mediaImage->Y].mRowInc = mStride;
-                        mediaImage->mPlane[mediaImage->Y].mHorizSubsampling = 1;
-                        mediaImage->mPlane[mediaImage->Y].mVertSubsampling = 1;
-
-                        mediaImage->mPlane[mediaImage->U].mOffset = mStride * mVStride;
-                        mediaImage->mPlane[mediaImage->U].mColInc = 1;
-                        mediaImage->mPlane[mediaImage->U].mRowInc = mStride / 2;
-                        mediaImage->mPlane[mediaImage->U].mHorizSubsampling = 2;
-                        mediaImage->mPlane[mediaImage->U].mVertSubsampling = 2;
-
-                        mediaImage->mPlane[mediaImage->V].mOffset = mStride * mVStride * 5 / 4;
-                        mediaImage->mPlane[mediaImage->V].mColInc = 1;
-                        mediaImage->mPlane[mediaImage->V].mRowInc = mStride / 2;
-                        mediaImage->mPlane[mediaImage->V].mHorizSubsampling = 2;
-                        mediaImage->mPlane[mediaImage->V].mVertSubsampling = 2;
-                        break;
-
                     case COLOR_FormatYUV420SemiPlanar:
                     case COLOR_FormatYUV420PackedSemiPlanar:
                         mediaImage->mPlane[mediaImage->Y].mOffset = 0;
@@ -336,6 +315,27 @@ public:
                         mediaImage->mPlane[mediaImage->V].mOffset = mStride * mVStride + 1;
                         mediaImage->mPlane[mediaImage->V].mColInc = 2;
                         mediaImage->mPlane[mediaImage->V].mRowInc = mStride;
+                        mediaImage->mPlane[mediaImage->V].mHorizSubsampling = 2;
+                        mediaImage->mPlane[mediaImage->V].mVertSubsampling = 2;
+                        break;
+
+                    case COLOR_FormatYUV420Planar:
+                    case COLOR_FormatYUV420PackedPlanar:
+                        mediaImage->mPlane[mediaImage->Y].mOffset = 0;
+                        mediaImage->mPlane[mediaImage->Y].mColInc = 1;
+                        mediaImage->mPlane[mediaImage->Y].mRowInc = mStride;
+                        mediaImage->mPlane[mediaImage->Y].mHorizSubsampling = 1;
+                        mediaImage->mPlane[mediaImage->Y].mVertSubsampling = 1;
+
+                        mediaImage->mPlane[mediaImage->U].mOffset = mStride * mVStride;
+                        mediaImage->mPlane[mediaImage->U].mColInc = 1;
+                        mediaImage->mPlane[mediaImage->U].mRowInc = mStride / 2;
+                        mediaImage->mPlane[mediaImage->U].mHorizSubsampling = 2;
+                        mediaImage->mPlane[mediaImage->U].mVertSubsampling = 2;
+
+                        mediaImage->mPlane[mediaImage->V].mOffset = mStride * mVStride * 5 / 4;
+                        mediaImage->mPlane[mediaImage->V].mColInc = 1;
+                        mediaImage->mPlane[mediaImage->V].mRowInc = mStride / 2;
                         mediaImage->mPlane[mediaImage->V].mHorizSubsampling = 2;
                         mediaImage->mPlane[mediaImage->V].mVertSubsampling = 2;
                         break;
