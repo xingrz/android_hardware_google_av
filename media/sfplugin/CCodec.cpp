@@ -1677,7 +1677,7 @@ void CCodec::onWorkQueued(bool eos) {
         deadline->set(std::chrono::steady_clock::now() + 3s, "eos");
     }
     // TODO: query and use input/pipeline/output delay combined
-    if (count >= 8) {
+    if (count >= 4) {
         CCodecWatchdog::getInstance()->watch(this);
         Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
         deadline->set(std::chrono::steady_clock::now() + 3s, "queue");

@@ -11,6 +11,7 @@ cc_library {
         "hardware.google.media.c2@1.0",
         "libbase",
         "libbinder",
+        "libcodec2",
         "libcodec2_hidl_utils@1.0",
         "libcutils",
         "libgui",
@@ -19,7 +20,6 @@ cc_library {
         "liblog",
         "libstagefright_bufferpool@1.0",
         "libstagefright_bufferqueue_helper",
-        "libstagefright_codec2",
         "libstagefright_codec2_vndk",
         "libui",
         "libutils",
@@ -30,8 +30,8 @@ cc_library {
     ],
 
     export_shared_lib_headers: [
+        "libcodec2",
         "libcodec2_hidl_utils@1.0",
-        "libstagefright_codec2",
     ],
 
 }
