@@ -101,7 +101,7 @@ class Codec2VideoDecHidlTest : public ::testing::VtsHalHidlTargetTestBase {
 
         const StringToName kStringToName[] = {
             {"h263", h263}, {"avc", avc}, {"mpeg2", mpeg2}, {"mpeg4", mpeg4},
-            {"hevc", hevc}, {"vp8", vp8}, {"vp9", vp9},
+            {"hevc", hevc}, {"vp8", vp8}, {"vp9", vp9}, {"av1", av1},
         };
 
         const size_t kNumStringToName =
@@ -227,6 +227,7 @@ class Codec2VideoDecHidlTest : public ::testing::VtsHalHidlTargetTestBase {
         hevc,
         vp8,
         vp9,
+        av1,
         unknown_comp,
     };
 
@@ -341,6 +342,11 @@ void GetURLForComponent(Codec2VideoDecHidlTest::standardComp comp, char* mURL,
           "bbb_vp9_640x360_1600kbps_30fps.vp9"},
          {"bbb_vp9_176x144_285kbps_60fps.info",
           "bbb_vp9_640x360_1600kbps_30fps.info"}},
+        {Codec2VideoDecHidlTest::standardComp::av1,
+         {"bbb_av1_640_360.av1",
+          "bbb_av1_176_144.av1"},
+         {"bbb_av1_640_360.info",
+          "bbb_av1_176_144.info"}},
     };
 
     for (size_t i = 0; i < sizeof(kCompToURL) / sizeof(kCompToURL[0]); ++i) {

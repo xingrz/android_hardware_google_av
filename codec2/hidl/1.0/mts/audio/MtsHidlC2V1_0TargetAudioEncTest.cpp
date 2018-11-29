@@ -96,6 +96,7 @@ class Codec2AudioEncHidlTest : public ::testing::VtsHalHidlTargetTestBase {
         const StringToName kStringToName[] = {
             {"aac", aac},
             {"flac", flac},
+            {"opus", opus},
             {"amrnb", amrnb},
             {"amrwb", amrwb},
         };
@@ -174,6 +175,7 @@ class Codec2AudioEncHidlTest : public ::testing::VtsHalHidlTargetTestBase {
     enum standardComp {
         aac,
         flac,
+        opus,
         amrnb,
         amrwb,
         unknown_comp,
@@ -274,6 +276,8 @@ void GetURLForComponent(Codec2AudioEncHidlTest::standardComp comp, char* mURL) {
         {Codec2AudioEncHidlTest::standardComp::amrwb,
          "bbb_raw_1ch_16khz_s16le.raw"},
         {Codec2AudioEncHidlTest::standardComp::flac,
+         "bbb_raw_2ch_48khz_s16le.raw"},
+        {Codec2AudioEncHidlTest::standardComp::opus,
          "bbb_raw_2ch_48khz_s16le.raw"},
     };
 
@@ -425,6 +429,11 @@ TEST_F(Codec2AudioEncHidlTest, EncodeTest) {
             nSampleRate = 48000;
             samplesPerFrame = 1152;
             break;
+        case opus:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 960;
+            break;
         case amrnb:
             nChannels = 1;
             nSampleRate = 8000;
@@ -458,7 +467,7 @@ TEST_F(Codec2AudioEncHidlTest, EncodeTest) {
         ALOGE("framesReceived : %d inputFrames : %u", mFramesReceived, numFrames);
         ASSERT_TRUE(false);
     }
-    if ((mCompName == flac || mCompName == aac)) {
+    if ((mCompName == flac || mCompName == opus || mCompName == aac)) {
         if (!mCsd) {
             ALOGE("CSD buffer missing");
             ASSERT_TRUE(false);
@@ -573,6 +582,11 @@ TEST_F(Codec2AudioEncHidlTest, FlushTest) {
             nChannels = 2;
             nSampleRate = 48000;
             samplesPerFrame = 1152;
+            break;
+        case opus:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 960;
             break;
         case amrnb:
             nChannels = 1;
