@@ -1888,6 +1888,11 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         std::static_pointer_cast<const C2StreamHdrStaticInfo::output>(
                 c2Buffer->getInfo(C2StreamHdrStaticInfo::output::PARAM_TYPE));
 
+    // HDR10 plus info
+    std::shared_ptr<const C2StreamHdr10PlusInfo::output> hdr10PlusInfo =
+        std::static_pointer_cast<const C2StreamHdr10PlusInfo::output>(
+                c2Buffer->getInfo(C2StreamHdr10PlusInfo::output::PARAM_TYPE));
+
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
         if (output->surface == nullptr) {
@@ -1915,33 +1920,41 @@ status_t CCodecBufferChannel::renderOutputBuffer(
             videoScalingMode,
             transform,
             Fence::NO_FENCE, 0);
-    if (hdrStaticInfo) {
-        struct android_smpte2086_metadata smpte2086_meta = {
-            .displayPrimaryRed = {
-                hdrStaticInfo->mastering.red.x, hdrStaticInfo->mastering.red.y
-            },
-            .displayPrimaryGreen = {
-                hdrStaticInfo->mastering.green.x, hdrStaticInfo->mastering.green.y
-            },
-            .displayPrimaryBlue = {
-                hdrStaticInfo->mastering.blue.x, hdrStaticInfo->mastering.blue.y
-            },
-            .whitePoint = {
-                hdrStaticInfo->mastering.white.x, hdrStaticInfo->mastering.white.y
-            },
-            .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
-            .minLuminance = hdrStaticInfo->mastering.minLuminance,
-        };
-
-        struct android_cta861_3_metadata cta861_meta = {
-            .maxContentLightLevel = hdrStaticInfo->maxCll,
-            .maxFrameAverageLightLevel = hdrStaticInfo->maxFall,
-        };
-
+    if (hdrStaticInfo || hdr10PlusInfo) {
         HdrMetadata hdr;
-        hdr.validTypes = HdrMetadata::SMPTE2086 | HdrMetadata::CTA861_3;
-        hdr.smpte2086 = smpte2086_meta;
-        hdr.cta8613 = cta861_meta;
+        if (hdrStaticInfo) {
+            struct android_smpte2086_metadata smpte2086_meta = {
+                .displayPrimaryRed = {
+                    hdrStaticInfo->mastering.red.x, hdrStaticInfo->mastering.red.y
+                },
+                .displayPrimaryGreen = {
+                    hdrStaticInfo->mastering.green.x, hdrStaticInfo->mastering.green.y
+                },
+                .displayPrimaryBlue = {
+                    hdrStaticInfo->mastering.blue.x, hdrStaticInfo->mastering.blue.y
+                },
+                .whitePoint = {
+                    hdrStaticInfo->mastering.white.x, hdrStaticInfo->mastering.white.y
+                },
+                .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
+                .minLuminance = hdrStaticInfo->mastering.minLuminance,
+            };
+
+            struct android_cta861_3_metadata cta861_meta = {
+                .maxContentLightLevel = hdrStaticInfo->maxCll,
+                .maxFrameAverageLightLevel = hdrStaticInfo->maxFall,
+            };
+
+            hdr.validTypes = HdrMetadata::SMPTE2086 | HdrMetadata::CTA861_3;
+            hdr.smpte2086 = smpte2086_meta;
+            hdr.cta8613 = cta861_meta;
+        }
+        if (hdr10PlusInfo) {
+            hdr.validTypes |= HdrMetadata::HDR10PLUS;
+            hdr.hdr10plus.assign(
+                    hdr10PlusInfo->m.value,
+                    hdr10PlusInfo->m.value + hdr10PlusInfo->flexCount());
+        }
         qbi.setHdrMetadata(hdr);
     }
     // we don't have dirty regions
