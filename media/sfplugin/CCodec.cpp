@@ -1344,9 +1344,7 @@ void CCodec::signalResume() {
 }
 
 void CCodec::signalSetParameters(const sp<AMessage> &params) {
-    sp<AMessage> msg = new AMessage(kWhatSetParameters, this);
-    msg->setMessage("params", params);
-    msg->post();
+    setParameters(params);
 }
 
 void CCodec::setParameters(const sp<AMessage> &params) {
@@ -1509,13 +1507,6 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             CHECK(msg->findObject("surface", &obj));
             sp<PersistentSurface> surface(static_cast<PersistentSurface *>(obj.get()));
             setInputSurface(surface);
-            break;
-        }
-        case kWhatSetParameters: {
-            setDeadline(now, 50ms, "setParameters");
-            sp<AMessage> params;
-            CHECK(msg->findMessage("params", &params));
-            setParameters(params);
             break;
         }
         case kWhatWorkDone: {
