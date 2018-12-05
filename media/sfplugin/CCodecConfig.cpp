@@ -624,7 +624,23 @@ void CCodecConfig::initializeStandardParams() {
         .limitTo(D::AUDIO & D::CODED));
 
     add(ConfigMapper(KEY_PCM_ENCODING,  C2_PARAMKEY_PCM_ENCODING,       "value")
-        .limitTo(D::AUDIO));
+        .limitTo(D::AUDIO)
+        .withMappers([](C2Value v) -> C2Value {
+            int32_t value;
+            C2Config::pcm_encoding_t to;
+            if (v.get(&value) && C2Mapper::map(value, &to)) {
+                return to;
+            }
+            return C2Value();
+        }, [](C2Value v) -> C2Value {
+            C2Config::pcm_encoding_t value;
+            int32_t to;
+            using C2ValueType=typename _c2_reduce_enum_to_underlying_type<decltype(value)>::type;
+            if (v.get((C2ValueType*)&value) && C2Mapper::map(value, &to)) {
+                return to;
+            }
+            return C2Value();
+        }));
 
     add(ConfigMapper(KEY_IS_ADTS, C2_PARAMKEY_AAC_PACKAGING, "value")
         .limitTo(D::AUDIO & D::CODED)
