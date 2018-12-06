@@ -789,7 +789,7 @@ public:
         return std::move(array);
     }
 
-    virtual sp<Codec2Buffer> alloc(size_t size) const {
+    virtual sp<Codec2Buffer> alloc(size_t size) {
         C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         std::shared_ptr<C2LinearBlock> block;
 
@@ -837,11 +837,12 @@ public:
     ~EncryptedLinearInputBuffers() override {
     }
 
-    sp<Codec2Buffer> alloc(size_t size) const override {
+    sp<Codec2Buffer> alloc(size_t size) override {
         sp<IMemory> memory;
-        for (const Entry &entry : mMemoryVector) {
-            if (entry.block.expired()) {
-                memory = entry.memory;
+        size_t slot = 0;
+        for (; slot < mMemoryVector.size(); ++slot) {
+            if (mMemoryVector[slot].block.expired()) {
+                memory = mMemoryVector[slot].memory;
                 break;
             }
         }
@@ -851,10 +852,11 @@ public:
 
         std::shared_ptr<C2LinearBlock> block;
         c2_status_t err = mPool->fetchLinearBlock(size, mUsage, &block);
-        if (err != C2_OK) {
+        if (err != C2_OK || block == nullptr) {
             return nullptr;
         }
 
+        mMemoryVector[slot].block = block;
         return new EncryptedLinearBlockBuffer(mFormat, block, memory, mHeapSeqNum);
     }
 
