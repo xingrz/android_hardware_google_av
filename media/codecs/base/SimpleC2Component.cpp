@@ -134,7 +134,7 @@ void SimpleC2Component::WorkHandler::onMessageReceived(const sp<AMessage> &msg) 
 
 class SimpleC2Component::BlockingBlockPool : public C2BlockPool {
 public:
-    BlockingBlockPool(const sp<C2BlockPool>& base): mBase{base} {}
+    BlockingBlockPool(const std::shared_ptr<C2BlockPool>& base): mBase{base} {}
 
     virtual local_id_t getLocalId() const override {
         return mBase->getLocalId();
@@ -179,8 +179,7 @@ public:
     }
 
 private:
-    sp<C2BlockPool> mBase;
-
+    std::shared_ptr<C2BlockPool> mBase;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
