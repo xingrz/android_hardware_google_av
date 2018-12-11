@@ -36,6 +36,7 @@
 #include <gui/Surface.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
 #include <media/omx/1.0/WGraphicBufferSource.h>
+#include <media/openmax/OMX_IndexExt.h>
 #include <media/stagefright/BufferProducerWrapper.h>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <media/stagefright/PersistentSurface.h>
@@ -153,6 +154,11 @@ public:
         }
     }
 
+    status_t start() override {
+        // InputSurface does not distinguish started state
+        return OK;
+    }
+
     status_t signalEndOfInputStream() override {
         C2InputSurfaceEosTuning eos(true);
         std::vector<std::unique_ptr<C2SettingResult>> failures;
@@ -180,29 +186,18 @@ public:
             const sp<BGraphicBufferSource> &source,
             uint32_t width,
             uint32_t height)
-        : mSource(source), mWidth(width), mHeight(height) {}
+        : mSource(source), mWidth(width), mHeight(height) {
+        mDataSpace = HAL_DATASPACE_BT709;
+    }
     ~GraphicBufferSourceWrapper() override = default;
 
     status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
-        // TODO: proper color aspect & dataspace
-        android_dataspace dataSpace = HAL_DATASPACE_BT709;
-
         mNode = new C2OMXNode(comp);
         mNode->setFrameSize(mWidth, mHeight);
-        mSource->configure(mNode, dataSpace);
 
-        // TODO: configure according to intf().
-        // TODO: initial color aspects (dataspace)
-
-        sp<IOMXBufferSource> source = mNode->getSource();
-        if (source == nullptr) {
-            return NO_INIT;
-        }
-        constexpr size_t kNumSlots = 16;
-        for (size_t i = 0; i < kNumSlots; ++i) {
-            source->onInputBufferAdded(i);
-        }
-        source->onOmxExecuting();
+        // NOTE: we do not use/pass through color aspects from GraphicBufferSource as we
+        // communicate that directly to the component.
+        mSource->configure(mNode, mDataSpace);
         return OK;
     }
 
@@ -235,6 +230,20 @@ public:
         return err;
     }
 
+    status_t start() override {
+        sp<IOMXBufferSource> source = mNode->getSource();
+        if (source == nullptr) {
+            return NO_INIT;
+        }
+        constexpr size_t kNumSlots = 16;
+        for (size_t i = 0; i < kNumSlots; ++i) {
+            source->onInputBufferAdded(i);
+        }
+
+        source->onOmxExecuting();
+        return OK;
+    }
+
     status_t signalEndOfInputStream() override {
         return GetStatus(mSource->signalEndOfInputStream());
     }
@@ -258,7 +267,19 @@ public:
             mConfig.mMinFps = config.mMinFps;
         }
 
-        // TODO: pts gap
+        // pts gap
+        if (config.mMinAdjustedFps > 0 || config.mFixedAdjustedFps > 0) {
+            if (mNode != nullptr) {
+                OMX_PARAM_U32TYPE ptrGapParam = {};
+                ptrGapParam.nSize = sizeof(OMX_PARAM_U32TYPE);
+                ptrGapParam.nU32 = (config.mMinAdjustedFps > 0)
+                        ? c2_min(INT32_MAX + 0., 1e6 / config.mMinAdjustedFps + 0.5)
+                        : c2_max(0. - INT32_MAX, -1e6 / config.mFixedAdjustedFps - 0.5);
+                (void)mNode->setParameter(
+                        (OMX_INDEXTYPE)OMX_IndexParamMaxFrameDurationForBitrateControl,
+                        &ptrGapParam, sizeof(ptrGapParam));
+            }
+        }
 
         // max fps
         // TRICKY: we do not unset max fps to 0 unless using fixed fps
@@ -428,13 +449,14 @@ struct CCodec::ClientListener : public Codec2Client::Listener {
 
     virtual void onWorkDone(
             const std::weak_ptr<Codec2Client::Component>& component,
-            std::list<std::unique_ptr<C2Work>>& workItems) override {
+            std::list<std::unique_ptr<C2Work>>& workItems,
+            size_t numDiscardedInputBuffers) override {
         (void)component;
         sp<CCodec> codec(mCodec.promote());
         if (!codec) {
             return;
         }
-        codec->onWorkDone(workItems);
+        codec->onWorkDone(workItems, numDiscardedInputBuffers);
     }
 
     virtual void onTripped(
@@ -477,6 +499,14 @@ struct CCodec::ClientListener : public Codec2Client::Listener {
             const std::vector<RenderedFrame>& renderedFrames) override {
         // TODO
         (void)renderedFrames;
+    }
+
+    virtual void onInputBufferDone(
+            const std::shared_ptr<C2Buffer>& buffer) override {
+        sp<CCodec> codec(mCodec.promote());
+        if (codec) {
+            codec->onInputBufferDone(buffer);
+        }
     }
 
 private:
@@ -954,22 +984,38 @@ void CCodec::createInputSurface() {
 }
 
 status_t CCodec::setupInputSurface(const std::shared_ptr<InputSurfaceWrapper> &surface) {
+    Mutexed<Config>::Locked config(mConfig);
+    config->mUsingSurface = true;
+
+    // we are now using surface - apply default color aspects to input format - as well as
+    // get dataspace
+    bool inputFormatChanged = config->updateFormats(config->IS_INPUT);
+    ALOGD("input format %s to %s",
+            inputFormatChanged ? "changed" : "unchanged",
+            config->mInputFormat->debugString().c_str());
+
+    // configure dataspace
+    static_assert(sizeof(int32_t) == sizeof(android_dataspace), "dataspace size mismatch");
+    android_dataspace dataSpace = HAL_DATASPACE_UNKNOWN;
+    (void)config->mInputFormat->findInt32("android._dataspace", (int32_t*)&dataSpace);
+    surface->setDataSpace(dataSpace);
+
     status_t err = mChannel->setInputSurface(surface);
     if (err != OK) {
+        // undo input format update
+        config->mUsingSurface = false;
+        (void)config->updateFormats(config->IS_INPUT);
         return err;
     }
-
-    Mutexed<Config>::Locked config(mConfig);
     config->mInputSurface = surface;
-    config->mUsingSurface = true;
+
     if (config->mISConfig) {
         surface->configure(*config->mISConfig);
     } else {
         ALOGD("ISConfig: no configuration");
     }
 
-    // TODO: configure |surface| with other settings.
-    return OK;
+    return surface->start();
 }
 
 void CCodec::initiateSetInputSurface(const sp<PersistentSurface> &surface) {
@@ -1378,12 +1424,28 @@ void CCodec::signalRequestIDRFrame() {
     config->setParameters(comp, params, C2_MAY_BLOCK);
 }
 
-void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems) {
-    {
-        Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
-        queue->splice(queue->end(), workItems);
+void CCodec::onWorkDone(std::list<std::unique_ptr<C2Work>> &workItems,
+                        size_t numDiscardedInputBuffers) {
+    if (!workItems.empty()) {
+        {
+            Mutexed<std::list<size_t>>::Locked numDiscardedInputBuffersQueue(
+                    mNumDiscardedInputBuffersQueue);
+            numDiscardedInputBuffersQueue->insert(
+                    numDiscardedInputBuffersQueue->end(),
+                    workItems.size() - 1, 0);
+            numDiscardedInputBuffersQueue->emplace_back(
+                    numDiscardedInputBuffers);
+        }
+        {
+            Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
+            queue->splice(queue->end(), workItems);
+        }
     }
     (new AMessage(kWhatWorkDone, this))->post();
+}
+
+void CCodec::onInputBufferDone(const std::shared_ptr<C2Buffer>& buffer) {
+    mChannel->onInputBufferDone(buffer);
 }
 
 void CCodec::onMessageReceived(const sp<AMessage> &msg) {
@@ -1400,7 +1462,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatConfigure: {
             // C2Component::commit_sm() should return within 5ms.
-            setDeadline(now, 50ms, "configure");
+            setDeadline(now, 250ms, "configure");
             sp<AMessage> format;
             CHECK(msg->findMessage("format", &format));
             configure(format);
@@ -1453,6 +1515,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatWorkDone: {
             std::unique_ptr<C2Work> work;
+            size_t numDiscardedInputBuffers;
             bool shouldPost = false;
             {
                 Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
@@ -1462,6 +1525,16 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 work.swap(queue->front());
                 queue->pop_front();
                 shouldPost = !queue->empty();
+            }
+            {
+                Mutexed<std::list<size_t>>::Locked numDiscardedInputBuffersQueue(
+                        mNumDiscardedInputBuffersQueue);
+                if (numDiscardedInputBuffersQueue->empty()) {
+                    numDiscardedInputBuffers = 0;
+                } else {
+                    numDiscardedInputBuffers = numDiscardedInputBuffersQueue->front();
+                    numDiscardedInputBuffersQueue->pop_front();
+                }
             }
             if (shouldPost) {
                 (new AMessage(kWhatWorkDone, this))->post();
@@ -1530,7 +1603,8 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             }
             mChannel->onWorkDone(
                     std::move(work), changed ? config->mOutputFormat : nullptr,
-                    initData.hasChanged() ? initData.update().get() : nullptr);
+                    initData.hasChanged() ? initData.update().get() : nullptr,
+                    numDiscardedInputBuffers);
             break;
         }
         case kWhatWatch: {
