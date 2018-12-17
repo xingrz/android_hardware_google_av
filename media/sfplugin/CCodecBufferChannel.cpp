@@ -771,8 +771,13 @@ public:
     std::unique_ptr<CCodecBufferChannel::InputBuffers> toArrayMode(
             size_t size) final {
         int32_t capacity = kLinearBufferSize;
-        (void)mFormat->findInt32(C2_NAME_STREAM_MAX_BUFFER_SIZE_SETTING, &capacity);
-
+        (void)mFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+        if ((size_t)capacity > kMaxLinearBufferSize) {
+            ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+            capacity = kMaxLinearBufferSize;
+        }
+        // TODO: proper max input size
+        // TODO: read usage from intf
         std::unique_ptr<InputBuffersArray> array(
                 new InputBuffersArray(mComponentName.c_str(), "1D-Input[N]"));
         array->setPool(mPool);
@@ -784,7 +789,7 @@ public:
         return std::move(array);
     }
 
-    virtual sp<Codec2Buffer> alloc(size_t size) const {
+    virtual sp<Codec2Buffer> alloc(size_t size) {
         C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         std::shared_ptr<C2LinearBlock> block;
 
@@ -807,6 +812,7 @@ public:
             const sp<MemoryDealer> &dealer,
             const sp<ICrypto> &crypto,
             int32_t heapSeqNum,
+            size_t capacity,
             const char *componentName, const char *name = "EncryptedInput")
         : LinearInputBuffers(componentName, name),
           mUsage({0, 0}),
@@ -819,7 +825,7 @@ public:
             mUsage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         }
         for (size_t i = 0; i < kMinInputBufferArraySize; ++i) {
-            sp<IMemory> memory = mDealer->allocate(kLinearBufferSize);
+            sp<IMemory> memory = mDealer->allocate(capacity);
             if (memory == nullptr) {
                 ALOGD("[%s] Failed to allocate memory from dealer: only %zu slots allocated", mName, i);
                 break;
@@ -831,11 +837,12 @@ public:
     ~EncryptedLinearInputBuffers() override {
     }
 
-    sp<Codec2Buffer> alloc(size_t size) const override {
+    sp<Codec2Buffer> alloc(size_t size) override {
         sp<IMemory> memory;
-        for (const Entry &entry : mMemoryVector) {
-            if (entry.block.expired()) {
-                memory = entry.memory;
+        size_t slot = 0;
+        for (; slot < mMemoryVector.size(); ++slot) {
+            if (mMemoryVector[slot].block.expired()) {
+                memory = mMemoryVector[slot].memory;
                 break;
             }
         }
@@ -845,10 +852,11 @@ public:
 
         std::shared_ptr<C2LinearBlock> block;
         c2_status_t err = mPool->fetchLinearBlock(size, mUsage, &block);
-        if (err != C2_OK) {
+        if (err != C2_OK || block == nullptr) {
             return nullptr;
         }
 
+        mMemoryVector[slot].block = block;
         return new EncryptedLinearBlockBuffer(mFormat, block, memory, mHeapSeqNum);
     }
 
@@ -1445,6 +1453,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mMetaMode(MODE_NONE),
       mAvailablePipelineCapacity(),
       mInputMetEos(false) {
+    Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
+    buffers->reset(new DummyInputBuffers(""));
 }
 
 CCodecBufferChannel::~CCodecBufferChannel() {
@@ -1812,6 +1822,8 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         hdr.cta8613 = cta861_meta;
         qbi.setHdrMetadata(hdr);
     }
+    // we don't have dirty regions
+    qbi.setSurfaceDamage(Region::INVALID_REGION);
     android::IGraphicBufferProducer::QueueBufferOutput qbo;
     status_t result = mComponent->queueToOutputSurface(block, qbi, &qbo);
     if (result != OK) {
@@ -1981,6 +1993,7 @@ status_t CCodecBufferChannel::start(
             pools->inputPool = pool;
         }
 
+        bool forceArrayMode = false;
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         if (graphic) {
             if (mInputSurface) {
@@ -1992,12 +2005,18 @@ status_t CCodecBufferChannel::start(
             }
         } else {
             if (hasCryptoOrDescrambler()) {
+                int32_t capacity = kLinearBufferSize;
+                (void)inputFormat->findInt32(KEY_MAX_INPUT_SIZE, &capacity);
+                if ((size_t)capacity > kMaxLinearBufferSize) {
+                    ALOGD("client requested %d, capped to %zu", capacity, kMaxLinearBufferSize);
+                    capacity = kMaxLinearBufferSize;
+                }
                 if (mDealer == nullptr) {
                     mDealer = new MemoryDealer(
-                            align(kLinearBufferSize, MemoryDealer::getAllocationAlignment())
+                            align(capacity, MemoryDealer::getAllocationAlignment())
                                 * (kMinInputBufferArraySize + 1),
                             "EncryptedLinearInputBuffers");
-                    mDecryptDestination = mDealer->allocate(kLinearBufferSize);
+                    mDecryptDestination = mDealer->allocate((size_t)capacity);
                 }
                 if (mCrypto != nullptr && mHeapSeqNum < 0) {
                     mHeapSeqNum = mCrypto->setHeap(mDealer->getMemoryHeap());
@@ -2005,7 +2024,8 @@ status_t CCodecBufferChannel::start(
                     mHeapSeqNum = -1;
                 }
                 buffers->reset(new EncryptedLinearInputBuffers(
-                        secure, mDealer, mCrypto, mHeapSeqNum, mName));
+                        secure, mDealer, mCrypto, mHeapSeqNum, (size_t)capacity, mName));
+                forceArrayMode = true;
             } else {
                 buffers->reset(new LinearInputBuffers(mName));
             }
@@ -2016,6 +2036,10 @@ status_t CCodecBufferChannel::start(
             (*buffers)->setPool(pool);
         } else {
             // TODO: error
+        }
+
+        if (forceArrayMode) {
+            *buffers = (*buffers)->toArrayMode(kMinInputBufferArraySize);
         }
     }
 
@@ -2234,7 +2258,6 @@ void CCodecBufferChannel::stop() {
     mSync.stop();
     mFirstValidFrameIndex = mFrameIndex.load();
     if (mInputSurface != nullptr) {
-        mInputSurface->disconnect();
         mInputSurface.reset();
     }
 }
@@ -2455,7 +2478,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMinInputBufferArraySize);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {
