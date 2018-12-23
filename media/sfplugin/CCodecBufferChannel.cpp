@@ -789,7 +789,7 @@ public:
         return std::move(array);
     }
 
-    virtual sp<Codec2Buffer> alloc(size_t size) {
+    virtual sp<Codec2Buffer> alloc(size_t size) const {
         C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
         std::shared_ptr<C2LinearBlock> block;
 
@@ -837,12 +837,11 @@ public:
     ~EncryptedLinearInputBuffers() override {
     }
 
-    sp<Codec2Buffer> alloc(size_t size) override {
+    sp<Codec2Buffer> alloc(size_t size) const override {
         sp<IMemory> memory;
-        size_t slot = 0;
-        for (; slot < mMemoryVector.size(); ++slot) {
-            if (mMemoryVector[slot].block.expired()) {
-                memory = mMemoryVector[slot].memory;
+        for (const Entry &entry : mMemoryVector) {
+            if (entry.block.expired()) {
+                memory = entry.memory;
                 break;
             }
         }
@@ -852,11 +851,10 @@ public:
 
         std::shared_ptr<C2LinearBlock> block;
         c2_status_t err = mPool->fetchLinearBlock(size, mUsage, &block);
-        if (err != C2_OK || block == nullptr) {
+        if (err != C2_OK) {
             return nullptr;
         }
 
-        mMemoryVector[slot].block = block;
         return new EncryptedLinearBlockBuffer(mFormat, block, memory, mHeapSeqNum);
     }
 
@@ -2258,6 +2256,7 @@ void CCodecBufferChannel::stop() {
     mSync.stop();
     mFirstValidFrameIndex = mFrameIndex.load();
     if (mInputSurface != nullptr) {
+        mInputSurface->disconnect();
         mInputSurface.reset();
     }
 }
@@ -2478,7 +2477,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMinInputBufferArraySize);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {
