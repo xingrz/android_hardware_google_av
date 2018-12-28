@@ -303,18 +303,17 @@ C2AllocationGralloc::C2AllocationGralloc(
 }
 
 C2AllocationGralloc::~C2AllocationGralloc() {
-    if (mBuffer && mLocked) {
+    if (!mBuffer) {
+        return;
+    }
+    if (mLocked) {
         // implementation ignores addresss and rect
         uint8_t* addr[C2PlanarLayout::MAX_NUM_PLANES] = {};
         unmap(addr, C2Rect(), nullptr);
     }
-    if (mBuffer) {
-        mMapper->freeBuffer(const_cast<native_handle_t *>(mBuffer));
-    }
-    if (mHandle) {
-        native_handle_delete(
-                const_cast<native_handle_t *>(reinterpret_cast<const native_handle_t *>(mHandle)));
-    }
+    mMapper->freeBuffer(const_cast<native_handle_t *>(mBuffer));
+    native_handle_delete(const_cast<native_handle_t*>(
+            reinterpret_cast<const native_handle_t*>(mHandle)));
 }
 
 c2_status_t C2AllocationGralloc::map(
