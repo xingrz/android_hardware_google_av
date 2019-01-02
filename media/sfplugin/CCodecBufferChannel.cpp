@@ -1254,7 +1254,21 @@ public:
 
     sp<Codec2Buffer> allocateArrayBuffer() override {
         // TODO: proper max output size
-        return new LocalLinearBuffer(mFormat, new ABuffer(kLinearBufferSize));
+        size_t capacity = kLinearBufferSize;
+        int32_t width = 0, height = 0;
+        bool video = mFormat->findInt32(KEY_MAX_WIDTH, &width)
+                  && mFormat->findInt32(KEY_MAX_HEIGHT, &height);
+        if (!video) {
+            video = mFormat->findInt32(KEY_WIDTH, &width)
+                 && mFormat->findInt32(KEY_HEIGHT, &height);
+        }
+        if (video) {
+            // Assuming data compression ratio better than 3:1.
+            capacity = std::min(std::max(capacity, (size_t)width * height / 2),
+                                kMaxLinearBufferSize);
+        }
+        ALOGD("[%s] Using linear capacity of %zu for array buffer", mName, capacity);
+        return new LocalLinearBuffer(mFormat, new ABuffer(capacity));
     }
 };
 
@@ -2180,8 +2194,7 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2BufferData::LINEAR
-                && mComponentName.find("c2.qti.") == std::string::npos) {
+        if (oStreamFormat.value == C2BufferData::LINEAR) {
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
@@ -2258,8 +2271,7 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0
-                    && mComponentName.find("c2.qti.") == std::string::npos) {
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
