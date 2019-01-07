@@ -26,10 +26,6 @@ cc_library_shared {
         "libutils",
     ],
 
-    static_libs: [
-        "libyuv_static",
-    ],
-
     sanitize: {
         cfi: true,
         misc_undefined: [
