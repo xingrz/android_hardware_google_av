@@ -988,10 +988,7 @@ struct C2FieldDescriptor {
     /** specialization for easy enums */
     template<typename E>
     inline static NamedValuesType namedValuesFor(const C2EasyEnum<E> &) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignore "-Wnull-dereference"
         return namedValuesFor(*(E*)nullptr);
-#pragma GCC diagnostic pop
     }
 
 private:
@@ -1107,10 +1104,7 @@ struct C2FieldDescriptor::_NamedValuesGetter<B, false> {
 template<typename B>
 struct C2FieldDescriptor::_NamedValuesGetter<B, true> {
     inline static C2FieldDescriptor::NamedValuesType getNamedValues() {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignore "-Wnull-dereference"
         return C2FieldDescriptor::namedValuesFor(*(B*)nullptr);
-#pragma GCC diagnostic pop
     }
 };
 
