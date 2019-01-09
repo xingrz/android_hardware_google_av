@@ -2343,8 +2343,18 @@ void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData,
         size_t numDiscardedInputBuffers) {
-    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers,
-                                              "onWorkDone");
+    if (work->result == C2_NOT_FOUND) {
+        // TODO: Define what flushed work's result is.
+        ALOGD("[%s] flushed work; ignored.", mName);
+        return;
+    }
+    if ((work->input.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
+        // Discard frames from previous generation.
+        ALOGD("[%s] Discard frames from previous generation.", mName);
+        return;
+    }
+
+    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers, "onWorkDone");
     mAvailablePipelineCapacity.freeComponentSlot("onWorkDone");
     if (handleWork(std::move(work), outputFormat, initData)) {
         mAvailablePipelineCapacity.freeOutputSlot("onWorkDone");
@@ -2370,11 +2380,6 @@ bool CCodecBufferChannel::handleWork(
         const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
     if (work->result != C2_OK) {
-        if (work->result == C2_NOT_FOUND) {
-            // TODO: Define what flushed work's result is.
-            ALOGD("[%s] flushed work; ignored.", mName);
-            return true;
-        }
         ALOGD("[%s] work failed to complete: %d", mName, work->result);
         mCCodecCallback->onError(work->result, ACTION_CODE_FATAL);
         return false;
@@ -2389,11 +2394,6 @@ bool CCodecBufferChannel::handleWork(
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
-    if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
-        // Discard frames from previous generation.
-        ALOGD("[%s] Discard frames from previous generation.", mName);
-        return true;
-    }
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {
