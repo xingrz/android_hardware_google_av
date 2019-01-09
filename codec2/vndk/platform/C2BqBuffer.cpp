@@ -192,7 +192,7 @@ private:
         int slot;
         ALOGV("tries to dequeue buffer");
         Return<void> transStatus = mProducer->dequeueBuffer(
-                width, height, pixelFormat, androidUsage.asGrallocUsage(), false,
+                width, height, pixelFormat, androidUsage.asGrallocUsage(), true,
                 [&status, &slot, &fence](
                         int32_t tStatus, int32_t tSlot, hidl_handle const& tFence,
                         HGraphicBufferProducer::FrameEventHistoryDelta const& tTs) {
@@ -207,8 +207,7 @@ private:
         // dequeueBuffer returns flag.
         if (!transStatus.isOk() || status < android::OK) {
             ALOGD("cannot dequeue buffer %d", status);
-            if ((transStatus.isOk() && status == android::INVALID_OPERATION)
-                    || status == android::TIMED_OUT) {
+            if (transStatus.isOk() && status == android::INVALID_OPERATION) {
               // Too many buffer dequeued. retrying after some time is required.
               return C2_TIMED_OUT;
             } else {
@@ -337,7 +336,7 @@ public:
             return mInit;
         }
 
-        static int kMaxIgbpRetry = 1; // TODO: small number can cause crash in releasing.
+        static int kMaxIgbpRetry = 20; // TODO: small number can cause crash in releasing.
         static int kMaxIgbpRetryDelayUs = 10000;
 
         int curTry = 0;
