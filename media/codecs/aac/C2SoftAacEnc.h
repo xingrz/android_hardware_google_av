@@ -55,6 +55,7 @@ private:
     UINT mOutBufferSize;
 
     bool mSentCodecSpecificData;
+    bool mInputTimeSet;
     size_t mInputSize;
     c2_cntr64_t mInputTimeUs;
 
