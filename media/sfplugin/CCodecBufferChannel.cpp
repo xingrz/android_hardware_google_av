@@ -2446,7 +2446,6 @@ void CCodecBufferChannel::stop() {
     mSync.stop();
     mFirstValidFrameIndex = mFrameIndex.load(std::memory_order_relaxed);
     if (mInputSurface != nullptr) {
-        mInputSurface->disconnect();
         mInputSurface.reset();
     }
 }
