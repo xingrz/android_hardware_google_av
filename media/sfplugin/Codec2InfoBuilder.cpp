@@ -351,7 +351,7 @@ status_t Codec2InfoBuilder::buildMediaCodecList(MediaCodecListWriter* writer) {
     }
 
     bool surfaceTest(Codec2Client::CreateInputSurface());
-    if (option == 0 || !surfaceTest) {
+    if (option == 0 || (option != 4 && !surfaceTest)) {
         buildOmxInfo(parser, writer);
     }
 
