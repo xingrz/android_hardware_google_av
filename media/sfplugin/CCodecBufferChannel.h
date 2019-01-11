@@ -351,6 +351,7 @@ private:
     PipelineCapacity mAvailablePipelineCapacity;
 
     std::atomic_bool mInputMetEos;
+    std::atomic_int64_t mPendingEosTimestamp;
 
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != NULL || mDescrambler != NULL;
