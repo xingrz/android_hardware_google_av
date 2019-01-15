@@ -1252,21 +1252,7 @@ public:
 
     sp<Codec2Buffer> allocateArrayBuffer() override {
         // TODO: proper max output size
-        size_t capacity = kLinearBufferSize;
-        int32_t width = 0, height = 0;
-        bool video = mFormat->findInt32(KEY_MAX_WIDTH, &width)
-                  && mFormat->findInt32(KEY_MAX_HEIGHT, &height);
-        if (!video) {
-            video = mFormat->findInt32(KEY_WIDTH, &width)
-                 && mFormat->findInt32(KEY_HEIGHT, &height);
-        }
-        if (video) {
-            // Assuming data compression ratio better than 3:1.
-            capacity = std::min(std::max(capacity, (size_t)width * height / 2),
-                                kMaxLinearBufferSize);
-        }
-        ALOGD("[%s] Using linear capacity of %zu for array buffer", mName, capacity);
-        return new LocalLinearBuffer(mFormat, new ABuffer(capacity));
+        return new LocalLinearBuffer(mFormat, new ABuffer(kLinearBufferSize));
     }
 };
 
@@ -2192,7 +2178,8 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        if (oStreamFormat.value == C2BufferData::LINEAR) {
+        if (oStreamFormat.value == C2BufferData::LINEAR
+                && mComponentName.find("c2.qti.") == std::string::npos) {
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
@@ -2269,7 +2256,8 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0
+                    && mComponentName.find("c2.qti.") == std::string::npos) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
@@ -2343,18 +2331,8 @@ void CCodecBufferChannel::onWorkDone(
         std::unique_ptr<C2Work> work, const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData,
         size_t numDiscardedInputBuffers) {
-    if (work->result == C2_NOT_FOUND) {
-        // TODO: Define what flushed work's result is.
-        ALOGD("[%s] flushed work; ignored.", mName);
-        return;
-    }
-    if ((work->input.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
-        // Discard frames from previous generation.
-        ALOGD("[%s] Discard frames from previous generation.", mName);
-        return;
-    }
-
-    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers, "onWorkDone");
+    mAvailablePipelineCapacity.freeInputSlots(numDiscardedInputBuffers,
+                                              "onWorkDone");
     mAvailablePipelineCapacity.freeComponentSlot("onWorkDone");
     if (handleWork(std::move(work), outputFormat, initData)) {
         mAvailablePipelineCapacity.freeOutputSlot("onWorkDone");
@@ -2380,6 +2358,11 @@ bool CCodecBufferChannel::handleWork(
         const sp<AMessage> &outputFormat,
         const C2StreamInitDataInfo::output *initData) {
     if (work->result != C2_OK) {
+        if (work->result == C2_NOT_FOUND) {
+            // TODO: Define what flushed work's result is.
+            ALOGD("[%s] flushed work; ignored.", mName);
+            return true;
+        }
         ALOGD("[%s] work failed to complete: %d", mName, work->result);
         mCCodecCallback->onError(work->result, ACTION_CODE_FATAL);
         return false;
@@ -2394,6 +2377,11 @@ bool CCodecBufferChannel::handleWork(
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
+    if ((worklet->output.ordinal.frameIndex - mFirstValidFrameIndex.load()).peek() < 0) {
+        // Discard frames from previous generation.
+        ALOGD("[%s] Discard frames from previous generation.", mName);
+        return true;
+    }
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {
