@@ -1494,7 +1494,8 @@ CCodecBufferChannel::CCodecBufferChannel(
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
       mAvailablePipelineCapacity(),
-      mInputMetEos(false) {
+      mInputMetEos(false),
+      mPendingEosTimestamp(INT64_MIN) {
     Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
     buffers->reset(new DummyInputBuffers(""));
 }
@@ -1579,23 +1580,13 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
     c2_status_t err = mComponent->queue(&items);
-
-    if (err == C2_OK && eos && buffer->size() > 0u) {
-        mCCodecCallback->onWorkQueued(false);
-        work.reset(new C2Work);
-        work->input.ordinal.timestamp = timeUs;
-        work->input.ordinal.frameIndex = mFrameIndex++;
-        // WORKAROUND: keep client timestamp in customOrdinal
-        work->input.ordinal.customOrdinal = timeUs;
-        work->input.buffers.clear();
-        work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
-
-        items.clear();
-        items.push_back(std::move(work));
-        err = mComponent->queue(&items);
-    }
     if (err == C2_OK) {
-        mCCodecCallback->onWorkQueued(eos);
+        if (eos && buffer->size() > 0u) {
+            mCCodecCallback->onWorkQueued(false);
+            mPendingEosTimestamp = timeUs;
+        } else {
+            mCCodecCallback->onWorkQueued(eos);
+        }
 
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         bool released = (*buffers)->releaseBuffer(buffer, nullptr, true);
@@ -1728,8 +1719,30 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    while (!mInputMetEos &&
+    while ((!mInputMetEos || mPendingEosTimestamp != INT64_MIN) &&
            mAvailablePipelineCapacity.allocate("feedInputBufferIfAvailable")) {
+        int64_t pendingEosTimestamp = mPendingEosTimestamp.exchange(INT64_MIN);
+        if (pendingEosTimestamp != INT64_MIN) {
+            mAvailablePipelineCapacity.freeInputSlots(1, "feedInputBufferIfAvailable: queue eos");
+
+            std::unique_ptr<C2Work> work(new C2Work);
+            work->input.ordinal.timestamp = pendingEosTimestamp;
+            work->input.ordinal.frameIndex = mFrameIndex++;
+            // WORKAROUND: keep client timestamp in customOrdinal
+            work->input.ordinal.customOrdinal = pendingEosTimestamp;
+            work->input.buffers.clear();
+            work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
+
+            std::list<std::unique_ptr<C2Work>> items;
+            items.push_back(std::move(work));
+            if (mComponent->queue(&items) == C2_OK) {
+                mCCodecCallback->onWorkQueued(true);
+            } else {
+                ALOGD("[%s] failed to queue EOS to the component", mName);
+                mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
+            }
+            continue;
+        }
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
@@ -2220,6 +2233,7 @@ status_t CCodecBufferChannel::start(
     }
 
     mInputMetEos = false;
+    mPendingEosTimestamp = INT64_MIN;
     mSync.start();
     return OK;
 }
