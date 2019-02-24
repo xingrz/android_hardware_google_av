@@ -6,11 +6,8 @@ cc_test {
     ],
 
     include_dirs: [
+        "hardware/google/av/codec2/include",
         "hardware/google/av/codec2/vndk/include",
-    ],
-
-    header_libs: [
-        "libcodec2_headers",
     ],
 
     // param tests must not depend on any codec2 libraries as all params should be templated
@@ -40,9 +37,9 @@ cc_test {
     ],
 
     shared_libs: [
-        "libcodec2",
         "libcutils",
         "liblog",
+        "libstagefright_codec2",
         "libstagefright_codec2_vndk",
         "libutils",
     ],
@@ -60,14 +57,14 @@ cc_test {
         "C2ComponentInterface_test.cpp",
     ],
 
-    header_libs: [
-        "media_plugin_headers",
+    include_dirs: [
+        "frameworks/native/include/media/openmax",
     ],
 
     shared_libs: [
-        "libcodec2",
         "libcutils",
         "liblog",
+        "libstagefright_codec2",
         "libstagefright_codec2_vndk",
         "libutils",
     ],
