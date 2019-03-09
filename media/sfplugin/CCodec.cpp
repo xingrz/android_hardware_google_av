@@ -1509,7 +1509,8 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
-            setDeadline(now, 550ms, "start");
+            // WORKAROUND: start sometimes takes longer than expected.
+            setDeadline(now, 2500ms, "start");
             mQueuedWorkCount = 0;
             start();
             break;
