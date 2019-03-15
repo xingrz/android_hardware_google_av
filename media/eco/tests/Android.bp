@@ -1,0 +1,19 @@
+cc_defaults{
+    name : "libmedia_ecoservice_tests_defaults",
+    cflags : [
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+cc_test {
+    name: "EcoDataTest",
+    defaults: ["libmedia_ecoservice_tests_defaults"],
+    srcs: ["EcoDataTest.cpp"],
+    shared_libs: [
+        "libbinder",
+        "libcutils",
+        "libutils",
+        "libmedia_ecoservice",
+    ],
+}
