@@ -206,7 +206,6 @@ private:
                 });
         // dequeueBuffer returns flag.
         if (!transStatus.isOk() || status < android::OK) {
-            ALOGD("cannot dequeue buffer %d", status);
             if (transStatus.isOk()) {
                 if (status == android::INVALID_OPERATION ||
                     status == android::TIMED_OUT ||
@@ -214,6 +213,7 @@ private:
                     return C2_TIMED_OUT;
                 }
             }
+            ALOGD("cannot dequeue buffer %d", status);
             return C2_BAD_VALUE;
         }
         ALOGV("dequeued a buffer successfully");
@@ -412,7 +412,7 @@ private:
     void cancel(uint64_t igbp_id, int32_t igbp_slot) {
         std::lock_guard<std::mutex> lock(mMutex);
         if (igbp_id == mProducerId && mProducer) {
-            (void)mProducer->cancelBuffer(igbp_slot, nullptr).isOk();
+            (void)mProducer->cancelBuffer(igbp_slot, hidl_handle{}).isOk();
         }
     }
 
@@ -453,7 +453,7 @@ C2BufferQueueBlockPoolData::~C2BufferQueueBlockPoolData() {
     if (local && localPool) {
         localPool->cancel(bqId, bqSlot);
     } else if (igbp) {
-        igbp->cancelBuffer(bqSlot, nullptr);
+        (void)igbp->cancelBuffer(bqSlot, hidl_handle{}).isOk();
     }
 }
 
