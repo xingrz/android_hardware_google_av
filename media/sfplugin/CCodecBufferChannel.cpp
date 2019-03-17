@@ -276,9 +276,8 @@ namespace {
 // TODO: get this info from component
 const static size_t kMinInputBufferArraySize = 4;
 const static size_t kMaxPipelineCapacity = 18;
-const static size_t kChannelOutputDelay = 0;
-const static size_t kMinOutputBufferArraySize = kMaxPipelineCapacity +
-                                                kChannelOutputDelay;
+const static size_t kMinOutputBufferArraySize = 4;
+
 const static size_t kLinearBufferSize = 1048576;
 // This can fit 4K RGBA frame, and most likely client won't need more than this.
 const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
@@ -2743,7 +2742,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMinInputBufferArraySize);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMaxPipelineCapacity);
         newSurface->setDequeueTimeout(kDequeueTimeoutNs);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
