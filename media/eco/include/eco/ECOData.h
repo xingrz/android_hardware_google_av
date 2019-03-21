@@ -19,10 +19,22 @@
 
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
+#include <string>
+#include <unordered_map>
+#include <variant>
 
 namespace android {
 namespace media {
 namespace eco {
+
+enum class ECODataStatus {
+    OK,
+    FAIL_TO_INSERT,
+    INVALID_ECODATA_TYPE,
+    KEY_NOT_EXIST,
+    INVALID_VALUE_TYPE,
+    INVALID_ARGUMENT,
+};
 
 /**
 * ECOData is the container for all messages passed between different components in ECOService.
@@ -31,14 +43,40 @@ namespace eco {
 *     "bit-rate" -> 22000000
 *     "Provider-Name" -> "QCOM-Video-Encoder".
 *     "avg-frame-qp" -> 40
-* ECOData follows the same design pattern of AMessage and Metadata in Media Framework.
-* TODO(hkuang): Add the implementation and sample usage.
+* ECOData follows the same design pattern of AMessage and Metadata in Media Framework. The key
+* must be non-empty string. Below are the supported data types:
+*
+*    //   Item types      set/find function suffixes
+*    //   ==========================================
+*    //     int32_t                Int32
+*    //     int64_t                Int64
+*    //     size_t                 Size
+*    //     float                  Float
+*    //     double                 Double
+*    //     String                 String
+*
+* ECOData does not support duplicate keys with different values. When inserting a key-value pair,
+* a new entry will be created if the key does not exist. Othewise, they key's value will be
+* overwritten with the new value.
+* 
+*  Sample usage:
+*
+*   // Create the ECOData
+*   std::unique_ptr<ECOData> data = std::make_unique<ECOData>(ECOData::DATA_TYPE_STATS, 1000);
+*
+*   // Set the encoder name.
+*   data->setString("stats-encoder-type", "google-avc");
+*
+*   // Set encoding bitrate.
+*   data->setInt32("stats-encoder-target-bitrate-bps", 22000000);
 */
 class ECOData : public Parcelable {
 public:
-    ECOData() : mDataType(0), mDataTimeUs(-1) {}
-    ECOData(int32_t type) : mDataType(type), mDataTimeUs(-1) {}
-    ECOData(int32_t type, int64_t timeUs) : mDataType(type), mDataTimeUs(timeUs) {}
+    using ECODataValueType = std::variant<int32_t, int64_t, size_t, float, double, std::string>;
+
+    ECOData() : mDataType(0), mDataTimeUs(-1) { init(); }
+    ECOData(int32_t type) : mDataType(type), mDataTimeUs(-1) { init(); }
+    ECOData(int32_t type, int64_t timeUs) : mDataType(type), mDataTimeUs(timeUs) { init(); }
 
     // Constants for mDataType.
     enum {
@@ -53,13 +91,58 @@ public:
         DATA_TYPE_INFO_LISTENER_OPTON = 4,
     };
 
+    // set/find functions that could be used for all the value types.
+    ECODataStatus set(const std::string& key, const ECODataValueType& value);
+    ECODataStatus find(const std::string& key, ECODataValueType* out) const;
+
+    // Convenient set/find functions for string value type.
+    ECODataStatus setString(const std::string& key, const std::string& value);
+    ECODataStatus findString(const std::string& key, std::string* out) const;
+
+    // Convenient set/find functions for int32_t value type.
+    ECODataStatus setInt32(const std::string& key, int32_t value);
+    ECODataStatus findInt32(const std::string& key, int32_t* out) const;
+
+    // Convenient set/find functions for int64_t value type.
+    ECODataStatus setInt64(const std::string& key, int64_t value);
+    ECODataStatus findInt64(const std::string& key, int64_t* out) const;
+
+    // Convenient set/find functions for float value type.
+    ECODataStatus setFloat(const std::string& key, float value);
+    ECODataStatus findFloat(const std::string& key, float* out) const;
+
+    // Convenient set/find functions for double value type.
+    ECODataStatus setDouble(const std::string& key, double value);
+    ECODataStatus findDouble(const std::string& key, double* out) const;
+
+    // Convenient set/find functions for size_t value type.
+    ECODataStatus setSize(const std::string& key, size_t value);
+    ECODataStatus findSize(const std::string& key, size_t* out) const;
+
     /**
     * Serialization over Binder
     */
     status_t readFromParcel(const Parcel* parcel) override;
     status_t writeToParcel(Parcel* parcel) const override;
 
+    /* Returns the type of the data. */
+    int32_t getDataType();
+
+    /* Returns the timestamp associated with the data. */
+    int64_t getDataTimeUs();
+
+    /* Sets the type of the data. */
+    void setDataType(int32_t type);
+
+    /* Sets the timestamp associated with the data. */
+    void setDataTimeUs();
+
+    /* Gets the number of keys in the ECOData. */
+    size_t getNumOfEntries() { return mKeyValueStore.size(); }
+
 private:
+    void init();
+
     /* The type of the data */
     int32_t mDataType;
 
@@ -67,6 +150,15 @@ private:
     // boottime time base. This is only used when the data type is stats or info. -1 means
     // unavailable.
     int64_t mDataTimeUs;
+
+    // Internal store for the key value pairs.
+    std::unordered_map<std::string, ECODataValueType> mKeyValueStore;
+
+    template <typename T>
+    ECODataStatus setValue(const std::string& key, T value);
+
+    template <typename T>
+    ECODataStatus findValue(const std::string& key, T* out) const;
 };
 
 }  // namespace eco
