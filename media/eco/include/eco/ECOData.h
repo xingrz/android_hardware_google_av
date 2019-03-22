@@ -143,6 +143,16 @@ public:
 private:
     void init();
 
+    // ValueType. This must match the index in ECODataValueType.
+    enum ValueType {
+        kTypeInt32 = 0,
+        kTypeInt64 = 1,
+        kTypeSize = 2,
+        kTypeFloat = 3,
+        kTypeDouble = 4,
+        kTypeString = 5,
+    };
+
     /* The type of the data */
     int32_t mDataType;
 

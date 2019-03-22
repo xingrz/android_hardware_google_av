@@ -16,6 +16,9 @@
 
 // Unit Test for EcoData.
 
+//#define LOG_NDEBUG 0
+#define LOG_TAG "ECODataTest"
+
 #include <math.h>
 #include <stdlib.h>
 
@@ -25,6 +28,7 @@
 #include <cutils/ashmem.h>
 #include <gtest/gtest.h>
 #include <sys/mman.h>
+#include <utils/Log.h>
 
 #include "eco/ECOData.h"
 #include "eco/ECODataKey.h"
@@ -296,6 +300,79 @@ TEST(EcoDataTest, TestSetAndFindInvalidDataType) {
 
     // Test read empty key and expect failure
     EXPECT_TRUE(data->find("", &testValue) != ECODataStatus::OK);
+}
+
+TEST(EcoDataTest, TestNormalWriteReadParcel) {
+    constexpr int32_t kDataType = ECOData::DATA_TYPE_STATS;
+    constexpr int64_t kDataTimeUs = 1000;
+
+    std::unique_ptr<ECOData> sourceData = std::make_unique<ECOData>(kDataType, kDataTimeUs);
+
+    std::unordered_map<std::string, ECOData::ECODataValueType> inputEntries = {
+            {"name1", "google-encoder"}, {"name2", "avc"}, {"profile", 1}, {"level", 2},
+            {"framerate", 4.1},          {"kfi", 30}};
+    for (auto it = inputEntries.begin(); it != inputEntries.end(); ++it) {
+        sourceData->set(it->first, it->second);
+    }
+
+    std::unique_ptr<Parcel> parcel = std::make_unique<Parcel>();
+    EXPECT_TRUE(sourceData->writeToParcel(parcel.get()) == NO_ERROR);
+
+    // Rewind the data position of the parcel for this test. Otherwise, the following read will not
+    // start from the beginning.
+    parcel->setDataPosition(0);
+
+    // Reads the parcel back into a new ECOData
+    std::unique_ptr<ECOData> dstData = std::make_unique<ECOData>();
+    EXPECT_TRUE(dstData->readFromParcel(parcel.get()) == NO_ERROR);
+
+    // Checks the data type, time and number of entries.
+    EXPECT_EQ(sourceData->getNumOfEntries(), dstData->getNumOfEntries());
+    EXPECT_EQ(dstData->getDataType(), kDataType);
+    EXPECT_EQ(dstData->getDataTimeUs(), kDataTimeUs);
+
+    for (auto it = inputEntries.begin(); it != inputEntries.end(); ++it) {
+        ECOData::ECODataValueType testValue;
+        EXPECT_TRUE(dstData->find(it->first, &testValue) == ECODataStatus::OK);
+        EXPECT_EQ(testValue, it->second);
+    }
+}
+
+TEST(EcoDataTest, TestWriteInvalidParcel) {
+    constexpr int32_t kDataType = ECOData::DATA_TYPE_STATS;
+    constexpr int64_t kDataTimeUs = 1000;
+
+    std::unique_ptr<ECOData> sourceData = std::make_unique<ECOData>(kDataType, kDataTimeUs);
+
+    std::unique_ptr<Parcel> parcel = std::make_unique<Parcel>();
+    EXPECT_TRUE(sourceData->writeToParcel(nullptr) != NO_ERROR);
+}
+
+TEST(EcoDataTest, TestReadInvalidParcel) {
+    constexpr int32_t kDataType = ECOData::DATA_TYPE_STATS;
+    constexpr int64_t kDataTimeUs = 1000;
+
+    std::unique_ptr<ECOData> sourceData = std::make_unique<ECOData>(kDataType, kDataTimeUs);
+
+    std::unordered_map<std::string, ECOData::ECODataValueType> inputEntries = {
+            {"name1", "google-encoder"}, {"name2", "avc"}, {"profile", 1}, {"level", 2},
+            {"framerate", 4.1},          {"kfi", 30}};
+    for (auto it = inputEntries.begin(); it != inputEntries.end(); ++it) {
+        sourceData->set(it->first, it->second);
+    }
+
+    std::unique_ptr<Parcel> parcel = std::make_unique<Parcel>();
+    EXPECT_TRUE(sourceData->writeToParcel(parcel.get()) == NO_ERROR);
+
+    // Corrupt the parcel by write random data to the beginning.
+    parcel->setDataPosition(4);
+    parcel->writeCString("invalid-data");
+
+    parcel->setDataPosition(0);
+
+    // Reads the parcel back into a new ECOData
+    std::unique_ptr<ECOData> dstData = std::make_unique<ECOData>();
+    EXPECT_TRUE(dstData->readFromParcel(parcel.get()) != NO_ERROR);
 }
 
 }  // namespace eco
