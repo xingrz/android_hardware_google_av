@@ -86,6 +86,12 @@ constexpr char INFO_KEY_FRAME_TYPE[] = "info-frame-type";
 constexpr char INFO_KEY_FRAME_SIZE_BYTES[] = "info-frame-size-bytes";
 constexpr char INFO_KEY_CURRENT_BITRATE_BPS[] = "info-current-bitrate-bps";
 
+// ================================================================================================
+// Standard ECOData keys.
+// ================================================================================================
+constexpr char ECO_DATA_KEY_TYPE[] = "eco-data-type";
+constexpr char ECO_DATA_KEY_TIME_US[] = "eco-data-time-us";
+
 }  // namespace eco
 }  // namespace media
 }  // namespace android
