@@ -206,15 +206,13 @@ private:
                 });
         // dequeueBuffer returns flag.
         if (!transStatus.isOk() || status < android::OK) {
-            if (transStatus.isOk()) {
-                if (status == android::INVALID_OPERATION ||
-                    status == android::TIMED_OUT ||
-                    status == android::WOULD_BLOCK) {
-                    return C2_TIMED_OUT;
-                }
-            }
             ALOGD("cannot dequeue buffer %d", status);
-            return C2_BAD_VALUE;
+            if (transStatus.isOk() && status == android::INVALID_OPERATION) {
+              // Too many buffer dequeued. retrying after some time is required.
+              return C2_TIMED_OUT;
+            } else {
+              return C2_BAD_VALUE;
+            }
         }
         ALOGV("dequeued a buffer successfully");
         native_handle_t* nh = nullptr;
@@ -271,28 +269,36 @@ private:
             }
         }
         if (slotBuffer) {
-            ALOGV("buffer wraps %llu %d", (unsigned long long)mProducerId, slot);
-            C2Handle *c2Handle = android::WrapNativeCodec2GrallocHandle(
-                    slotBuffer->handle,
-                    slotBuffer->width,
-                    slotBuffer->height,
-                    slotBuffer->format,
-                    slotBuffer->usage,
-                    slotBuffer->stride,
-                    slotBuffer->getGenerationNumber(),
-                    mProducerId, slot);
-            if (c2Handle) {
-                std::shared_ptr<C2GraphicAllocation> alloc;
-                c2_status_t err = mAllocator->priorGraphicAllocation(c2Handle, &alloc);
-                if (err != C2_OK) {
-                    return err;
+            native_handle_t *grallocHandle = native_handle_clone(slotBuffer->handle);
+
+            if (grallocHandle) {
+                ALOGV("buffer wraps %llu %d", (unsigned long long)mProducerId, slot);
+                C2Handle *c2Handle = android::WrapNativeCodec2GrallocHandle(
+                        grallocHandle,
+                        slotBuffer->width,
+                        slotBuffer->height,
+                        slotBuffer->format,
+                        slotBuffer->usage,
+                        slotBuffer->stride,
+                        slotBuffer->getGenerationNumber(),
+                        mProducerId, slot);
+                if (c2Handle) {
+                    // Moved everything to c2Handle.
+                    native_handle_delete(grallocHandle);
+                    std::shared_ptr<C2GraphicAllocation> alloc;
+                    c2_status_t err = mAllocator->priorGraphicAllocation(c2Handle, &alloc);
+                    if (err != C2_OK) {
+                        return err;
+                    }
+                    std::shared_ptr<C2BufferQueueBlockPoolData> poolData =
+                            std::make_shared<C2BufferQueueBlockPoolData>(
+                                    slotBuffer->getGenerationNumber(),
+                                    mProducerId, slot, shared_from_this());
+                    *block = _C2BlockFactory::CreateGraphicBlock(alloc, poolData);
+                    return C2_OK;
                 }
-                std::shared_ptr<C2BufferQueueBlockPoolData> poolData =
-                        std::make_shared<C2BufferQueueBlockPoolData>(
-                                slotBuffer->getGenerationNumber(),
-                                mProducerId, slot, shared_from_this());
-                *block = _C2BlockFactory::CreateGraphicBlock(alloc, poolData);
-                return C2_OK;
+                native_handle_close(grallocHandle);
+                native_handle_delete(grallocHandle);
             }
             // Block was not created. call requestBuffer# again next time.
             slotBuffer.clear();
@@ -330,7 +336,7 @@ public:
             return mInit;
         }
 
-        static int kMaxIgbpRetry = 1; // TODO: small number can cause crash in releasing.
+        static int kMaxIgbpRetry = 20; // TODO: small number can cause crash in releasing.
         static int kMaxIgbpRetryDelayUs = 10000;
 
         int curTry = 0;
@@ -412,7 +418,7 @@ private:
     void cancel(uint64_t igbp_id, int32_t igbp_slot) {
         std::lock_guard<std::mutex> lock(mMutex);
         if (igbp_id == mProducerId && mProducer) {
-            (void)mProducer->cancelBuffer(igbp_slot, hidl_handle{}).isOk();
+            (void)mProducer->cancelBuffer(igbp_slot, nullptr).isOk();
         }
     }
 
@@ -453,7 +459,7 @@ C2BufferQueueBlockPoolData::~C2BufferQueueBlockPoolData() {
     if (local && localPool) {
         localPool->cancel(bqId, bqSlot);
     } else if (igbp) {
-        (void)igbp->cancelBuffer(bqSlot, hidl_handle{}).isOk();
+        igbp->cancelBuffer(bqSlot, nullptr);
     }
 }
 
