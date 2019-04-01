@@ -153,7 +153,7 @@ C2SoftAacEnc::C2SoftAacEnc(
       mSentCodecSpecificData(false),
       mInputTimeSet(false),
       mInputSize(0),
-      mInputTimeUs(-1ll),
+      mInputTimeUs(0),
       mSignalledError(false) {
 }
 
@@ -178,7 +178,7 @@ c2_status_t C2SoftAacEnc::onStop() {
     mSentCodecSpecificData = false;
     mInputTimeSet = false;
     mInputSize = 0u;
-    mInputTimeUs = -1ll;
+    mInputTimeUs = 0;
     mSignalledError = false;
     return C2_OK;
 }
@@ -196,6 +196,7 @@ c2_status_t C2SoftAacEnc::onFlush_sm() {
     mSentCodecSpecificData = false;
     mInputTimeSet = false;
     mInputSize = 0u;
+    mInputTimeUs = 0;
     return C2_OK;
 }
 
@@ -500,6 +501,7 @@ c2_status_t C2SoftAacEnc::drain(
     mSentCodecSpecificData = false;
     mInputTimeSet = false;
     mInputSize = 0u;
+    mInputTimeUs = 0;
 
     // TODO: we don't have any pending work at this time to drain.
     return C2_OK;
