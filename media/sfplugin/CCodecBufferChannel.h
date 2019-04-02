@@ -354,7 +354,6 @@ private:
         ReorderStash();
 
         void clear();
-        void flush();
         void setDepth(uint32_t depth);
         void setKey(C2Config::ordinal_key_t key);
         bool pop(Entry *entry);

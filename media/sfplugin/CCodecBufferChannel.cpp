@@ -276,15 +276,12 @@ namespace {
 // TODO: get this info from component
 const static size_t kMinInputBufferArraySize = 4;
 const static size_t kMaxPipelineCapacity = 18;
-const static size_t kMinOutputBufferArraySize = 4;
-
+const static size_t kChannelOutputDelay = 0;
+const static size_t kMinOutputBufferArraySize = kMaxPipelineCapacity +
+                                                kChannelOutputDelay;
 const static size_t kLinearBufferSize = 1048576;
 // This can fit 4K RGBA frame, and most likely client won't need more than this.
 const static size_t kMaxLinearBufferSize = 3840 * 2160 * 4;
-
-// N.B. This is for not changing buffer dropping logic in IGBP other than making
-// it Non-blocking. Do not change this value.
-const static size_t kDequeueTimeoutNs = 0;
 
 /**
  * Simple local buffer pool backed by std::vector.
@@ -1526,11 +1523,6 @@ void CCodecBufferChannel::ReorderStash::clear() {
     mKey = C2Config::ORDINAL;
 }
 
-void CCodecBufferChannel::ReorderStash::flush() {
-    mPending.clear();
-    mStash.clear();
-}
-
 void CCodecBufferChannel::ReorderStash::setDepth(uint32_t depth) {
     mPending.splice(mPending.end(), mStash);
     mDepth = depth;
@@ -1557,13 +1549,13 @@ void CCodecBufferChannel::ReorderStash::emplace(
         int64_t timestamp,
         int32_t flags,
         const C2WorkOrdinalStruct &ordinal) {
-    auto it = mStash.begin();
-    for (; it != mStash.end(); ++it) {
+    for (auto it = mStash.begin(); it != mStash.end(); ++it) {
         if (less(ordinal, it->ordinal)) {
-            break;
+            mStash.emplace(it, buffer, timestamp, flags, ordinal);
+            return;
         }
     }
-    mStash.emplace(it, buffer, timestamp, flags, ordinal);
+    mStash.emplace_back(buffer, timestamp, flags, ordinal);
     while (!mStash.empty() && mStash.size() > mDepth) {
         mPending.push_back(mStash.front());
         mStash.pop_front();
@@ -2485,7 +2477,6 @@ void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushe
             ALOGV("[%s] stashed flushed codec config data (size=%u)", mName, view.capacity());
         }
     }
-    mReorderStash.lock()->flush();
     {
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         (*buffers)->flush();
@@ -2707,36 +2698,29 @@ void CCodecBufferChannel::sendOutputBuffers() {
     size_t index;
 
     while (true) {
-        Mutexed<ReorderStash>::Locked reorder(mReorderStash);
-        if (!reorder->hasPending()) {
-            break;
+        {
+            Mutexed<ReorderStash>::Locked reorder(mReorderStash);
+            if (!reorder->hasPending()) {
+                break;
+            }
+            if (!reorder->pop(&entry)) {
+                break;
+            }
         }
-        if (!reorder->pop(&entry)) {
-            break;
-        }
-
         Mutexed<std::unique_ptr<OutputBuffers>>::Locked buffers(mOutputBuffers);
         status_t err = (*buffers)->registerBuffer(entry.buffer, &index, &outBuffer);
         if (err != OK) {
-            bool outputBuffersChanged = false;
             if (err != WOULD_BLOCK) {
                 OutputBuffersArray *array = (OutputBuffersArray *)buffers->get();
                 array->realloc(entry.buffer);
-                outputBuffersChanged = true;
-            }
-            ALOGV("[%s] sendOutputBuffers: unable to register output buffer", mName);
-            reorder->defer(entry);
-
-            buffers.unlock();
-            reorder.unlock();
-
-            if (outputBuffersChanged) {
                 mCCodecCallback->onOutputBuffersChanged();
             }
+            buffers.unlock();
+            ALOGV("[%s] sendOutputBuffers: unable to register output buffer", mName);
+            mReorderStash.lock()->defer(entry);
             return;
         }
         buffers.unlock();
-        reorder.unlock();
 
         outBuffer->meta()->setInt64("timeUs", entry.timestamp);
         outBuffer->meta()->setInt32("flags", entry.flags);
@@ -2755,8 +2739,7 @@ status_t CCodecBufferChannel::setSurface(const sp<Surface> &newSurface) {
     sp<IGraphicBufferProducer> producer;
     if (newSurface) {
         newSurface->setScalingMode(NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
-        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize + kMaxPipelineCapacity);
-        newSurface->setDequeueTimeout(kDequeueTimeoutNs);
+        newSurface->setMaxDequeuedBufferCount(kMinOutputBufferArraySize);
         producer = newSurface->getIGraphicBufferProducer();
         producer->setGenerationNumber(generation);
     } else {

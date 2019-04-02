@@ -168,7 +168,7 @@ struct InputSurfaceConnection::Impl : public ComponentWrapper {
 
         std::shared_ptr<C2GraphicAllocation> alloc;
         C2Handle* handle = WrapNativeCodec2GrallocHandle(
-                buffer->handle,
+                native_handle_clone(buffer->handle),
                 buffer->width, buffer->height,
                 buffer->format, buffer->usage, buffer->stride);
         mAllocatorMutex.lock();
