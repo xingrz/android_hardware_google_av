@@ -18,17 +18,21 @@
 #define LOG_TAG "ECOService"
 
 #include "eco/ECOService.h"
+
 #include <binder/BinderService.h>
 #include <cutils/atomic.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/types.h>
+
 #include <algorithm>
 #include <climits>
 #include <cstring>
 #include <ctime>
 #include <string>
+
+#include "eco/ECODebug.h"
 
 namespace android {
 namespace media {
@@ -36,7 +40,7 @@ namespace eco {
 
 // ----------------------------------------------------------------------------
 // Logging support -- this is for debugging only
-// Use "adb shell dumpsys media.ecoservice -v 1" to change it.
+// Use "adb shell dumpsys media.ECOService -v 1" to change it.
 volatile int32_t gLogLevel = 0;
 
 #define LOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
@@ -46,22 +50,27 @@ static void setLogLevel(int level) {
     android_atomic_write(level, &gLogLevel);
 }
 
-// Convenience methods for constructing binder::Status objects for error returns
-
-#define STATUS_ERROR(errorCode, errorString)  \
-    binder::Status::fromServiceSpecificError( \
-            errorCode, String8::format("%s:%d: %s", __FUNCTION__, __LINE__, errorString))
-
-#define STATUS_ERROR_FMT(errorCode, errorString, ...) \
-    binder::Status::fromServiceSpecificError(         \
-            errorCode,                                \
-            String8::format("%s:%d: " errorString, __FUNCTION__, __LINE__, __VA_ARGS__))
-
-// ----------------------------------------------------------------------------
-
 ECOService::ECOService() : BnECOService() {
     ALOGD("ECOService created");
     setLogLevel(10);
+}
+
+/*virtual*/ ::android::binder::Status ECOService::obtainSession(
+        int32_t /* width */, int32_t /* height */, bool /* isCameraRecording */,
+        ::android::sp<::android::media::eco::IECOSession>* /* _aidl_return */) {
+    //TODO(hkuang): Add implementation.
+    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
+}
+
+/*virtual*/ ::android::binder::Status ECOService::getNumOfSessions(int32_t* /* _aidl_return */) {
+    //TODO(hkuang): Add implementation.
+    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
+}
+
+/*virtual*/ ::android::binder::Status ECOService::getSessions(
+        ::std::vector<::android::sp<::android::IBinder>>* /* _aidl_return */) {
+    //TODO(hkuang): Add implementation.
+    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
 }
 
 /*virtual*/ void ECOService::binderDied(const wp<IBinder>& /*who*/) {}

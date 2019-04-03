@@ -19,14 +19,13 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ECODataTest"
 
-#include <math.h>
-#include <stdlib.h>
-
 #include <android-base/unique_fd.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
 #include <cutils/ashmem.h>
 #include <gtest/gtest.h>
+#include <math.h>
+#include <stdlib.h>
 #include <sys/mman.h>
 #include <utils/Log.h>
 
@@ -41,14 +40,6 @@ TEST(EcoDataTest, TestConstructor1) {
     std::unique_ptr<ECOData> data = std::make_unique<ECOData>();
     EXPECT_EQ(data->getDataType(), ECOData::DATA_TYPE_UNKNOWN);
     EXPECT_EQ(data->getDataTimeUs(), -1);
-
-    int32_t type;
-    EXPECT_TRUE(data->findInt32(ECO_DATA_KEY_TYPE, &type) == ECODataStatus::OK);
-    EXPECT_EQ(type, ECOData::DATA_TYPE_UNKNOWN);
-
-    int64_t time;
-    EXPECT_TRUE(data->findInt64(ECO_DATA_KEY_TIME_US, &time) == ECODataStatus::OK);
-    EXPECT_EQ(time, -1);
 }
 
 TEST(EcoDataTest, TestConstructor2) {
@@ -66,14 +57,14 @@ TEST(EcoDataTest, TestConstructor3) {
 TEST(EcoDataTest, TestNormalSetAndFindString) {
     std::unique_ptr<ECOData> data = std::make_unique<ECOData>(ECOData::DATA_TYPE_STATS, 1000);
 
-    data->setString(STATS_KEY_ENCODER_TYPE, "avc");
+    data->setString(ENCODER_TYPE, "avc");
     std::string testValue;
-    EXPECT_TRUE(data->findString(STATS_KEY_ENCODER_TYPE, &testValue) == ECODataStatus::OK);
+    EXPECT_TRUE(data->findString(ENCODER_TYPE, &testValue) == ECODataStatus::OK);
     EXPECT_EQ(testValue, "avc");
 
     // Override existing key.
-    data->setString(STATS_KEY_ENCODER_TYPE, "hevc");
-    EXPECT_EQ(data->findString(STATS_KEY_ENCODER_TYPE, &testValue), ECODataStatus::OK);
+    data->setString(ENCODER_TYPE, "hevc");
+    EXPECT_EQ(data->findString(ENCODER_TYPE, &testValue), ECODataStatus::OK);
     EXPECT_EQ(testValue, "hevc");
 }
 
@@ -116,15 +107,14 @@ TEST(EcoDataTest, TestSetAndFindInvalidString) {
 TEST(EcoDataTest, TestNormalSetAndFindInt32) {
     std::unique_ptr<ECOData> data = std::make_unique<ECOData>(ECOData::DATA_TYPE_STATS, 1000);
 
-    data->setInt32(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2000000);
+    data->setInt32(ENCODER_TARGET_BITRATE_BPS, 2000000);
     int32_t testValue;
-    EXPECT_TRUE(data->findInt32(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue) ==
-                ECODataStatus::OK);
+    EXPECT_TRUE(data->findInt32(ENCODER_TARGET_BITRATE_BPS, &testValue) == ECODataStatus::OK);
     EXPECT_EQ(testValue, 2000000);
 
     // Override existing key.
-    data->setInt32(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2200000);
-    EXPECT_EQ(data->findInt32(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue), ECODataStatus::OK);
+    data->setInt32(ENCODER_TARGET_BITRATE_BPS, 2200000);
+    EXPECT_EQ(data->findInt32(ENCODER_TARGET_BITRATE_BPS, &testValue), ECODataStatus::OK);
     EXPECT_EQ(testValue, 2200000);
 }
 
@@ -167,15 +157,14 @@ TEST(EcoDataTest, TestSetAndFindInvalidInt32) {
 TEST(EcoDataTest, TestNormalSetAndFindInt64) {
     std::unique_ptr<ECOData> data = std::make_unique<ECOData>(ECOData::DATA_TYPE_STATS, 1000);
 
-    data->setInt64(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2000000);
+    data->setInt64(ENCODER_TARGET_BITRATE_BPS, 2000000);
     int64_t testValue;
-    EXPECT_TRUE(data->findInt64(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue) ==
-                ECODataStatus::OK);
+    EXPECT_TRUE(data->findInt64(ENCODER_TARGET_BITRATE_BPS, &testValue) == ECODataStatus::OK);
     EXPECT_EQ(testValue, 2000000);
 
     // Override existing key.
-    data->setInt64(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2200000);
-    EXPECT_EQ(data->findInt64(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue), ECODataStatus::OK);
+    data->setInt64(ENCODER_TARGET_BITRATE_BPS, 2200000);
+    EXPECT_EQ(data->findInt64(ENCODER_TARGET_BITRATE_BPS, &testValue), ECODataStatus::OK);
     EXPECT_EQ(testValue, 2200000);
 }
 
@@ -218,16 +207,14 @@ TEST(EcoDataTest, TestSetAndFindInvalidInt64) {
 TEST(EcoDataTest, TestNormalSetAndFindFloat) {
     std::unique_ptr<ECOData> data = std::make_unique<ECOData>(ECOData::DATA_TYPE_STATS, 1000);
 
-    data->setFloat(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2000000.0);
+    data->setFloat(ENCODER_TARGET_BITRATE_BPS, 2000000.0);
     float testValue;
-    EXPECT_TRUE(data->findFloat(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue) ==
-                ECODataStatus::OK);
+    EXPECT_TRUE(data->findFloat(ENCODER_TARGET_BITRATE_BPS, &testValue) == ECODataStatus::OK);
     EXPECT_FLOAT_EQ(testValue, 2000000.0);
 
     // Override existing key.
-    data->setFloat(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, 2200000.0);
-    EXPECT_TRUE(data->findFloat(STATS_KEY_ENCODER_TARGET_BITRATE_BPS, &testValue) ==
-                ECODataStatus::OK);
+    data->setFloat(ENCODER_TARGET_BITRATE_BPS, 2200000.0);
+    EXPECT_TRUE(data->findFloat(ENCODER_TARGET_BITRATE_BPS, &testValue) == ECODataStatus::OK);
     EXPECT_FLOAT_EQ(testValue, 2200000.0);
 }
 
