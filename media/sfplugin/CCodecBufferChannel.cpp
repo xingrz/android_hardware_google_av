@@ -1428,6 +1428,31 @@ bool CCodecBufferChannel::PipelineCapacity::allocate(const char* callerTag) {
     return false;
 }
 
+bool CCodecBufferChannel::PipelineCapacity::allocateOutput(const char* callerTag) {
+    int prevComponent = component.fetch_sub(1, std::memory_order_relaxed);
+    int prevOutput = output.fetch_sub(1, std::memory_order_relaxed);
+    if (prevComponent > 0 && prevOutput > 1) { // One output reserved for csd.
+        ALOGV("[%s] %s -- PipelineCapacity::allocateOutput() returns true: "
+              "pipeline availability -1 output and -1 component ==> "
+              "input = %d, component = %d, output = %d",
+                mName, callerTag ? callerTag : "*",
+                input.load(std::memory_order_relaxed),
+                prevComponent - 1,
+                prevOutput - 1);
+        return true;
+    }
+    component.fetch_add(1, std::memory_order_relaxed);
+    output.fetch_add(1, std::memory_order_relaxed);
+    ALOGV("[%s] %s -- PipelineCapacity::allocateOutput() returns false: "
+          "pipeline availability unchanged ==> "
+          "input = %d, component = %d, output = %d",
+            mName, callerTag ? callerTag : "*",
+            input.load(std::memory_order_relaxed),
+            prevComponent,
+            prevOutput);
+    return false;
+}
+
 void CCodecBufferChannel::PipelineCapacity::free(const char* callerTag) {
     int prevInput = input.fetch_add(1, std::memory_order_relaxed);
     int prevComponent = component.fetch_add(1, std::memory_order_relaxed);
@@ -1484,6 +1509,23 @@ int CCodecBufferChannel::PipelineCapacity::freeOutputSlot(
     return prevOutput + 1;
 }
 
+// InputGater
+struct CCodecBufferChannel::InputGater : public InputSurfaceWrapper::InputGater {
+    InputGater(const std::shared_ptr<CCodecBufferChannel>& owner)
+          : mOwner(owner) {}
+    virtual bool canQueue() override {
+        std::shared_ptr<CCodecBufferChannel> owner = mOwner.lock();
+        if (!owner) {
+            return false;
+        }
+        QueueGuard guard(owner->mSync);
+        return guard.isRunning() &&
+                owner->mAvailablePipelineCapacity.allocateOutput("InputGater");
+    }
+private:
+    std::weak_ptr<CCodecBufferChannel> mOwner;
+};
+
 // CCodecBufferChannel
 
 CCodecBufferChannel::CCodecBufferChannel(
@@ -1517,7 +1559,8 @@ status_t CCodecBufferChannel::setInputSurface(
         const std::shared_ptr<InputSurfaceWrapper> &surface) {
     ALOGV("[%s] setInputSurface", mName);
     mInputSurface = surface;
-    return mInputSurface->connect(mComponent);
+    mInputGater = std::make_shared<InputGater>(shared_from_this());
+    return mInputSurface->connect(mComponent, mInputGater);
 }
 
 status_t CCodecBufferChannel::signalEndOfInputStream() {
@@ -2318,6 +2361,7 @@ void CCodecBufferChannel::stop() {
     if (mInputSurface != nullptr) {
         mInputSurface.reset();
     }
+    mInputGater.reset();
 }
 
 void CCodecBufferChannel::flush(const std::list<std::unique_ptr<C2Work>> &flushedWork) {

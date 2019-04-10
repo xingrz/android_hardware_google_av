@@ -49,8 +49,10 @@ public:
 
 }  // namespace
 
-C2OMXNode::C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp)
-    : mComp(comp), mFrameIndex(0), mWidth(0), mHeight(0),
+C2OMXNode::C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp,
+                     const std::shared_ptr<InputGater> &inputGater)
+    : mComp(comp), mInputGater(inputGater),
+      mFrameIndex(0), mWidth(0), mHeight(0),
       mAdjustTimestampGapUs(0), mFirstInputFrame(true) {
     // TODO: read from intf()
     if (!strncmp(comp->getName().c_str(), "c2.android.", 11)) {
@@ -212,6 +214,7 @@ status_t C2OMXNode::emptyBuffer(
         sp<Fence> fence = new Fence(fenceFd);
         fence->waitForever(LOG_TAG);
     }
+
     std::shared_ptr<Codec2Client::Component> comp = mComp.lock();
     if (!comp) {
         return NO_INIT;
@@ -286,6 +289,11 @@ status_t C2OMXNode::emptyBuffer(
     work->worklets.emplace_back(new C2Worklet);
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
+
+    std::shared_ptr<InputGater> inputGater = mInputGater.lock();
+    if (!inputGater || !inputGater->canQueue()) {
+        return OK;
+    }
 
     c2_status_t err = comp->queue(&items);
     if (err != C2_OK) {
