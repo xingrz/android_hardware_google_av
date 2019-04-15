@@ -16,6 +16,8 @@
 
 package android.media.eco;
 
+import android.os.IBinder;
+
 /**
 * An interface for providers that provides various statistics to ECO service.
 * {@hide}
@@ -46,4 +48,9 @@ interface IECOServiceStatsProvider {
      * Return the name of the provider.
      */
     String getName();
+
+    /**
+     * Return the IBinder instance of the ECOSession associated the listener.
+     */
+    IBinder getECOSession();
 }
