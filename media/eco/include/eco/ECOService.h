@@ -20,14 +20,9 @@
 #include <android/media/eco/BnECOService.h>
 #include <binder/BinderService.h>
 
-#include "ECOData.h"
-
 namespace android {
 namespace media {
 namespace eco {
-
-typedef int32_t ecoservice_session_id_t;
-constexpr ecoservice_session_id_t kInvalidSessionId = -1;
 
 /**
  * ECO (Encoder Camera Optimization) service.
@@ -55,6 +50,18 @@ public:
     //TODO(hkuang): Add the implementation.
 
     virtual ~ECOService() {}
+
+    virtual ::android::binder::Status obtainSession(
+            int32_t width, int32_t height, bool isCameraRecording,
+            ::android::sp<::android::media::eco::IECOSession>* _aidl_return);
+
+    virtual ::android::binder::Status getNumOfSessions(int32_t* _aidl_return);
+
+    virtual ::android::binder::Status getSessions(
+            ::std::vector<::android::sp<::android::IBinder>>* _aidl_return);
+
+    // Implementation of BinderService<T>
+    static char const* getServiceName() { return "media.ecoservice"; }
 
     // IBinder::DeathRecipient implementation
     virtual void binderDied(const wp<IBinder>& who);

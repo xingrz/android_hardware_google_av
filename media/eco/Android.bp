@@ -10,6 +10,8 @@ name:
         "aidl/android/media/eco/IECOServiceInfoListener.aidl",
         "ECOData.cpp",
         "ECOService.cpp",
+        "ECOSession.cpp",
+        "ECOUtils.cpp",
         ],
 
     aidl: {

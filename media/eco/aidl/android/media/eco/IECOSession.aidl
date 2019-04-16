@@ -42,12 +42,15 @@ interface IECOSession {
      * <p>This is called by ECOServiceStasProvider to add itself to the ECOSession.</p>
      *
      * @param provider Provider that implements IECOServiceStatsProvider interface.
-     * @param options Options that specifies the types of the stats that the provider is going to
-     *                provide.
+     * @param config  Config that specifies the types of the stats that the provider is going to
+     *                provide. The ECOData must be of type DATA_TYPE_STATS_PROVIDER_CONFIG. Note:
+     *                The provider must specify the following keys when adding itself:
+     *                KEY_PROVIDER_NAME in string and KEY_PROVIDER_TYPE as specified in
+     *                IECOServiceStatsProvider.
      *
      * @return true if the provider was successfully added, false otherwise.
      */
-    boolean addStatsProvider(IECOServiceStatsProvider provider, in ECOData options);
+    boolean addStatsProvider(IECOServiceStatsProvider provider, in ECOData config);
 
     /**
      * Removes an ECOServiceStasProvider from ECOSession.
@@ -64,12 +67,12 @@ interface IECOSession {
      * <p>This is called by IECOServiceInfoListener to add itself to the ECOSession.</p>
      *
      * @param listener Listener that implements IECOServiceInfoListener interface.
-     * @param options Options that specifies the criteria for the data that the listener is
+     * @param config  Config that specifies the condition for the data that the listener is
      *                interested in.
      *
      * @return true if the listener was successfully added, false otherwise.
      */
-    boolean addInfoListener(IECOServiceInfoListener listener, in ECOData options);
+    boolean addInfoListener(IECOServiceInfoListener listener, in ECOData config);
 
     /**
      * Removes an ECOServiceInfoListener from ECOSession.

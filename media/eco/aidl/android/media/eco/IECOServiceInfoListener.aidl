@@ -17,6 +17,7 @@
 package android.media.eco;
 
 import android.media.eco.ECOData;
+import android.os.IBinder;
 
 /**
  * Binder interface for ECO service information listener.
@@ -36,9 +37,9 @@ interface IECOServiceInfoListener {
     /**
      * Constants for the type of the listener.
      */
-    const int STATS_PROVIDER_TYPE_UNKNOWN = 1;
-    const int STATS_LISTENER_TYPE_VIDEO_ENCODER = 2;
-    const int STATS_LISTENER_TYPE_CAMERA = 3;
+    const int INFO_LISTENER_TYPE_UNKNOWN = 1;
+    const int INFO_LISTENER_TYPE_VIDEO_ENCODER = 2;
+    const int INFO_LISTENER_TYPE_CAMERA = 3;
 
     /**
      * Return the type of the listener.
@@ -49,6 +50,11 @@ interface IECOServiceInfoListener {
      * Return the name of the listener.
      */
     String getName();
+
+    /**
+     * Return the IBinder instance of the ECOSession associated the provider.
+     */
+    IBinder getECOSession();
 
     /**
      * Handle the new info from ECOSession. This should only be called by ECOSession.

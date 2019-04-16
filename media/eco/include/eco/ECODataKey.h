@@ -16,12 +16,12 @@
 #ifndef ANDROID_MEDIA_ECO_DATA_KEY_H_
 #define ANDROID_MEDIA_ECO_DATA_KEY_H_
 
-#include <stdint.h>
-#include <sys/mman.h>
-
 #include <android-base/unique_fd.h>
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
+#include <stdint.h>
+#include <sys/mman.h>
+
 #include "ECOService.h"
 
 namespace android {
@@ -29,68 +29,64 @@ namespace media {
 namespace eco {
 
 // ================================================================================================
-// Standard ECOService Stats keys. These keys are used in the ECOData sent from StatsProvider
-// to ECOService. Besides these standard keys, StatsProvider could also have their provider
-// specific keys.
+// Standard ECOData keys.
 // ================================================================================================
-/* Keys for provider of type STATS_PROVIDER_TYPE_VIDEO_ENCODER. */
-constexpr char STATS_KEY_ENCODER_TYPE[] = "stats-encoder-type";
-constexpr char STATS_KEY_ENCODER_PROFILE[] = "stats-encoder-profile";
-constexpr char STATS_KEY_ENCODER_LEVEL[] = "stats-encoder-level";
-constexpr char STATS_KEY_ENCODER_TARGET_BITRATE_BPS[] = "stats-encoder-target-bitrate-bps";
-constexpr char STATS_KEY_ENCODER_KFI_FRAMES[] = "stats-encoder-kfi-frames";
-
-constexpr char STATS_KEY_FRAME_PTS_US[] = "stats-frame-pts-us";
-constexpr char STATS_KEY_FRAME_AVG_QP[] = "stats-frame-avg-qp";
-constexpr char STATS_KEY_FRAME_TYPE[] = "stats-frame-type";
-constexpr char STATS_KEY_FRAME_SIZE_BYTES[] = "stats-frame-size-bytes";
+constexpr char KEY_ECO_DATA_TYPE[] = "eco-data-type";
+constexpr char KEY_ECO_DATA_TIME_US[] = "eco-data-time-us";
 
 // ================================================================================================
-// Standard ECOServiceStatsProvider option keys. These keys are used in the ECOData as an option
+// Standard ECOServiceStatsProvider config keys. These keys are used in the ECOData as an config
 // when StatsProvider connects with ECOService.
 // ================================================================================================
-constexpr char PROVIDER_KEY_NAME[] = "provider-name";
-constexpr char PROVIDER_KEY_TYPE[] = "provider-type";
+constexpr char KEY_PROVIDER_NAME[] = "provider-name";
+constexpr char KEY_PROVIDER_TYPE[] = "provider-type";
 
 // ================================================================================================
-// Standard ECOServiceInfoListener option keys. These keys are used in the ECOData as option
+// Standard ECOServiceInfoListener config keys. These keys are used in the ECOData as config
 // when ECOServiceInfoListener connects with ECOService to specify the informations that the
 // listener wants to listen to.
 // ================================================================================================
-constexpr char LISTENER_KEY_LISTENER_NAME[] = "listener-name";
-constexpr char LISTENER_KEY_TYPE[] = "listener-type";
-// This key's value will be ECOData.
-constexpr char LISTENER_KEY_CRITERION[] = "listener-criterion";
-// Listener will receive notification when qp falls below this key's value.
-constexpr char LISTENER_KEY_CRITERION_QP_LOW[] = "listener-criterion-qp-low";
-// Listener will receive notification when qp goes beyond this key's value.
-constexpr char LISTENER_KEY_CRITERION_QP_HIGH[] = "listener-criterion-qp-high";
-// Listener will receive notification when bitrate goes beyond this key's value.
-constexpr char LISTENER_KEY_CRITERION_BITRATE_OVERSHOOT[] = "listener-criterion-bitrate-overshoot";
-// Listener will receive notification when bitrate falls below this key's value.
-constexpr char LISTENER_KEY_CRITERION_BITRATE_UNDERSHOOT[] =
-        "listener-criterion-bitrate-undershoot";
+constexpr char KEY_LISTENER_NAME[] = "listener-name";
+constexpr char KEY_LISTENER_TYPE[] = "listener-type";
+
+// Following two keys are used together for the listener to specify the condition when it wants to
+// receive notification. When a frame's avg-qp crosses KEY_LISTENER_QP_BLOCKINESS_THRESHOLD or
+// the detla of qp between current frame and previous frame also goes beyond
+// KEY_LISTENER_QP_CHANGE_THRESHOLD, ECOService will notify the listener.
+constexpr char KEY_LISTENER_QP_BLOCKINESS_THRESHOLD[] = "listener-qp-blockness-threshold";
+constexpr char KEY_LISTENER_QP_CHANGE_THRESHOLD[] = "listener-qp-change-threshold";
 
 // ================================================================================================
-// Standard ECOService Info keys. These keys are used in the ECOData sent from ECOService
-// to ECOServiceInfoListener. The information includes session informations and frame informations.
+// ECOService Stats keys. These key MUST BE specified when provider pushes the stats to ECOService
+// to indicate the stats is session stats or frame stats.
 // ================================================================================================
-constexpr char INFO_KEY_ENCODER_TYPE[] = "info-encoder-type";
-constexpr char INFO_KEY_ENCODER_PROFILE[] = "info-encoder-profile";
-constexpr char INFO_KEY_ENCODER_LEVEL[] = "info-encoder-level";
-constexpr char INFO_KEY_ENCODER_TARGET_BITRATE_BPS[] = "info-encoder-target-bitrate-bps";
-constexpr char INFO_KEY_ENCODER_KFI_FRAMES[] = "info-encoder-kfi-frames";
-
-constexpr char INFO_KEY_FRAME_AVG_QP[] = "info-frame-avg-qp";
-constexpr char INFO_KEY_FRAME_TYPE[] = "info-frame-type";
-constexpr char INFO_KEY_FRAME_SIZE_BYTES[] = "info-frame-size-bytes";
-constexpr char INFO_KEY_CURRENT_BITRATE_BPS[] = "info-current-bitrate-bps";
+constexpr char KEY_STATS_TYPE[] = "stats-type";
+constexpr char VALUE_STATS_TYPE_SESSION[] = "stats-type-session";  // value for KEY_STATS_TYPE.
+constexpr char VALUE_STATS_TYPE_FRAME[] = "stats-type-frame";      // value for KEY_STATS_TYPE.
 
 // ================================================================================================
-// Standard ECOData keys.
+// Standard ECOService Info keys. These key will be in the info provided by ECOService to indicate
+// the info is session info or frame info.
 // ================================================================================================
-constexpr char ECO_DATA_KEY_TYPE[] = "eco-data-type";
-constexpr char ECO_DATA_KEY_TIME_US[] = "eco-data-time-us";
+constexpr char KEY_INFO_TYPE[] = "info-type";
+constexpr char VALUE_INFO_TYPE_SESSION[] = "info-type-session";  // value for KEY_INFO_TYPE.
+constexpr char VALUE_INFO_TYPE_FRAME[] = "info-type-frame";      // value for KEY_INFO_TYPE.
+
+// ================================================================================================
+// General keys to be used by both stats and info in the ECOData.
+// ================================================================================================
+constexpr char ENCODER_TYPE[] = "encoder-type";
+constexpr char ENCODER_PROFILE[] = "encoder-profile";
+constexpr char ENCODER_LEVEL[] = "encoder-level";
+constexpr char ENCODER_TARGET_BITRATE_BPS[] = "encoder-target-bitrate-bps";
+constexpr char ENCODER_KFI_FRAMES[] = "encoder-kfi-frames";
+constexpr char ENCODER_FRAMERATE_FPS[] = "encoder-framerate-fps";
+
+constexpr char FRAME_NUM[] = "frame-num";
+constexpr char FRAME_PTS_US[] = "frame-pts-us";
+constexpr char FRAME_AVG_QP[] = "frame-avg-qp";
+constexpr char FRAME_TYPE[] = "frame-type";
+constexpr char FRAME_SIZE_BYTES[] = "frame-size-bytes";
 
 }  // namespace eco
 }  // namespace media
