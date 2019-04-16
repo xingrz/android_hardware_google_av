@@ -49,6 +49,18 @@ FakeECOServiceStatsProvider::FakeECOServiceStatsProvider(int32_t width, int32_t 
           mWidth, mHeight, mIsCameraRecording, mFrameRate);
 }
 
+FakeECOServiceStatsProvider::FakeECOServiceStatsProvider(int32_t width, int32_t height,
+                                                         bool isCameraRecording, float frameRate)
+      : mWidth(width),
+        mHeight(height),
+        mIsCameraRecording(isCameraRecording),
+        mFrameRate(frameRate),
+        mFrameNumber(0) {
+    ALOGD("FakeECOServiceStatsProvider construct with w: %d, h: %d, isCameraRecording: %d, "
+          "frameRate: %f",
+          mWidth, mHeight, mIsCameraRecording, mFrameRate);
+}
+
 FakeECOServiceStatsProvider::~FakeECOServiceStatsProvider() {
     ALOGD("FakeECOServiceStatsProvider destructor");
 }
@@ -57,7 +69,8 @@ Status FakeECOServiceStatsProvider::getType(int32_t* /*_aidl_return*/) {
     return binder::Status::ok();
 }
 
-Status FakeECOServiceStatsProvider::getName(::android::String16* /*_aidl_return*/) {
+Status FakeECOServiceStatsProvider::getName(::android::String16* _aidl_return) {
+    *_aidl_return = String16("FakeECOServiceStatsProvider");
     return binder::Status::ok();
 }
 
