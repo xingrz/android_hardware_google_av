@@ -18,3 +18,21 @@ cc_test {
         "libmedia_ecoservice",
     ],
 }
+
+cc_test {
+    name: "EcoSessionTest",
+    defaults: ["libmedia_ecoservice_tests_defaults"],
+    srcs: [
+        "EcoSessionTest.cpp",
+        "FakeECOServiceStatsProvider.cpp",
+        "FakeECOServiceInfoListener.cpp",
+        ],
+
+    shared_libs: [
+        "libbinder",
+        "libcutils",
+        "libutils",
+        "liblog",
+        "libmedia_ecoservice",
+    ],
+}

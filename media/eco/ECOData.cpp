@@ -17,13 +17,14 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ECOData"
 
-#include <utils/Errors.h>
-#include <utils/Log.h>
-#include <string>
+#include "eco/ECOData.h"
 
 #include <binder/Parcel.h>
+#include <utils/Errors.h>
+#include <utils/Log.h>
 
-#include "eco/ECOData.h"
+#include <string>
+
 #include "eco/ECODataKey.h"
 #include "eco/ECOUtils.h"
 
@@ -42,9 +43,6 @@ status_t ECOData::readFromParcel(const Parcel* parcel) {
     // Reads the data type and time.
     RETURN_STATUS_IF_ERROR(parcel->readInt32(&mDataType));
     RETURN_STATUS_IF_ERROR(parcel->readInt64(&mDataTimeUs));
-
-    // Init again to update the value for mDataType and mDataTimeUs.
-    init();
 
     // Reads the number of items.
     uint32_t numOfItems = 0;
@@ -99,6 +97,12 @@ status_t ECOData::readFromParcel(const Parcel* parcel) {
                 return NAME_NOT_FOUND;
             }
             setString(std::string(name), valueStr);
+            break;
+        }
+        case kTypeInt8: {
+            int8_t value8;
+            RETURN_STATUS_IF_ERROR(parcel->readByte(&value8));
+            setInt8(std::string(name), value8);
             break;
         }
         default: {
@@ -156,6 +160,10 @@ status_t ECOData::writeToParcel(Parcel* parcel) const {
             RETURN_STATUS_IF_ERROR(parcel->writeCString(std::get<std::string>(it.second).c_str()));
             break;
 
+        case kTypeInt8:
+            RETURN_STATUS_IF_ERROR(parcel->writeByte(std::get<int8_t>(it.second)));
+            break;
+
         default:
             return BAD_TYPE;
         }
@@ -164,12 +172,7 @@ status_t ECOData::writeToParcel(Parcel* parcel) const {
     return NO_ERROR;
 }
 
-void ECOData::init() {
-    mKeyValueStore[ECO_DATA_KEY_TYPE] = mDataType;
-    mKeyValueStore[ECO_DATA_KEY_TIME_US] = mDataTimeUs;
-}
-
-int32_t ECOData::getDataType() {
+int32_t ECOData::getDataType() const {
     return mDataType;
 }
 
@@ -275,6 +278,14 @@ ECODataStatus ECOData::findFloat(const std::string& key, float* out) const {
     return findValue<float>(key, out);
 }
 
+ECODataStatus ECOData::setInt8(const std::string& key, int8_t value) {
+    return setValue<int8_t>(key, value);
+}
+
+ECODataStatus ECOData::findInt8(const std::string& key, int8_t* out) const {
+    return findValue<int8_t>(key, out);
+}
+
 ECODataStatus ECOData::set(const std::string& key, const ECOData::ECODataValueType& value) {
     if (key.empty()) {
         return ECODataStatus::INVALID_ARGUMENT;
@@ -296,6 +307,41 @@ ECODataStatus ECOData::find(const std::string& key, ECOData::ECODataValueType* o
     *out = mKeyValueStore.at(key);
 
     return ECODataStatus::OK;
+}
+
+std::string ECOData::getDataTypeString() const {
+    switch (mDataType) {
+    case DATA_TYPE_UNKNOWN:
+        return "DATA_TYPE_UNKNOWN";
+    case DATA_TYPE_STATS:
+        return "DATA_TYPE_STATS";
+    case DATA_TYPE_INFO:
+        return "DATA_TYPE_INFO";
+    case DATA_TYPE_STATS_PROVIDER_CONFIG:
+        return "DATA_TYPE_STATS_PROVIDER_CONFIG";
+    case DATA_TYPE_INFO_LISTENER_CONFIG:
+        return "DATA_TYPE_INFO_LISTENER_CONFIG";
+    }
+    return {};
+}
+
+// TODO(hkuang): Add test for this.
+bool ECODataKeyValueIterator::hasNext() {
+    if (mIterator == mKeyValueStore.end()) return false;
+
+    if (!mBeginReturned) {
+        // mIterator has been initialized to the beginning and
+        // hasn't been returned. Do not advance:
+        mBeginReturned = true;
+    } else {
+        std::advance(mIterator, 1);
+    }
+    return mIterator != mKeyValueStore.end();
+}
+
+// TODO(hkuang): Add test for this.
+ECOData::ECODataKeyValuePair ECODataKeyValueIterator::next() const {
+    return ECOData::ECODataKeyValuePair(mIterator->first, mIterator->second);
 }
 
 }  // namespace eco

@@ -19,6 +19,7 @@
 
 #include <binder/Parcel.h>
 #include <binder/Parcelable.h>
+
 #include <string>
 #include <unordered_map>
 #include <variant>
@@ -72,24 +73,26 @@ enum class ECODataStatus {
 */
 class ECOData : public Parcelable {
 public:
-    using ECODataValueType = std::variant<int32_t, int64_t, size_t, float, double, std::string>;
+    using ECODataValueType =
+            std::variant<int32_t, int64_t, size_t, float, double, std::string, int8_t>;
+    using ECODataKeyValuePair = std::pair<std::string, ECODataValueType>;
 
-    ECOData() : mDataType(0), mDataTimeUs(-1) { init(); }
-    ECOData(int32_t type) : mDataType(type), mDataTimeUs(-1) { init(); }
-    ECOData(int32_t type, int64_t timeUs) : mDataType(type), mDataTimeUs(timeUs) { init(); }
+    ECOData() : mDataType(0), mDataTimeUs(-1) {}
+    ECOData(int32_t type) : mDataType(type), mDataTimeUs(-1) {}
+    ECOData(int32_t type, int64_t timeUs) : mDataType(type), mDataTimeUs(timeUs) {}
 
     // Constants for mDataType.
-    enum {
+    typedef enum {
         DATA_TYPE_UNKNOWN = 0,
         /* Data sent from the ECOServiceStatsProvider to ECOService. */
         DATA_TYPE_STATS = 1,
         /* Data sent from the ECOService to ECOServiceInfoListener. */
         DATA_TYPE_INFO = 2,
         /* Configuration data sent by ECOServiceStatsProvider when connects with ECOService. */
-        DATA_TYPE_STATS_PROVIDER_OPTON = 3,
+        DATA_TYPE_STATS_PROVIDER_CONFIG = 3,
         /* Configuration data sent by ECOServiceInfoListener when connects with ECOService. */
-        DATA_TYPE_INFO_LISTENER_OPTON = 4,
-    };
+        DATA_TYPE_INFO_LISTENER_CONFIG = 4,
+    } ECODatatype;
 
     // set/find functions that could be used for all the value types.
     ECODataStatus set(const std::string& key, const ECODataValueType& value);
@@ -119,6 +122,11 @@ public:
     ECODataStatus setSize(const std::string& key, size_t value);
     ECODataStatus findSize(const std::string& key, size_t* out) const;
 
+    // Convenient set/find functions for int8_t value type.
+    // TODO(hkuang): Add unit test.
+    ECODataStatus setInt8(const std::string& key, int8_t value);
+    ECODataStatus findInt8(const std::string& key, int8_t* out) const;
+
     /**
     * Serialization over Binder
     */
@@ -126,7 +134,10 @@ public:
     status_t writeToParcel(Parcel* parcel) const override;
 
     /* Returns the type of the data. */
-    int32_t getDataType();
+    int32_t getDataType() const;
+
+    /* Returns the type of the data in string. */
+    std::string getDataTypeString() const;
 
     /* Returns the timestamp associated with the data. */
     int64_t getDataTimeUs();
@@ -138,11 +149,16 @@ public:
     void setDataTimeUs();
 
     /* Gets the number of keys in the ECOData. */
-    size_t getNumOfEntries() { return mKeyValueStore.size(); }
+    size_t getNumOfEntries() const { return mKeyValueStore.size(); }
 
-private:
-    void init();
+    /* Whether the ECOData is empty. */
+    size_t isEmpty() const { return mKeyValueStore.size() == 0; }
 
+    friend class ECODataKeyValueIterator;
+
+    friend bool copyKeyValue(const ECOData& src, ECOData* dst);
+
+protected:
     // ValueType. This must match the index in ECODataValueType.
     enum ValueType {
         kTypeInt32 = 0,
@@ -151,6 +167,7 @@ private:
         kTypeFloat = 3,
         kTypeDouble = 4,
         kTypeString = 5,
+        kTypeInt8 = 6,
     };
 
     /* The type of the data */
@@ -169,6 +186,27 @@ private:
 
     template <typename T>
     ECODataStatus findValue(const std::string& key, T* out) const;
+};
+
+// A simple ECOData iterator that will iterate over all the key value paris in ECOData.
+// To be used like:
+// while (it.hasNext()) {
+//   entry = it.next();
+// }
+class ECODataKeyValueIterator {
+public:
+    ECODataKeyValueIterator(const ECOData& data)
+          : mKeyValueStore(data.mKeyValueStore), mBeginReturned(false) {
+        mIterator = mKeyValueStore.begin();
+    }
+    ~ECODataKeyValueIterator() = default;
+    bool hasNext();
+    ECOData::ECODataKeyValuePair next() const;
+
+private:
+    const std::unordered_map<std::string, ECOData::ECODataValueType>& mKeyValueStore;
+    std::unordered_map<std::string, ECOData::ECODataValueType>::const_iterator mIterator;
+    bool mBeginReturned;
 };
 
 }  // namespace eco

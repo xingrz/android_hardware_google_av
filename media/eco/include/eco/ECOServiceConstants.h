@@ -19,19 +19,27 @@
 #include <stdint.h>
 #include <sys/mman.h>
 
-#include <ECOService.h>
-#include <android-base/unique_fd.h>
-#include <binder/Parcel.h>
-#include <binder/Parcelable.h>
-
 namespace android {
 namespace media {
 namespace eco {
+
+// Codec type.
+constexpr int32_t CodecTypeUnknown = 0x00;
+constexpr int32_t CodecTypeAVC = 0x01;
+constexpr int32_t CodecTypeHEVC = 0x02;
+
+// Encoded frame type.
+constexpr int32_t FrameTypeUnknown = 0x0;
+constexpr int32_t FrameTypeI = 0x01;
+constexpr int32_t FrameTypeP = 0x02;
+constexpr int32_t FrameTypeB = 0x04;
 
 // Below constants are borrowed from
 // frameworks/av/media/libstagefright/include/media/stagefright/MediaCodecConstants.h
 
 // from MediaCodecInfo.java
+
+// Profile types:
 constexpr int32_t AVCProfileBaseline = 0x01;
 constexpr int32_t AVCProfileMain = 0x02;
 constexpr int32_t AVCProfileExtended = 0x04;
@@ -41,6 +49,14 @@ constexpr int32_t AVCProfileHigh422 = 0x20;
 constexpr int32_t AVCProfileHigh444 = 0x40;
 constexpr int32_t AVCProfileConstrainedBaseline = 0x10000;
 constexpr int32_t AVCProfileConstrainedHigh = 0x80000;
+
+constexpr int32_t HEVCProfileMain = 0x01;
+constexpr int32_t HEVCProfileMain10 = 0x02;
+constexpr int32_t HEVCProfileMainStill = 0x04;
+constexpr int32_t HEVCProfileMain10HDR10 = 0x1000;
+constexpr int32_t HEVCProfileMain10HDR10Plus = 0x2000;
+
+// Level types:
 constexpr int32_t AVCLevel1 = 0x01;
 constexpr int32_t AVCLevel1b = 0x02;
 constexpr int32_t AVCLevel11 = 0x04;
@@ -61,11 +77,7 @@ constexpr int32_t AVCLevel52 = 0x10000;
 constexpr int32_t AVCLevel6 = 0x20000;
 constexpr int32_t AVCLevel61 = 0x40000;
 constexpr int32_t AVCLevel62 = 0x80000;
-constexpr int32_t HEVCProfileMain = 0x01;
-constexpr int32_t HEVCProfileMain10 = 0x02;
-constexpr int32_t HEVCProfileMainStill = 0x04;
-constexpr int32_t HEVCProfileMain10HDR10 = 0x1000;
-constexpr int32_t HEVCProfileMain10HDR10Plus = 0x2000;
+
 constexpr int32_t HEVCMainTierLevel1 = 0x1;
 constexpr int32_t HEVCHighTierLevel1 = 0x2;
 constexpr int32_t HEVCMainTierLevel2 = 0x4;
@@ -241,10 +253,8 @@ inline static const char* asString_HEVCTierLevel(int32_t i, const char* def = "?
     }
 }
 
-};  // namespace eco
-
+}  // namespace eco
 }  // namespace media
-}  // namespace android
 }  // namespace android
 
 #endif  // ANDROID_MEDIA_ECO_SERVICE_CONSTANTS_H_
