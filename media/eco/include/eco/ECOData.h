@@ -140,7 +140,7 @@ public:
     std::string getDataTypeString() const;
 
     /* Returns the timestamp associated with the data. */
-    int64_t getDataTimeUs();
+    int64_t getDataTimeUs() const;
 
     /* Sets the type of the data. */
     void setDataType(int32_t type);
