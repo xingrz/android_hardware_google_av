@@ -56,7 +56,7 @@ sp<ECOSession> ECOSession::createECOSession(int32_t width, int32_t height, bool 
     // TODO(hkuang): Support the same resolution as in EAF. Also relax the isCameraRecording
     // as encoder may not konw it is from camera for some usage cases.
     if (width > 1280 || height > 720 || width == 0 || height == 0 || isCameraRecording == false) {
-        ALOGD("Failed to create ECOSession with w: %d, h: %d, isCameraRecording: %d", width, height,
+        ALOGE("Failed to create ECOSession with w: %d, h: %d, isCameraRecording: %d", width, height,
               isCameraRecording);
         return nullptr;
     }
@@ -72,7 +72,7 @@ ECOSession::ECOSession(int32_t width, int32_t height, bool isCameraRecording)
         mWidth(width),
         mHeight(height),
         mIsCameraRecording(isCameraRecording) {
-    ALOGD("ECOSession created with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
+    ALOGI("ECOSession created with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
           mIsCameraRecording);
 }
 
@@ -92,6 +92,8 @@ void ECOSession::stop() {
 
 ECOSession::~ECOSession() {
     stop();
+    ALOGI("ECOSession destroyed with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
+          mIsCameraRecording);
 }
 
 // static
@@ -262,6 +264,12 @@ Status ECOSession::addStatsProvider(
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Provider config is invalid");
     }
 
+    ::android::String16 name;
+    provider->getName(&name);
+
+    ALOGD("Stats provider name: %s uid: %d pid %d", ::android::String8(name).string(),
+          IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
+
     mProvider = provider;
     *status = true;
     return binder::Status::ok();
@@ -314,6 +322,12 @@ Status ECOSession::addInfoListener(
         ALOGE("%s: listener config is invalid", __FUNCTION__);
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "listener config is not valid");
     }
+
+    ::android::String16 name;
+    listener->getName(&name);
+
+    ALOGD("Info listener name: %s uid: %d pid %d", ::android::String8(name).string(),
+          IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
 
     mListener = listener;
     *status = true;

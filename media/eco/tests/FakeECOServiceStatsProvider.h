@@ -56,6 +56,11 @@ public:
     FakeECOServiceStatsProvider(int32_t width, int32_t height, bool isCameraRecording,
                                 float frameRate, android::sp<IECOSession> session);
 
+    FakeECOServiceStatsProvider(int32_t width, int32_t height, bool isCameraRecording,
+                                float frameRate);
+
+    void setECOSession(android::sp<IECOSession> session) { mECOSession = session; }
+
     // Helper function to inject session stats to the FakeECOServiceStatsProvider so provider
     // could push to the service.
     bool injectSessionStats(const ECOData& stats);
