@@ -55,21 +55,18 @@ class ECOSession : public BinderService<ECOSession>,
 public:
     virtual ~ECOSession();
 
-    virtual Status addStatsProvider(
-            const sp<::android::media::eco::IECOServiceStatsProvider>& provider,
-            const ::android::media::eco::ECOData& statsConfig, /*out*/ bool* status);
+    virtual Status addStatsProvider(const sp<IECOServiceStatsProvider>& provider,
+                                    const ECOData& statsConfig, /*out*/ bool* status);
 
-    virtual Status removeStatsProvider(const sp<::android::media::eco::IECOServiceStatsProvider>&,
-                                       bool*);
+    virtual Status removeStatsProvider(const sp<IECOServiceStatsProvider>&, bool*);
 
-    virtual Status addInfoListener(const sp<::android::media::eco::IECOServiceInfoListener>&,
-                                   const ::android::media::eco::ECOData& listenerConfig,
+    virtual Status addInfoListener(const sp<IECOServiceInfoListener>&,
+                                   const ECOData& listenerConfig,
                                    /*out*/ bool* status);
 
-    virtual Status removeInfoListener(const sp<::android::media::eco::IECOServiceInfoListener>&,
-                                      bool*);
+    virtual Status removeInfoListener(const sp<IECOServiceInfoListener>&, bool*);
 
-    virtual Status pushNewStats(const ::android::media::eco::ECOData&, bool*);
+    virtual Status pushNewStats(const ECOData&, bool*);
 
     virtual Status getWidth(int32_t* _aidl_return);
 
@@ -84,6 +81,9 @@ public:
 
     // Grant permission to EcoSessionTest to run test.
     friend class EcoSessionTest;
+
+    // Let ECOService create the session.
+    friend class ECOService;
 
 protected:
     static android::sp<ECOSession> createECOSession(int32_t width, int32_t height,

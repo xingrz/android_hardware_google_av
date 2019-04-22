@@ -18,11 +18,20 @@
 #define ANDROID_MEDIA_ECO_SERVICE_H_
 
 #include <android/media/eco/BnECOService.h>
+#include <android/media/eco/BnECOSession.h>
 #include <binder/BinderService.h>
+
+#include <list>
+
+#include "eco/ECOService.h"
+#include "eco/ECOSession.h"
 
 namespace android {
 namespace media {
 namespace eco {
+
+using android::sp;
+using android::binder::Status;
 
 /**
  * ECO (Encoder Camera Optimization) service.
@@ -47,18 +56,15 @@ class ECOService : public BinderService<ECOService>,
 
 public:
     ECOService();
-    //TODO(hkuang): Add the implementation.
 
-    virtual ~ECOService() {}
+    virtual ~ECOService() = default;
 
-    virtual ::android::binder::Status obtainSession(
-            int32_t width, int32_t height, bool isCameraRecording,
-            ::android::sp<::android::media::eco::IECOSession>* _aidl_return);
+    virtual Status obtainSession(int32_t width, int32_t height, bool isCameraRecording,
+                                 sp<IECOSession>* _aidl_return);
 
-    virtual ::android::binder::Status getNumOfSessions(int32_t* _aidl_return);
+    virtual Status getNumOfSessions(int32_t* _aidl_return);
 
-    virtual ::android::binder::Status getSessions(
-            ::std::vector<::android::sp<::android::IBinder>>* _aidl_return);
+    virtual Status getSessions(::std::vector<sp<IBinder>>* _aidl_return);
 
     // Implementation of BinderService<T>
     static char const* getServiceName() { return "media.ecoservice"; }
@@ -67,6 +73,47 @@ public:
     virtual void binderDied(const wp<IBinder>& who);
 
 private:
+    // Lock guarding ECO service state
+    Mutex mServiceLock;
+
+    struct SessionConfig {
+        int32_t mWidth;
+        int32_t mHeight;
+        bool mIsCameraRecording;
+
+        SessionConfig(int w, int h, bool isCameraRecording)
+              : mWidth(w), mHeight(h), mIsCameraRecording(isCameraRecording) {}
+
+        bool operator==(const SessionConfig& cfg) {
+            return mWidth == cfg.mWidth && mHeight == cfg.mHeight &&
+                   mIsCameraRecording == cfg.mIsCameraRecording;
+        }
+    };
+
+    friend bool operator==(const SessionConfig& p1, const SessionConfig& p2) {
+        return p1.mWidth == p2.mWidth && p1.mHeight == p2.mHeight &&
+               p1.mIsCameraRecording == p2.mIsCameraRecording;
+    }
+
+    // Hash function for mSessionConfigToSessionMap.
+    // TODO(hkuang): Add test for this hash function.
+    struct SessionConfigHash {
+        size_t operator()(const SessionConfig& cfg) const {
+            // Generate a hash by bit shifting and concatenation.
+            return cfg.mWidth | (cfg.mHeight << 16) | ((int32_t)cfg.mIsCameraRecording << 31);
+        }
+    };
+
+    // Map from SessionConfig to session.
+    std::unordered_map<SessionConfig, wp<IECOSession>, SessionConfigHash>
+            mSessionConfigToSessionMap;
+
+    using MapIterType =
+            std::unordered_map<SessionConfig, wp<IECOSession>, SessionConfigHash>::iterator;
+
+    // A helpful function to traverse the mSessionConfigToSessionMap, remove the entry that
+    // does not exist any more and call |callback| when the entry is valid.
+    void SanitizeSession(const std::function<void(MapIterType it)>& callback);
 };
 
 }  // namespace eco
