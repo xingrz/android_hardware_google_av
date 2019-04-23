@@ -176,7 +176,7 @@ int32_t ECOData::getDataType() const {
     return mDataType;
 }
 
-int64_t ECOData::getDataTimeUs() {
+int64_t ECOData::getDataTimeUs() const {
     return mDataTimeUs;
 }
 

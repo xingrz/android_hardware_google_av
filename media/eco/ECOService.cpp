@@ -56,21 +56,93 @@ ECOService::ECOService() : BnECOService() {
 }
 
 /*virtual*/ ::android::binder::Status ECOService::obtainSession(
-        int32_t /* width */, int32_t /* height */, bool /* isCameraRecording */,
-        ::android::sp<::android::media::eco::IECOSession>* /* _aidl_return */) {
-    //TODO(hkuang): Add implementation.
-    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
+        int32_t width, int32_t height, bool isCameraRecording,
+        ::android::sp<::android::media::eco::IECOSession>* _aidl_return) {
+    ALOGI("ECOService::obtainSession w: %d, h: %d, isCameraRecording: %d", width, height,
+          isCameraRecording);
+
+    if (width <= 0) {
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Width can not be <= 0");
+    }
+
+    if (height <= 0) {
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Height can not be <= 0");
+    }
+
+    if (!isCameraRecording) {
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Only support camera recording");
+    }
+
+    SessionConfig newCfg(width, height, isCameraRecording);
+
+    ALOGD("session count is %zu", mSessionConfigToSessionMap.size());
+
+    Mutex::Autolock lock(mServiceLock);
+    bool foundSession = false;
+    // Instead of looking up the map directly, take the chance to scan the map and evict all the
+    // invalid sessions.
+    SanitizeSession([&](MapIterType iter) {
+        if (iter->first == newCfg) {
+            sp<IECOSession> session = iter->second.promote();
+            foundSession = true;
+            *_aidl_return = session;
+        }
+    });
+
+    if (foundSession) {
+        return binder::Status::ok();
+    }
+
+    // Create a new session and add it to the record.
+    *_aidl_return = ECOSession::createECOSession(width, height, isCameraRecording);
+    if (*_aidl_return == nullptr) {
+        ALOGE("ECOService failed to create ECOSession w: %d, h: %d, isCameraRecording: %d", width,
+              height, isCameraRecording);
+        return STATUS_ERROR(ERROR_UNSUPPORTED, "Failed to create eco session");
+    }
+    // Insert the new session into the map.
+    mSessionConfigToSessionMap[newCfg] = *_aidl_return;
+
+    return binder::Status::ok();
 }
 
-/*virtual*/ ::android::binder::Status ECOService::getNumOfSessions(int32_t* /* _aidl_return */) {
-    //TODO(hkuang): Add implementation.
-    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
+/*virtual*/ ::android::binder::Status ECOService::getNumOfSessions(int32_t* _aidl_return) {
+    Mutex::Autolock lock(mServiceLock);
+    SanitizeSession(std::function<void(MapIterType it)>());  // empty callback
+    *_aidl_return = mSessionConfigToSessionMap.size();
+    return binder::Status::ok();
 }
 
 /*virtual*/ ::android::binder::Status ECOService::getSessions(
-        ::std::vector<::android::sp<::android::IBinder>>* /* _aidl_return */) {
-    //TODO(hkuang): Add implementation.
-    return STATUS_ERROR(ERROR_UNSUPPORTED, "Not implemented yet");
+        ::std::vector<::android::sp<::android::IBinder>>* _aidl_return) {
+    // Clear all the entries in the vector.
+    _aidl_return->clear();
+
+    Mutex::Autolock lock(mServiceLock);
+    SanitizeSession([&](MapIterType iter) {
+        sp<IECOSession> session = iter->second.promote();
+        _aidl_return->push_back(IInterface::asBinder(session));
+    });
+    return binder::Status::ok();
+}
+
+inline bool isEmptySession(const android::wp<IECOSession>& entry) {
+    sp<IECOSession> session = entry.promote();
+    return session == nullptr;
+}
+
+void ECOService::SanitizeSession(
+        const std::function<void(std::unordered_map<SessionConfig, wp<IECOSession>,
+                                                    SessionConfigHash>::iterator it)>& callback) {
+    for (auto it = mSessionConfigToSessionMap.begin(), end = mSessionConfigToSessionMap.end();
+         it != end;) {
+        if (isEmptySession(it->second)) {
+            it = mSessionConfigToSessionMap.erase(it);
+        } else {
+            if(callback != nullptr) { callback(it); };
+            it++;
+        }
+    }
 }
 
 /*virtual*/ void ECOService::binderDied(const wp<IBinder>& /*who*/) {}

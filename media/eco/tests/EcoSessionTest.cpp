@@ -75,7 +75,8 @@ TEST_F(EcoSessionTest, TestConstructorWithInvalidParameters) {
                 nullptr);
 
     // Expects failure as ECOService1.0 will only support up to 720P and camera recording case.
-    EXPECT_TRUE(createSession(1920 /* width */, 1080 /* height */, false /* isCameraRecording */) == nullptr);
+    EXPECT_TRUE(createSession(1920 /* width */, 1080 /* height */, false /* isCameraRecording */) ==
+                nullptr);
 
     EXPECT_TRUE(createSession(1920 /* width */, -1 /* height */, true /* isCameraRecording */) ==
                 nullptr);
@@ -246,7 +247,9 @@ TEST_F(EcoSessionTest, TestSessionWithProviderAndListenerSimpleTest) {
             });
 
     // Inject the session stats into the ECOSession through fakeProvider.
-    SimpleEncoderConfig sessionEncoderConfig("google-avc", CodecTypeAVC, AVCProfileHigh, AVCLevel52, kTargetBitrateBps, kKeyFrameIntervalFrames, kFrameRate);
+    SimpleEncoderConfig sessionEncoderConfig("google-avc", CodecTypeAVC, AVCProfileHigh, AVCLevel52,
+                                             kTargetBitrateBps, kKeyFrameIntervalFrames,
+                                             kFrameRate);
     fakeProvider->injectSessionStats(sessionEncoderConfig.toEcoData(ECOData::DATA_TYPE_STATS));
 
     // Wait as ECOService may take some time to process.

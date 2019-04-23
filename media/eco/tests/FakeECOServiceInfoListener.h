@@ -54,6 +54,10 @@ public:
     FakeECOServiceInfoListener(int32_t width, int32_t height, bool isCameraRecording,
                                sp<IECOSession> session);
 
+    FakeECOServiceInfoListener(int32_t width, int32_t height, bool isCameraRecording);
+
+    void setECOSession(android::sp<IECOSession> session) { mECOSession = session; }
+
     virtual ~FakeECOServiceInfoListener();
 
     virtual Status getType(int32_t* _aidl_return);
