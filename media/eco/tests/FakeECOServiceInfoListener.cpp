@@ -46,6 +46,13 @@ FakeECOServiceInfoListener::FakeECOServiceInfoListener(int32_t width, int32_t he
           mHeight, mIsCameraRecording);
 }
 
+FakeECOServiceInfoListener::FakeECOServiceInfoListener(int32_t width, int32_t height,
+                                                       bool isCameraRecording)
+      : mWidth(width), mHeight(height), mIsCameraRecording(isCameraRecording) {
+    ALOGD("FakeECOServiceInfoListener construct with w: %d, h: %d, isCameraRecording: %d", mWidth,
+          mHeight, mIsCameraRecording);
+}
+
 FakeECOServiceInfoListener::~FakeECOServiceInfoListener() {
     ALOGD("FakeECOServiceInfoListener destructor");
 }
@@ -54,7 +61,8 @@ Status FakeECOServiceInfoListener::getType(int32_t* /*_aidl_return*/) {
     return binder::Status::ok();
 }
 
-Status FakeECOServiceInfoListener::getName(::android::String16* /*_aidl_return*/) {
+Status FakeECOServiceInfoListener::getName(::android::String16* _aidl_return) {
+    *_aidl_return = String16("FakeECOServiceInfoListener");
     return binder::Status::ok();
 }
 
