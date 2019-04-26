@@ -23,6 +23,7 @@
 
 #include <list>
 
+#include "eco/ECODebug.h"
 #include "eco/ECOService.h"
 #include "eco/ECOSession.h"
 
