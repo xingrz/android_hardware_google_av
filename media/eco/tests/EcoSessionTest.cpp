@@ -56,13 +56,7 @@ public:
     sp<ECOSession> createSession(int32_t width, int32_t height, bool isCameraRecording) {
         mSession = ECOSession::createECOSession(width, height, isCameraRecording);
         if (mSession == nullptr) return nullptr;
-        mSession->start();
         return mSession;
-    }
-
-    ~EcoSessionTest() {
-        if (mSession != nullptr) mSession->stop();
-        ALOGD("EcoSessionTest destroyed");
     }
 
 private:
