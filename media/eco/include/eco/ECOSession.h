@@ -93,12 +93,6 @@ private:
     // Only the  ECOService could create ECOSession.
     ECOSession(int32_t width, int32_t height, bool isCameraRecording);
 
-    // Start the ECOSession.
-    void start();
-
-    // Stop the ECOSession.
-    void stop();
-
     // Start the main thread for processing the stats and pushing info to listener.
     static void startThread(ECOSession* session);
 

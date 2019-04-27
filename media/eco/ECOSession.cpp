@@ -74,13 +74,10 @@ ECOSession::ECOSession(int32_t width, int32_t height, bool isCameraRecording)
         mIsCameraRecording(isCameraRecording) {
     ALOGI("ECOSession created with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
           mIsCameraRecording);
-}
-
-void ECOSession::start() {
     mThread = std::thread(startThread, this);
 }
 
-void ECOSession::stop() {
+ECOSession::~ECOSession() {
     mStopThread = true;
 
     mStatsQueueWaitCV.notify_all();
@@ -88,10 +85,7 @@ void ECOSession::stop() {
         ALOGD("ECOSession: join the thread");
         mThread.join();
     }
-}
 
-ECOSession::~ECOSession() {
-    stop();
     ALOGI("ECOSession destroyed with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
           mIsCameraRecording);
 }
@@ -250,6 +244,7 @@ Status ECOSession::addStatsProvider(
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Null provider given to addStatsProvider");
     }
 
+    // TODO: Add mutex to protect the access to provider and listener.
     if (mProvider != nullptr) {
         ALOGE("ECOService 1.0 only supports one stats provider");
         *status = false;
