@@ -92,7 +92,7 @@ ECOSession::ECOSession(int32_t width, int32_t height, bool isCameraRecording)
 ECOSession::~ECOSession() {
     mStopThread = true;
 
-    mStatsQueueWaitCV.notify_all();
+    mWorkerWaitCV.notify_all();
     if (mThread.joinable()) {
         ECOLOGD("ECOSession: join the thread");
         mThread.join();
@@ -112,8 +112,22 @@ void ECOSession::run() {
     while (!mStopThread) {
         std::unique_lock<std::mutex> runLock(mStatsQueueLock);
 
-        mStatsQueueWaitCV.wait(runLock,
-                               [this] { return mStopThread == true || !mStatsQueue.empty(); });
+        mWorkerWaitCV.wait(runLock, [this] {
+            return mStopThread == true || !mStatsQueue.empty() || mNewListenerAdded;
+        });
+
+        if (mStopThread) return;
+
+        std::scoped_lock<std::mutex> lock(mSessionLock);
+        if (mNewListenerAdded) {
+            // Check if there is any session info available.
+            ECOData sessionInfo = generateLatestSessionInfoEcoData();
+            if (!sessionInfo.isEmpty()) {
+                mListener->onNewInfo(sessionInfo);
+            }
+            mNewListenerAdded = false;
+        }
+
         if (!mStatsQueue.empty()) {
             ECOData stats = mStatsQueue.front();
             mStatsQueue.pop_front();
@@ -209,6 +223,57 @@ bool ECOSession::processSessionStats(const ECOData& stats) {
     }
 
     return true;
+}
+
+ECOData ECOSession::generateLatestSessionInfoEcoData() {
+    bool hasInfo = false;
+
+    ECOData info(ECOData::DATA_TYPE_INFO, systemTime(SYSTEM_TIME_BOOTTIME));
+
+    if (mOutputWidth != -1) {
+        info.setInt32(ENCODER_OUTPUT_WIDTH, mOutputWidth);
+        hasInfo = true;
+    }
+
+    if (mOutputHeight != -1) {
+        info.setInt32(ENCODER_OUTPUT_HEIGHT, mOutputHeight);
+        hasInfo = true;
+    }
+
+    if (mCodecType != -1) {
+        info.setInt32(ENCODER_TYPE, mCodecType);
+        hasInfo = true;
+    }
+
+    if (mCodecProfile != -1) {
+        info.setInt32(ENCODER_PROFILE, mCodecProfile);
+        hasInfo = true;
+    }
+
+    if (mCodecLevel != -1) {
+        info.setInt32(ENCODER_LEVEL, mCodecLevel);
+        hasInfo = true;
+    }
+
+    if (mBitrateBps != -1) {
+        info.setInt32(ENCODER_TARGET_BITRATE_BPS, mBitrateBps);
+        hasInfo = true;
+    }
+
+    if (mKeyFrameIntervalFrames != -1) {
+        info.setInt32(ENCODER_KFI_FRAMES, mKeyFrameIntervalFrames);
+        hasInfo = true;
+    }
+
+    if (mFramerateFps > 0) {
+        info.setFloat(ENCODER_FRAMERATE_FPS, mFramerateFps);
+        hasInfo = true;
+    }
+
+    if (hasInfo) {
+        info.setString(KEY_INFO_TYPE, VALUE_INFO_TYPE_SESSION);
+    }
+    return info;
 }
 
 bool ECOSession::processFrameStats(const ECOData& stats) {
@@ -371,6 +436,9 @@ Status ECOSession::addInfoListener(
             IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
 
     mListener = listener;
+    mNewListenerAdded = true;
+    mWorkerWaitCV.notify_all();
+
     *status = true;
     return binder::Status::ok();
 }
@@ -385,6 +453,7 @@ Status ECOSession::removeInfoListener(
     }
 
     mListener = nullptr;
+    mNewListenerAdded = false;
     *_aidl_return = true;
     return binder::Status::ok();
 }
@@ -393,7 +462,7 @@ Status ECOSession::pushNewStats(const ::android::media::eco::ECOData& stats, boo
     ECOLOGV("ECOSession get new stats type: %s", stats.getDataTypeString().c_str());
     std::unique_lock<std::mutex> lock(mStatsQueueLock);
     mStatsQueue.push_back(stats);
-    mStatsQueueWaitCV.notify_all();
+    mWorkerWaitCV.notify_all();
     return binder::Status::ok();
 }
 

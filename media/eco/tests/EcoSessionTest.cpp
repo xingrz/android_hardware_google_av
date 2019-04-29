@@ -291,8 +291,8 @@ TEST_F(EcoSessionTest, TestSessionWithProviderAndListenerSimpleTest) {
     EXPECT_TRUE(info.findString(KEY_INFO_TYPE, &infoType) == ECODataStatus::OK);
     EXPECT_EQ(infoType, VALUE_INFO_TYPE_FRAME);
 
-    int32_t frameType;
-    EXPECT_TRUE(info.findInt32(FRAME_TYPE, &frameType) == ECODataStatus::OK);
+    int8_t frameType;
+    EXPECT_TRUE(info.findInt8(FRAME_TYPE, &frameType) == ECODataStatus::OK);
     EXPECT_EQ(frameType, FrameTypeI);
 
     int32_t frameNum;
@@ -336,7 +336,7 @@ TEST_F(EcoSessionTest, TestSessionWithProviderAndListenerSimpleTest) {
     EXPECT_TRUE(getInfo);
     EXPECT_TRUE(info.findString(KEY_INFO_TYPE, &infoType) == ECODataStatus::OK);
     EXPECT_EQ(infoType, VALUE_INFO_TYPE_FRAME);
-    EXPECT_TRUE(info.findInt32(FRAME_TYPE, &frameType) == ECODataStatus::OK);
+    EXPECT_TRUE(info.findInt8(FRAME_TYPE, &frameType) == ECODataStatus::OK);
     EXPECT_EQ(frameType, FrameTypeP);
     EXPECT_TRUE(info.findInt32(FRAME_NUM, &frameNum) == ECODataStatus::OK);
     EXPECT_EQ(frameNum, 3);
@@ -372,7 +372,7 @@ TEST_F(EcoSessionTest, TestSessionWithProviderAndListenerSimpleTest) {
     EXPECT_TRUE(getInfo);
     EXPECT_TRUE(info.findString(KEY_INFO_TYPE, &infoType) == ECODataStatus::OK);
     EXPECT_EQ(infoType, VALUE_INFO_TYPE_FRAME);
-    EXPECT_TRUE(info.findInt32(FRAME_TYPE, &frameType) == ECODataStatus::OK);
+    EXPECT_TRUE(info.findInt8(FRAME_TYPE, &frameType) == ECODataStatus::OK);
     EXPECT_EQ(frameType, FrameTypeB);
     EXPECT_TRUE(info.findInt32(FRAME_NUM, &frameNum) == ECODataStatus::OK);
     EXPECT_EQ(frameNum, 5);
@@ -396,7 +396,7 @@ TEST_F(EcoSessionTest, TestSessionWithProviderAndListenerSimpleTest) {
     EXPECT_TRUE(getInfo);
     EXPECT_TRUE(info.findString(KEY_INFO_TYPE, &infoType) == ECODataStatus::OK);
     EXPECT_EQ(infoType, VALUE_INFO_TYPE_FRAME);
-    EXPECT_TRUE(info.findInt32(FRAME_TYPE, &frameType) == ECODataStatus::OK);
+    EXPECT_TRUE(info.findInt8(FRAME_TYPE, &frameType) == ECODataStatus::OK);
     EXPECT_EQ(frameType, FrameTypeB);
     EXPECT_TRUE(info.findInt32(FRAME_NUM, &frameNum) == ECODataStatus::OK);
     EXPECT_EQ(frameNum, 6);
@@ -503,6 +503,104 @@ TEST_F(EcoSessionTest, TestRemoveMisMatchListener) {
     status = ecoSession->removeInfoListener(fakeListener2, &res);
     EXPECT_FALSE(res);
     EXPECT_FALSE(status.isOk());
+}
+
+// Test the listener connects to the ECOSession after provider sends the session info. Listener
+// should recieve the session info right after adding itself to the ECOSession.
+TEST_F(EcoSessionTest, TestAddListenerAferProviderStarts) {
+    // The time that listener needs to wait for the info from ECOService.
+    static constexpr int kServiceWaitTimeMs = 10;
+
+    // Create the session.
+    sp<ECOSession> ecoSession = createSession(kTestWidth, kTestHeight, kIsCameraRecording);
+
+    // Add provider.
+    sp<FakeECOServiceStatsProvider> fakeProvider = new FakeECOServiceStatsProvider(
+            kTestWidth, kTestHeight, kIsCameraRecording, kFrameRate, ecoSession);
+    ECOData providerConfig(ECOData::DATA_TYPE_STATS_PROVIDER_CONFIG,
+                           systemTime(SYSTEM_TIME_BOOTTIME));
+    providerConfig.setString(KEY_PROVIDER_NAME, "FakeECOServiceStatsProvider");
+    providerConfig.setInt32(KEY_PROVIDER_TYPE,
+                            ECOServiceStatsProvider::STATS_PROVIDER_TYPE_VIDEO_ENCODER);
+    bool res;
+    Status status = ecoSession->addStatsProvider(fakeProvider, providerConfig, &res);
+
+    // Inject the session stats into the ECOSession through fakeProvider.
+    SimpleEncoderConfig sessionEncoderConfig("google-avc", CodecTypeAVC, AVCProfileHigh, AVCLevel52,
+                                             kTargetBitrateBps, kKeyFrameIntervalFrames,
+                                             kFrameRate);
+    fakeProvider->injectSessionStats(sessionEncoderConfig.toEcoData(ECOData::DATA_TYPE_STATS));
+
+    // Wait as ECOService may take some time to process.
+    std::this_thread::sleep_for(std::chrono::milliseconds(kServiceWaitTimeMs));
+
+    // =======================================================================================
+    // Inject the frame stats with qp = 30. Expect receiving notification for the first frame.
+    SimpleEncodedFrameData frameStats(1 /* seq number */, FrameTypeI, 0 /* framePtsUs */,
+                                      30 /* avg-qp */, 56 /* frameSize */);
+
+    fakeProvider->injectFrameStats(frameStats.toEcoData(ECOData::DATA_TYPE_STATS));
+    std::this_thread::sleep_for(std::chrono::milliseconds(kServiceWaitTimeMs));
+
+    // =======================================================================================
+    // Create and add the listener to the ECOSession. Expect to receive the session infor right
+    // after addInfoListener.
+    sp<FakeECOServiceInfoListener> fakeListener =
+            new FakeECOServiceInfoListener(kTestWidth, kTestHeight, kIsCameraRecording, ecoSession);
+
+    // Create the listener config.
+    ECOData listenerConfig(ECOData::DATA_TYPE_INFO_LISTENER_CONFIG,
+                           systemTime(SYSTEM_TIME_BOOTTIME));
+    listenerConfig.setString(KEY_LISTENER_NAME, "FakeECOServiceInfoListener");
+    listenerConfig.setInt32(KEY_LISTENER_TYPE, ECOServiceInfoListener::INFO_LISTENER_TYPE_CAMERA);
+
+    // Specify the qp thresholds for receiving notification.
+    listenerConfig.setInt32(KEY_LISTENER_QP_BLOCKINESS_THRESHOLD, 40);
+    listenerConfig.setInt32(KEY_LISTENER_QP_CHANGE_THRESHOLD, 5);
+
+    ECOData info;
+    bool getInfo = false;
+
+    // Set the getInfo flag to true and copy the info from fakeListener.
+    fakeListener->setInfoAvailableCallback(
+            [&info, &getInfo](const ::android::media::eco::ECOData& newInfo) {
+                getInfo = true;
+                info = newInfo;
+            });
+
+    status = ecoSession->addInfoListener(fakeListener, listenerConfig, &res);
+
+    // Wait as ECOService may take some time to process.
+    std::this_thread::sleep_for(std::chrono::milliseconds(kServiceWaitTimeMs));
+
+    // Check the Session info matches with the session stats sent by provider.
+    EXPECT_TRUE(getInfo);
+    EXPECT_TRUE(info.getDataType() == ECOData::DATA_TYPE_INFO);
+
+    std::string infoType;
+    EXPECT_TRUE(info.findString(KEY_INFO_TYPE, &infoType) == ECODataStatus::OK);
+    EXPECT_EQ(infoType, VALUE_INFO_TYPE_SESSION);
+
+    // Check the session info matches the session stats provided by FakeECOServiceStatsProvider.
+    int32_t codecType;
+    EXPECT_TRUE(info.findInt32(ENCODER_TYPE, &codecType) == ECODataStatus::OK);
+    EXPECT_EQ(codecType, CodecTypeAVC);
+
+    int32_t profile;
+    EXPECT_TRUE(info.findInt32(ENCODER_PROFILE, &profile) == ECODataStatus::OK);
+    EXPECT_EQ(profile, AVCProfileHigh);
+
+    int32_t level;
+    EXPECT_TRUE(info.findInt32(ENCODER_LEVEL, &level) == ECODataStatus::OK);
+    EXPECT_EQ(level, AVCLevel52);
+
+    int32_t bitrate;
+    EXPECT_TRUE(info.findInt32(ENCODER_TARGET_BITRATE_BPS, &bitrate) == ECODataStatus::OK);
+    EXPECT_EQ(bitrate, kTargetBitrateBps);
+
+    int32_t kfi;
+    EXPECT_TRUE(info.findInt32(ENCODER_KFI_FRAMES, &kfi) == ECODataStatus::OK);
+    EXPECT_EQ(kfi, kKeyFrameIntervalFrames);
 }
 
 }  // namespace eco
