@@ -32,7 +32,7 @@ ECOData SimpleEncoderConfig::toEcoData(ECOData::ECODatatype dataType) {
     data.setInt32(ENCODER_LEVEL, mLevel);
     data.setInt32(ENCODER_TARGET_BITRATE_BPS, mTargetBitrate);
     data.setInt32(ENCODER_KFI_FRAMES, mKeyFrameIntervalFrames);
-    data.setFloat(ENCODER_FRAMERATE_FPS, mFramerateFps);
+    data.setFloat(ENCODER_FRAMERATE_FPS, mFrameRateFps);
     return data;
 }
 
@@ -41,7 +41,7 @@ ECOData SimpleEncodedFrameData::toEcoData(ECOData::ECODatatype dataType) {
     ECOData data(dataType, systemTime(SYSTEM_TIME_BOOTTIME));
     data.setString(KEY_STATS_TYPE, VALUE_STATS_TYPE_FRAME);
     data.setInt32(FRAME_NUM, mFrameNum);
-    data.setInt32(FRAME_TYPE, mFrameType);
+    data.setInt8(FRAME_TYPE, mFrameType);
     data.setInt64(FRAME_PTS_US, mFramePtsUs);
     data.setInt32(FRAME_AVG_QP, mAvgQp);
     data.setInt32(FRAME_SIZE_BYTES, mFrameSizeBytes);
