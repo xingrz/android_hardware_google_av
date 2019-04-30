@@ -100,6 +100,9 @@ private:
 
     bool processStats(const ECOData& stats);
 
+    // Lock guarding ECO session state
+    std::mutex mSessionLock;
+
     // Process the session stats received from provider.
     bool processSessionStats(const ECOData& stats);
 
@@ -131,13 +134,13 @@ private:
     std::thread mThread;
 
     // Width of the encoding session in number of pixels.
-    int32_t mWidth;
+    const int32_t mWidth;
 
     // Height of the encoding session in number of pixels.
-    int32_t mHeight;
+    const int32_t mHeight;
 
     // Whether the encoding is for camera recording.
-    bool mIsCameraRecording;
+    const bool mIsCameraRecording;
 
     // Encoder codec type of the encoding session. -1 means not available.
     int32_t mCodecType;

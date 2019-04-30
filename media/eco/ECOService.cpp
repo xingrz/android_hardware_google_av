@@ -75,7 +75,7 @@ ECOService::ECOService() : BnECOService() {
 
     SessionConfig newCfg(width, height, isCameraRecording);
 
-    ALOGD("session count is %zu", mSessionConfigToSessionMap.size());
+    ALOGD("session count before is %zu", mSessionConfigToSessionMap.size());
 
     Mutex::Autolock lock(mServiceLock);
     bool foundSession = false;
@@ -102,6 +102,7 @@ ECOService::ECOService() : BnECOService() {
     }
     // Insert the new session into the map.
     mSessionConfigToSessionMap[newCfg] = *_aidl_return;
+    ALOGD("session count after is %zu", mSessionConfigToSessionMap.size());
 
     return binder::Status::ok();
 }
@@ -139,7 +140,9 @@ void ECOService::SanitizeSession(
         if (isEmptySession(it->second)) {
             it = mSessionConfigToSessionMap.erase(it);
         } else {
-            if(callback != nullptr) { callback(it); };
+            if (callback != nullptr) {
+                callback(it);
+            };
             it++;
         }
     }

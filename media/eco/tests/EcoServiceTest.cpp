@@ -49,7 +49,7 @@ static constexpr uint32_t kTestHeight = 720;
 static constexpr bool kIsCameraRecording = true;
 static constexpr float kFrameRate = 30.0f;
 
-}  // namespace anonymous
+}  // namespace
 
 // A helper class to help create ECOService and manage ECOService.
 class EcoServiceTest : public ::testing::Test {
@@ -154,7 +154,7 @@ TEST_F(EcoServiceTest, ObtainTwoSessions) {
     service->obtainSession(kTestWidth - 1, kTestHeight - 1, kIsCameraRecording, &session2);
     EXPECT_TRUE(session2);
 
-   // The two session instances must not be the same.
+    // The two session instances must not be the same.
     EXPECT_TRUE(IInterface::asBinder(session1) != IInterface::asBinder(session2));
 
     // Check the session number.
