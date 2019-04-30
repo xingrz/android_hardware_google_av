@@ -158,6 +158,9 @@ public:
 
     friend bool copyKeyValue(const ECOData& src, ECOData* dst);
 
+    // Dump the ECOData as a string.
+    std::string debugString() const;
+
 protected:
     // ValueType. This must match the index in ECODataValueType.
     enum ValueType {

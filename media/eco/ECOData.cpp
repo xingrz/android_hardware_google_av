@@ -20,6 +20,7 @@
 #include "eco/ECOData.h"
 
 #include <binder/Parcel.h>
+#include <inttypes.h>
 #include <utils/Errors.h>
 #include <utils/Log.h>
 
@@ -342,6 +343,77 @@ bool ECODataKeyValueIterator::hasNext() {
 // TODO(hkuang): Add test for this.
 ECOData::ECODataKeyValuePair ECODataKeyValueIterator::next() const {
     return ECOData::ECODataKeyValuePair(mIterator->first, mIterator->second);
+}
+
+std::string ECOData::debugString() const {
+    std::string s = "ECOData(type = ";
+
+    std::string tmp;
+    switch (mDataType) {
+    case DATA_TYPE_UNKNOWN:
+        tmp = "Unknown";
+        break;
+    case DATA_TYPE_STATS:
+        tmp = "Stats";
+        break;
+    case DATA_TYPE_INFO:
+        tmp = "Info";
+        break;
+    case DATA_TYPE_STATS_PROVIDER_CONFIG:
+        tmp = "Stats provider config";
+        break;
+    case DATA_TYPE_INFO_LISTENER_CONFIG:
+        tmp = "Info listener config";
+        break;
+    default:
+        break;
+    }
+    s.append(tmp);
+    s.append(") = {\n  ");
+
+    // Writes out the key-value pairs one by one.
+    for (const auto& it : mKeyValueStore) {
+        const size_t SIZE = 100;
+        char keyValue[SIZE];
+        const ECODataValueType& value = it.second;
+        switch (static_cast<ValueType>(value.index())) {
+        case kTypeInt32:
+            snprintf(keyValue, SIZE, "int32_t %s = %d, ", it.first.c_str(),
+                     std::get<int32_t>(it.second));
+            break;
+        case kTypeInt64:
+            snprintf(keyValue, SIZE, "int64_t %s = %" PRId64 ", ", it.first.c_str(),
+                     std::get<int64_t>(it.second));
+            break;
+        case kTypeSize:
+            snprintf(keyValue, SIZE, "size_t %s = %zu, ", it.first.c_str(),
+                     std::get<size_t>(it.second));
+            break;
+        case kTypeFloat:
+            snprintf(keyValue, SIZE, "float %s = %f, ", it.first.c_str(),
+                     std::get<float>(it.second));
+            break;
+        case kTypeDouble:
+            snprintf(keyValue, SIZE, "double %s = %f, ", it.first.c_str(),
+                     std::get<double>(it.second));
+            break;
+        case kTypeString:
+            snprintf(keyValue, SIZE, "string %s = %s, ", it.first.c_str(),
+                     std::get<std::string>(it.second).c_str());
+            break;
+        case kTypeInt8:
+            snprintf(keyValue, SIZE, "int8_t %s = %d, ", it.first.c_str(),
+                     std::get<int8_t>(it.second));
+            break;
+        default:
+            break;
+        }
+        s.append(keyValue);
+    }
+
+    s.append("\n }");
+
+    return s;
 }
 
 }  // namespace eco
