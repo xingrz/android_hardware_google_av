@@ -60,7 +60,7 @@ struct SimpleEncoderConfig {
     int32_t mKeyFrameIntervalFrames;
 
     // Frame rate in frames per second. -1 means unavailable.
-    int32_t mFramerateFps;
+    float mFrameRateFps;
 
     SimpleEncoderConfig()
           : mEncoderName(""),
@@ -69,7 +69,7 @@ struct SimpleEncoderConfig {
             mLevel(-1),
             mTargetBitrate(-1),
             mKeyFrameIntervalFrames(-1),
-            mFramerateFps(-1) {}
+            mFrameRateFps(-1) {}
 
     SimpleEncoderConfig(const std::string& name, int32_t codecType, int32_t profile, int32_t level,
                         int32_t bitrate, int32_t kfi, float framerateFps)
@@ -79,7 +79,7 @@ struct SimpleEncoderConfig {
             mLevel(level),
             mTargetBitrate(bitrate),
             mKeyFrameIntervalFrames(kfi),
-            mFramerateFps(framerateFps) {}
+            mFrameRateFps(framerateFps) {}
 
     // Convert this SimpleEncoderConfig to ECOData with dataType.
     ECOData toEcoData(ECOData::ECODatatype dataType);
