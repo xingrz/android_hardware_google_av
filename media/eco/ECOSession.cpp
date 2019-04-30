@@ -17,7 +17,6 @@
 //#define LOG_NDEBUG 0
 #define LOG_TAG "ECOSession"
 //#define DEBUG_ECO_SESSION
-
 #include "eco/ECOSession.h"
 
 #include <binder/BinderService.h>
@@ -26,6 +25,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <utils/Log.h>
 
 #include <algorithm>
 #include <climits>
@@ -85,7 +85,6 @@ ECOSession::~ECOSession() {
         ALOGD("ECOSession: join the thread");
         mThread.join();
     }
-
     ALOGI("ECOSession destroyed with w: %d, h: %d, isCameraRecording: %d", mWidth, mHeight,
           mIsCameraRecording);
 }
@@ -139,7 +138,7 @@ bool ECOSession::processStats(const ECOData& stats) {
 }
 
 bool ECOSession::processSessionStats(const ECOData& stats) {
-    ALOGD("processSessionStats");
+    ALOGV("processSessionStats");
 
     ECOData info(ECOData::DATA_TYPE_INFO, systemTime(SYSTEM_TIME_BOOTTIME));
     info.setString(KEY_INFO_TYPE, VALUE_INFO_TYPE_SESSION);
@@ -149,19 +148,40 @@ bool ECOSession::processSessionStats(const ECOData& stats) {
         ECOData::ECODataKeyValuePair entry = iter.next();
         const std::string& key = entry.first;
         const ECOData::ECODataValueType value = entry.second;
-        ALOGD("Processing key: %s", key.c_str());
-        if (!key.compare(ENCODER_TYPE)) {
+        ALOGV("Processing key: %s", key.c_str());
+        if (!key.compare(KEY_STATS_TYPE)) {
+            // Skip the key KEY_STATS_TYPE as that has been parsed already.
+            continue;
+        } else if (!key.compare(ENCODER_TYPE)) {
             mCodecType = std::get<int32_t>(value);
+            ALOGV("codec type is %d", mCodecType);
         } else if (!key.compare(ENCODER_PROFILE)) {
             mCodecProfile = std::get<int32_t>(value);
+            ALOGV("codec profile is %d", mCodecProfile);
         } else if (!key.compare(ENCODER_LEVEL)) {
             mCodecLevel = std::get<int32_t>(value);
+            ALOGV("codec level is %d", mCodecLevel);
         } else if (!key.compare(ENCODER_TARGET_BITRATE_BPS)) {
             mBitrateBps = std::get<int32_t>(value);
+            ALOGV("codec bitrate is %d", mBitrateBps);
         } else if (!key.compare(ENCODER_KFI_FRAMES)) {
             mKeyFrameIntervalFrames = std::get<int32_t>(value);
+            ALOGV("codec kfi is %d", mKeyFrameIntervalFrames);
         } else if (!key.compare(ENCODER_FRAMERATE_FPS)) {
             mFramerateFps = std::get<float>(value);
+            ALOGV("codec framerate is %f", mFramerateFps);
+        } else if (!key.compare(ENCODER_INPUT_WIDTH)) {
+            int32_t width = std::get<int32_t>(value);
+            if (width != mWidth) {
+                ALOGW("Codec width: %d, expected: %d", width, mWidth);
+            }
+            ALOGV("codec width is %d", width);
+        } else if (!key.compare(ENCODER_INPUT_HEIGHT)) {
+            int32_t height = std::get<int32_t>(value);
+            if (height != mHeight) {
+                ALOGW("Codec height: %d, expected: %d", height, mHeight);
+            }
+            ALOGV("codec height is %d", height);
         } else {
             ALOGW("Unknown frame stats key %s from provider.", key.c_str());
             continue;
@@ -236,7 +256,11 @@ bool ECOSession::processFrameStats(const ECOData& stats) {
 Status ECOSession::addStatsProvider(
         const sp<::android::media::eco::IECOServiceStatsProvider>& provider,
         const ::android::media::eco::ECOData& config, bool* status) {
-    ALOGV("%s: Add provider %p", __FUNCTION__, provider.get());
+    ::android::String16 name;
+    provider->getName(&name);
+
+    ALOGV("Try to add stats provider name: %s uid: %d pid %d", ::android::String8(name).string(),
+          IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
 
     if (provider == nullptr) {
         ALOGE("%s: provider must not be null", __FUNCTION__);
@@ -244,12 +268,17 @@ Status ECOSession::addStatsProvider(
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Null provider given to addStatsProvider");
     }
 
-    // TODO: Add mutex to protect the access to provider and listener.
+    std::scoped_lock<std::mutex> lock(mSessionLock);
+
     if (mProvider != nullptr) {
-        ALOGE("ECOService 1.0 only supports one stats provider");
+        ::android::String16 name;
+        mProvider->getName(&name);
+        String8 errorMsg = String8::format(
+                "ECOService 1.0 only supports one stats provider, current provider: %s",
+                ::android::String8(name).string());
+        ALOGE("%s", errorMsg.string());
         *status = false;
-        return STATUS_ERROR(ERROR_ALREADY_EXISTS,
-                            "ECOService 1.0 only supports one stats provider");
+        return STATUS_ERROR(ERROR_ALREADY_EXISTS, errorMsg.string());
     }
 
     // TODO: Handle the provider config.
@@ -259,33 +288,35 @@ Status ECOSession::addStatsProvider(
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Provider config is invalid");
     }
 
-    ::android::String16 name;
-    provider->getName(&name);
-
-    ALOGD("Stats provider name: %s uid: %d pid %d", ::android::String8(name).string(),
-          IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
-
     mProvider = provider;
     *status = true;
     return binder::Status::ok();
 }
 
 Status ECOSession::removeStatsProvider(
-        const sp<::android::media::eco::IECOServiceStatsProvider>& /* listener */,
-        bool* /* _aidl_return */) {
-    //TODO(hkuang): Add implementation.
+        const sp<::android::media::eco::IECOServiceStatsProvider>& provider, bool* status) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
+    // Check if the provider is the same as current provider for the session.
+    if (provider.get() != mProvider.get()) {
+        *status = false;
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Provider does not match");
+    }
+
+    mProvider = nullptr;
+    *status = true;
     return binder::Status::ok();
 }
 
 Status ECOSession::addInfoListener(
         const sp<::android::media::eco::IECOServiceInfoListener>& listener,
         const ::android::media::eco::ECOData& config, bool* status) {
-    ALOGD("%s: Add listener %p", __FUNCTION__, listener.get());
+    ALOGV("%s: Add listener %p", __FUNCTION__, listener.get());
+    std::scoped_lock<std::mutex> lock(mSessionLock);
 
     if (mListener != nullptr) {
-        ALOGE("ECOService 1.0 only supports one info listener");
+        ALOGE("ECOService 1.0 only supports one listener");
         *status = false;
-        return STATUS_ERROR(ERROR_ALREADY_EXISTS, "ECOService 1.0 only supports one info listener");
+        return STATUS_ERROR(ERROR_ALREADY_EXISTS, "ECOService 1.0 only supports one listener");
     }
 
     if (listener == nullptr) {
@@ -330,14 +361,21 @@ Status ECOSession::addInfoListener(
 }
 
 Status ECOSession::removeInfoListener(
-        const sp<::android::media::eco::IECOServiceInfoListener>& /* provider */,
-        bool* /* _aidl_return */) {
-    //TODO(hkuang): Add implementation.
+        const sp<::android::media::eco::IECOServiceInfoListener>& listener, bool* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
+    // Check if the listener is the same as current listener for the session.
+    if (listener.get() != mListener.get()) {
+        *_aidl_return = false;
+        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Listener does not match");
+    }
+
+    mListener = nullptr;
+    *_aidl_return = true;
     return binder::Status::ok();
 }
 
 Status ECOSession::pushNewStats(const ::android::media::eco::ECOData& stats, bool*) {
-    ALOGD("ECOSession get new stats type: %s", stats.getDataTypeString().c_str());
+    ALOGV("ECOSession get new stats type: %s", stats.getDataTypeString().c_str());
     std::unique_lock<std::mutex> lock(mStatsQueueLock);
     mStatsQueue.push_back(stats);
     mStatsQueueWaitCV.notify_all();
@@ -345,21 +383,25 @@ Status ECOSession::pushNewStats(const ::android::media::eco::ECOData& stats, boo
 }
 
 Status ECOSession::getWidth(int32_t* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
     *_aidl_return = mWidth;
     return binder::Status::ok();
 }
 
 Status ECOSession::getHeight(int32_t* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
     *_aidl_return = mHeight;
     return binder::Status::ok();
 }
 
 Status ECOSession::getNumOfListeners(int32_t* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
     *_aidl_return = (mListener == nullptr ? 0 : 1);
     return binder::Status::ok();
 }
 
 Status ECOSession::getNumOfProviders(int32_t* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
     *_aidl_return = (mProvider == nullptr ? 0 : 1);
     return binder::Status::ok();
 }
