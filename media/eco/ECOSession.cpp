@@ -55,7 +55,8 @@ sp<ECOSession> ECOSession::createECOSession(int32_t width, int32_t height, bool 
     // Only support up to 720P and camera recording use case.
     // TODO(hkuang): Support the same resolution as in EAF. Also relax the isCameraRecording
     // as encoder may not konw it is from camera for some usage cases.
-    if (width > 1280 || height > 720 || width == 0 || height == 0 || isCameraRecording == false) {
+    if (width <= 0 || height <= 0 || width > 5120 || height > 5120 ||
+        width > 1280 * 720 / height || isCameraRecording == false) {
         ALOGE("Failed to create ECOSession with w: %d, h: %d, isCameraRecording: %d", width, height,
               isCameraRecording);
         return nullptr;
