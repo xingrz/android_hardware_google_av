@@ -20,8 +20,7 @@
 
 #include <codec2/hidl/1.0/types.h>
 
-#include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
-
+#include <gui/bufferqueue/1.0/WGraphicBufferProducer.h>
 #include <C2AllocatorIon.h>
 #include <C2AllocatorGralloc.h>
 #include <C2BlockInternal.h>
