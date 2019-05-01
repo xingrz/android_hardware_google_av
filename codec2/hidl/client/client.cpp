@@ -30,8 +30,8 @@
 #include <bufferpool/ClientManager.h>
 #include <cutils/native_handle.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
+#include <gui/bufferqueue/1.0/WGraphicBufferProducer.h>
 #include <hidl/HidlSupport.h>
-#include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 #undef LOG
 
 #include <android/hardware/media/bufferpool/1.0/IClientManager.h>

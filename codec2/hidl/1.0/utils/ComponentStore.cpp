@@ -24,7 +24,7 @@
 #include <codec2/hidl/1.0/ConfigurableC2Intf.h>
 #include <codec2/hidl/1.0/types.h>
 
-#include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
+#include <gui/bufferqueue/1.0/WGraphicBufferProducer.h>
 #include <media/stagefright/bqhelper/GraphicBufferSource.h>
 
 #include <C2PlatformSupport.h>
