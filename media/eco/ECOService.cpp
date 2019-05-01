@@ -38,28 +38,16 @@ namespace android {
 namespace media {
 namespace eco {
 
-// ----------------------------------------------------------------------------
-// Logging support -- this is for debugging only
-// Use "adb shell dumpsys media.ECOService -v 1" to change it.
-volatile int32_t gLogLevel = 0;
-
-#define LOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
-#define LOG2(...) ALOGD_IF(gLogLevel >= 2, __VA_ARGS__);
-
-static void setLogLevel(int level) {
-    android_atomic_write(level, &gLogLevel);
-}
-
 ECOService::ECOService() : BnECOService() {
     ALOGD("ECOService created");
-    setLogLevel(10);
+    updateLogLevel();
 }
 
 /*virtual*/ ::android::binder::Status ECOService::obtainSession(
         int32_t width, int32_t height, bool isCameraRecording,
         ::android::sp<::android::media::eco::IECOSession>* _aidl_return) {
-    ALOGI("ECOService::obtainSession w: %d, h: %d, isCameraRecording: %d", width, height,
-          isCameraRecording);
+    ECOLOGI("ECOService::obtainSession w: %d, h: %d, isCameraRecording: %d", width, height,
+            isCameraRecording);
 
     if (width <= 0) {
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Width can not be <= 0");
@@ -75,7 +63,7 @@ ECOService::ECOService() : BnECOService() {
 
     SessionConfig newCfg(width, height, isCameraRecording);
 
-    ALOGD("session count before is %zu", mSessionConfigToSessionMap.size());
+    ECOLOGD("session count before is %zu", mSessionConfigToSessionMap.size());
 
     Mutex::Autolock lock(mServiceLock);
     bool foundSession = false;
@@ -96,13 +84,13 @@ ECOService::ECOService() : BnECOService() {
     // Create a new session and add it to the record.
     *_aidl_return = ECOSession::createECOSession(width, height, isCameraRecording);
     if (*_aidl_return == nullptr) {
-        ALOGE("ECOService failed to create ECOSession w: %d, h: %d, isCameraRecording: %d", width,
-              height, isCameraRecording);
+        ECOLOGE("ECOService failed to create ECOSession w: %d, h: %d, isCameraRecording: %d", width,
+                height, isCameraRecording);
         return STATUS_ERROR(ERROR_UNSUPPORTED, "Failed to create eco session");
     }
     // Insert the new session into the map.
     mSessionConfigToSessionMap[newCfg] = *_aidl_return;
-    ALOGD("session count after is %zu", mSessionConfigToSessionMap.size());
+    ECOLOGD("session count after is %zu", mSessionConfigToSessionMap.size());
 
     return binder::Status::ok();
 }
