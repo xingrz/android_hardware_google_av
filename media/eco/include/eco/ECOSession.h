@@ -160,6 +160,21 @@ private:
 
     // Frame rate in frames per second. -1 means not available.
     float mFramerateFps;
+
+    // Debug related flags.
+    bool mLogStats;
+    uint32_t mLogStatsEntries;  // number of stats received from the provider.
+    std::list<ECOData> mStatsDebugBuffer;
+
+    // Pushes the ECOData to the debug buffer.
+    void logStats(const ECOData& data);
+
+    bool mLogInfo;
+    uint32_t mLogInfoEntries;  // number of infos sent to the listener.
+    std::list<ECOData> mInfosDebugBuffer;
+
+    // Pushes the ECOData to the debug buffer.
+    void logInfos(const ECOData& data);
 };
 
 }  // namespace eco
