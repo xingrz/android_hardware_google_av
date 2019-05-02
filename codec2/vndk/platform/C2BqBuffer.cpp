@@ -18,7 +18,7 @@
 #define LOG_TAG "C2BqBuffer"
 #include <utils/Log.h>
 
-#include <gui/BufferQueueDefs.h>
+#include <ui/BufferQueueDefs.h>
 #include <list>
 #include <map>
 #include <mutex>
