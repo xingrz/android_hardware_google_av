@@ -125,6 +125,8 @@ void ECOSession::run() {
 }
 
 bool ECOSession::processStats(const ECOData& stats) {
+    ECOLOGV("%s: receive stats: %s", __FUNCTION__, stats.debugString().c_str());
+
     if (stats.getDataType() != ECOData::DATA_TYPE_STATS) {
         ECOLOGE("Invalid stats. ECOData with type: %s", stats.getDataTypeString().c_str());
         return false;
@@ -202,6 +204,7 @@ bool ECOSession::processSessionStats(const ECOData& stats) {
     }
 
     if (mListener != nullptr) {
+        ECOLOGV("%s: publish info: %s", __FUNCTION__, info.debugString().c_str());
         mListener->onNewInfo(info);
     }
 
