@@ -75,6 +75,7 @@ constexpr char VALUE_INFO_TYPE_FRAME[] = "info-type-frame";      // value for KE
 // ================================================================================================
 // General keys to be used by both stats and info in the ECOData.
 // ================================================================================================
+constexpr char ENCODER_NAME[] = "encoder-name";
 constexpr char ENCODER_TYPE[] = "encoder-type";
 constexpr char ENCODER_PROFILE[] = "encoder-profile";
 constexpr char ENCODER_LEVEL[] = "encoder-level";
@@ -83,6 +84,7 @@ constexpr char ENCODER_INPUT_HEIGHT[] = "encoder-input-height";
 constexpr char ENCODER_OUTPUT_WIDTH[] = "encoder-output-width";
 constexpr char ENCODER_OUTPUT_HEIGHT[] = "encoder-output-height";
 constexpr char ENCODER_TARGET_BITRATE_BPS[] = "encoder-target-bitrate-bps";
+constexpr char ENCODER_ACTUAL_BITRATE_BPS[] = "encoder-actual-bitrate-bps";
 constexpr char ENCODER_KFI_FRAMES[] = "encoder-kfi-frames";
 constexpr char ENCODER_FRAMERATE_FPS[] = "encoder-framerate-fps";
 
