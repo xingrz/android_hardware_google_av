@@ -19,6 +19,8 @@
 
 #include "eco/ECOUtils.h"
 
+#include <utils/Timers.h>
+
 namespace android {
 namespace media {
 namespace eco {

@@ -93,6 +93,8 @@ private:
     // Only the  ECOService could create ECOSession.
     ECOSession(int32_t width, int32_t height, bool isCameraRecording);
 
+    virtual status_t dump(int fd, const Vector<String16>& args);
+
     // Start the main thread for processing the stats and pushing info to listener.
     static void startThread(ECOSession* session);
 
@@ -133,7 +135,10 @@ private:
     QpCondition mListenerQpCondition;
 
     android::sp<IECOServiceInfoListener> mListener;
+    String16 mListenerName;
+
     android::sp<IECOServiceStatsProvider> mProvider;
+    String16 mProviderName;
 
     // Main thread for processing the events from provider.
     std::thread mThread;
@@ -164,7 +169,11 @@ private:
 
     // Target bitrate in bits per second. This should be provided by the provider. -1 means not
     // available.
-    int32_t mBitrateBps = -1;
+    int32_t mTargetBitrateBps = -1;
+
+    // Actual bitrate in bits per second. This should be provided by the provider. -1 means not
+    // available.
+    int32_t mActualBitrateBps = -1;
 
     // Key frame interval in number of frames. -1 means not available.
     int32_t mKeyFrameIntervalFrames = -1;

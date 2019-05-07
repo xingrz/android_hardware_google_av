@@ -71,7 +71,7 @@ ECOService::ECOService() : BnECOService() {
     // invalid sessions.
     SanitizeSession([&](MapIterType iter) {
         if (iter->first == newCfg) {
-            sp<IECOSession> session = iter->second.promote();
+            sp<ECOSession> session = iter->second.promote();
             foundSession = true;
             *_aidl_return = session;
         }
@@ -82,14 +82,15 @@ ECOService::ECOService() : BnECOService() {
     }
 
     // Create a new session and add it to the record.
-    *_aidl_return = ECOSession::createECOSession(width, height, isCameraRecording);
-    if (*_aidl_return == nullptr) {
+    sp<ECOSession> newSession = ECOSession::createECOSession(width, height, isCameraRecording);
+    if (newSession == nullptr) {
         ECOLOGE("ECOService failed to create ECOSession w: %d, h: %d, isCameraRecording: %d", width,
                 height, isCameraRecording);
         return STATUS_ERROR(ERROR_UNSUPPORTED, "Failed to create eco session");
     }
+    *_aidl_return = newSession;
     // Insert the new session into the map.
-    mSessionConfigToSessionMap[newCfg] = *_aidl_return;
+    mSessionConfigToSessionMap[newCfg] = newSession;
     ECOLOGD("session count after is %zu", mSessionConfigToSessionMap.size());
 
     return binder::Status::ok();
@@ -109,19 +110,19 @@ ECOService::ECOService() : BnECOService() {
 
     Mutex::Autolock lock(mServiceLock);
     SanitizeSession([&](MapIterType iter) {
-        sp<IECOSession> session = iter->second.promote();
+        sp<ECOSession> session = iter->second.promote();
         _aidl_return->push_back(IInterface::asBinder(session));
     });
     return binder::Status::ok();
 }
 
-inline bool isEmptySession(const android::wp<IECOSession>& entry) {
-    sp<IECOSession> session = entry.promote();
+inline bool isEmptySession(const android::wp<ECOSession>& entry) {
+    sp<ECOSession> session = entry.promote();
     return session == nullptr;
 }
 
 void ECOService::SanitizeSession(
-        const std::function<void(std::unordered_map<SessionConfig, wp<IECOSession>,
+        const std::function<void(std::unordered_map<SessionConfig, wp<ECOSession>,
                                                     SessionConfigHash>::iterator it)>& callback) {
     for (auto it = mSessionConfigToSessionMap.begin(), end = mSessionConfigToSessionMap.end();
          it != end;) {
@@ -137,6 +138,21 @@ void ECOService::SanitizeSession(
 }
 
 /*virtual*/ void ECOService::binderDied(const wp<IBinder>& /*who*/) {}
+
+status_t ECOService::dump(int fd, const Vector<String16>& args) {
+    Mutex::Autolock lock(mServiceLock);
+    dprintf(fd, "\n== ECO Service info: ==\n\n");
+    dprintf(fd, "Number of ECOServices: %zu\n", mSessionConfigToSessionMap.size());
+    for (auto it = mSessionConfigToSessionMap.begin(), end = mSessionConfigToSessionMap.end();
+         it != end; it++) {
+        sp<ECOSession> session = it->second.promote();
+        if (session != nullptr) {
+            session->dump(fd, args);
+        }
+    }
+
+    return NO_ERROR;
+}
 
 }  // namespace eco
 }  // namespace media
