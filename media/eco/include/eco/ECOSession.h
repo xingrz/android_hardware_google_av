@@ -109,11 +109,16 @@ private:
     // Process the frame stats received from provider.
     bool processFrameStats(const ECOData& stats);
 
+    // Generate the latest session info if available.
+    ECOData generateLatestSessionInfoEcoData();
+
     std::atomic<bool> mStopThread;
 
     std::mutex mStatsQueueLock;
     std::deque<ECOData> mStatsQueue;  // GUARDED_BY(mStatsQueueLock)
-    std::condition_variable mStatsQueueWaitCV;
+    std::condition_variable mWorkerWaitCV;
+
+    bool mNewListenerAdded = false;
 
     constexpr static int32_t ENCODER_MIN_QP = 0;
     constexpr static int32_t ENCODER_MAX_QP = 51;
@@ -142,21 +147,27 @@ private:
     // Whether the encoding is for camera recording.
     const bool mIsCameraRecording;
 
+    // Ouput width of the encoding session in number of pixels, -1 means not available.
+    int32_t mOutputWidth = -1;
+
+    // Output height of the encoding session in number of pixels. -1 means not available.
+    int32_t mOutputHeight = -1;
+
     // Encoder codec type of the encoding session. -1 means not available.
-    int32_t mCodecType;
+    int32_t mCodecType = -1;
 
     // Encoder codec profile. -1 means not available.
-    int32_t mCodecProfile;
+    int32_t mCodecProfile = -1;
 
     // Encoder codec level. -1 means not available.
-    int32_t mCodecLevel;
+    int32_t mCodecLevel = -1;
 
     // Target bitrate in bits per second. This should be provided by the provider. -1 means not
     // available.
-    int32_t mBitrateBps;
+    int32_t mBitrateBps = -1;
 
     // Key frame interval in number of frames. -1 means not available.
-    int32_t mKeyFrameIntervalFrames;
+    int32_t mKeyFrameIntervalFrames = -1;
 
     // Frame rate in frames per second. -1 means not available.
     float mFramerateFps;
