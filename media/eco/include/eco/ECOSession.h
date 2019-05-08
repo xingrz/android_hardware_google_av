@@ -72,6 +72,8 @@ public:
 
     virtual Status getHeight(int32_t* _aidl_return);
 
+    virtual Status getIsCameraRecording(bool*);
+
     virtual Status getNumOfListeners(int32_t*);
 
     virtual Status getNumOfProviders(int32_t*);
