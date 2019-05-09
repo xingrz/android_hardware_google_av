@@ -18,13 +18,11 @@
 #define ANDROID_MEDIA_ECO_SERVICE_H_
 
 #include <android/media/eco/BnECOService.h>
-#include <android/media/eco/BnECOSession.h>
 #include <binder/BinderService.h>
 
 #include <list>
 
 #include "eco/ECODebug.h"
-#include "eco/ECOService.h"
 #include "eco/ECOSession.h"
 
 namespace android {
@@ -33,6 +31,7 @@ namespace eco {
 
 using android::sp;
 using android::binder::Status;
+using android::media::eco::ECOSession;
 
 /**
  * ECO (Encoder Camera Optimization) service.
@@ -73,6 +72,8 @@ public:
     // IBinder::DeathRecipient implementation
     virtual void binderDied(const wp<IBinder>& who);
 
+    virtual status_t dump(int fd, const Vector<String16>& args);
+
 private:
     // Lock guarding ECO service state
     Mutex mServiceLock;
@@ -106,11 +107,10 @@ private:
     };
 
     // Map from SessionConfig to session.
-    std::unordered_map<SessionConfig, wp<IECOSession>, SessionConfigHash>
-            mSessionConfigToSessionMap;
+    std::unordered_map<SessionConfig, wp<ECOSession>, SessionConfigHash> mSessionConfigToSessionMap;
 
     using MapIterType =
-            std::unordered_map<SessionConfig, wp<IECOSession>, SessionConfigHash>::iterator;
+            std::unordered_map<SessionConfig, wp<ECOSession>, SessionConfigHash>::iterator;
 
     // A helpful function to traverse the mSessionConfigToSessionMap, remove the entry that
     // does not exist any more and call |callback| when the entry is valid.

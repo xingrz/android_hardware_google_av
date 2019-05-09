@@ -22,8 +22,6 @@
 #include <stdint.h>
 #include <sys/mman.h>
 
-#include "ECOService.h"
-
 namespace android {
 namespace media {
 namespace eco {
