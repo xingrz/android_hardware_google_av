@@ -190,8 +190,8 @@ bool ECOSession::processSessionStats(const ECOData& stats) {
             mCodecLevel = std::get<int32_t>(value);
             ECOLOGV("codec level is %d", mCodecLevel);
         } else if (!key.compare(ENCODER_TARGET_BITRATE_BPS)) {
-            mBitrateBps = std::get<int32_t>(value);
-            ECOLOGV("codec bitrate is %d", mBitrateBps);
+            mTargetBitrateBps = std::get<int32_t>(value);
+            ECOLOGV("codec target bitrate is %d", mTargetBitrateBps);
         } else if (!key.compare(ENCODER_KFI_FRAMES)) {
             mKeyFrameIntervalFrames = std::get<int32_t>(value);
             ECOLOGV("codec kfi is %d", mKeyFrameIntervalFrames);
@@ -255,8 +255,8 @@ ECOData ECOSession::generateLatestSessionInfoEcoData() {
         hasInfo = true;
     }
 
-    if (mBitrateBps != -1) {
-        info.setInt32(ENCODER_TARGET_BITRATE_BPS, mBitrateBps);
+    if (mTargetBitrateBps != -1) {
+        info.setInt32(ENCODER_TARGET_BITRATE_BPS, mTargetBitrateBps);
         hasInfo = true;
     }
 
@@ -369,6 +369,7 @@ Status ECOSession::addStatsProvider(
     }
 
     mProvider = provider;
+    mProviderName = name;
     *status = true;
     return binder::Status::ok();
 }
@@ -436,6 +437,7 @@ Status ECOSession::addInfoListener(
             IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
 
     mListener = listener;
+    mListenerName = name;
     mNewListenerAdded = true;
     mWorkerWaitCV.notify_all();
 
@@ -492,6 +494,21 @@ Status ECOSession::getNumOfProviders(int32_t* _aidl_return) {
 
 /*virtual*/ void ECOSession::binderDied(const wp<IBinder>& /*who*/) {
     ECOLOGV("binderDied");
+}
+
+status_t ECOSession::dump(int fd, const Vector<String16>& /*args*/) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
+    dprintf(fd, "\n== Session Info: ==\n\n");
+    dprintf(fd,
+            "Width: %d Height: %d isCameraRecording: %d, target-bitrate: %d bps codetype: %d "
+            "profile: %d level: %d\n",
+            mWidth, mHeight, mIsCameraRecording, mTargetBitrateBps, mCodecType, mCodecProfile,
+            mCodecLevel);
+    dprintf(fd, "Provider: %s \n", ::android::String8(mProviderName).string());
+    dprintf(fd, "Listener: %s \n", ::android::String8(mListenerName).string());
+    dprintf(fd, "\n===================\n\n");
+
+    return NO_ERROR;
 }
 
 void ECOSession::logStats(const ECOData& data) {

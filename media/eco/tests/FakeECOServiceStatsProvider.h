@@ -37,6 +37,7 @@
 
 #include "eco/ECOData.h"
 #include "eco/ECODataKey.h"
+#include "eco/ECOService.h"
 
 namespace android {
 namespace media {
