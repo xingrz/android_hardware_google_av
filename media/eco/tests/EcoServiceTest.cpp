@@ -99,14 +99,14 @@ TEST_F(EcoServiceTest, NormalObtainSessionWithInvalidHeight) {
     EXPECT_FALSE(session);
 }
 
-TEST_F(EcoServiceTest, NormalObtainSessionWithInvalidCameraRecording) {
+TEST_F(EcoServiceTest, NormalObtainSessionWithCameraRecordingFalse) {
     sp<IECOService> service = createService();
 
     // Provider obtains the session from the service.
     sp<IECOSession> session = nullptr;
 
     service->obtainSession(kTestWidth, kTestHeight, false /* isCameraRecording */, &session);
-    EXPECT_FALSE(session);
+    EXPECT_TRUE(session);
 }
 
 TEST_F(EcoServiceTest, NormalObtainSingleSession) {

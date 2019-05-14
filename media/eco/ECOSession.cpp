@@ -52,11 +52,10 @@ using android::sp;
 
 // static
 sp<ECOSession> ECOSession::createECOSession(int32_t width, int32_t height, bool isCameraRecording) {
-    // Only support up to 720P and camera recording use case.
-    // TODO(hkuang): Support the same resolution as in EAF. Also relax the isCameraRecording
-    // as encoder may not konw it is from camera for some usage cases.
-    if (width <= 0 || height <= 0 || width > 5120 || height > 5120 || width > 1280 * 720 / height ||
-        isCameraRecording == false) {
+    // Only support up to 720P.
+    // TODO: Support the same resolution as in EAF.
+    if (width <= 0 || height <= 0 || width > 5120 || height > 5120 ||
+        width > 1280 * 720 / height) {
         ECOLOGE("Failed to create ECOSession with w: %d, h: %d, isCameraRecording: %d", width,
                 height, isCameraRecording);
         return nullptr;
@@ -331,6 +330,12 @@ bool ECOSession::processFrameStats(const ECOData& stats) {
     }
 
     return true;
+}
+
+Status ECOSession::getIsCameraRecording(bool* _aidl_return) {
+    std::scoped_lock<std::mutex> lock(mSessionLock);
+    *_aidl_return = mIsCameraRecording;
+    return binder::Status::ok();
 }
 
 Status ECOSession::addStatsProvider(
