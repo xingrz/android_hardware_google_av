@@ -57,10 +57,6 @@ ECOService::ECOService() : BnECOService() {
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Height can not be <= 0");
     }
 
-    if (!isCameraRecording) {
-        return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Only support camera recording");
-    }
-
     SessionConfig newCfg(width, height, isCameraRecording);
 
     ECOLOGD("session count before is %zu", mSessionConfigToSessionMap.size());
