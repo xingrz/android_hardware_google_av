@@ -40,6 +40,7 @@ namespace android {
 namespace media {
 namespace eco {
 
+using android::binder::Status;
 using android::sp;
 
 #define RETURN_IF_ERROR(expr)         \
@@ -122,7 +123,13 @@ void ECOSession::run() {
             // Check if there is any session info available.
             ECOData sessionInfo = generateLatestSessionInfoEcoData();
             if (!sessionInfo.isEmpty()) {
-                mListener->onNewInfo(sessionInfo);
+                Status status = mListener->onNewInfo(sessionInfo);
+                if (!status.isOk()) {
+                    ECOLOGE("%s: Failed to publish info: %s due to binder error", __FUNCTION__,
+                            sessionInfo.debugString().c_str());
+                    // Remove the listener. The lock has been acquired outside this function.
+                    mListener = nullptr;
+                }
             }
             mNewListenerAdded = false;
         }
@@ -153,9 +160,9 @@ bool ECOSession::processStats(const ECOData& stats) {
     }
 
     if (statsType.compare(VALUE_STATS_TYPE_SESSION) == 0) {
-        RETURN_IF_ERROR(processSessionStats(stats));
+        processSessionStats(stats);
     } else if (statsType.compare(VALUE_STATS_TYPE_FRAME) == 0) {
-        RETURN_IF_ERROR(processFrameStats(stats));
+        processFrameStats(stats);
     } else {
         ECOLOGE("processStats:: Failed to process stats as ECOData contains unknown stats type");
         return false;
@@ -164,7 +171,7 @@ bool ECOSession::processStats(const ECOData& stats) {
     return true;
 }
 
-bool ECOSession::processSessionStats(const ECOData& stats) {
+void ECOSession::processSessionStats(const ECOData& stats) {
     ECOLOGV("processSessionStats");
 
     ECOData info(ECOData::DATA_TYPE_INFO, systemTime(SYSTEM_TIME_BOOTTIME));
@@ -217,11 +224,14 @@ bool ECOSession::processSessionStats(const ECOData& stats) {
     }
 
     if (mListener != nullptr) {
-        ECOLOGV("%s: publish info: %s", __FUNCTION__, info.debugString().c_str());
-        mListener->onNewInfo(info);
+        Status status = mListener->onNewInfo(info);
+        if (!status.isOk()) {
+            ECOLOGE("%s: Failed to publish info: %s due to binder error", __FUNCTION__,
+                    info.debugString().c_str());
+            // Remove the listener. The lock has been acquired outside this function.
+            mListener = nullptr;
+        }
     }
-
-    return true;
 }
 
 ECOData ECOSession::generateLatestSessionInfoEcoData() {
@@ -275,7 +285,7 @@ ECOData ECOSession::generateLatestSessionInfoEcoData() {
     return info;
 }
 
-bool ECOSession::processFrameStats(const ECOData& stats) {
+void ECOSession::processFrameStats(const ECOData& stats) {
     ECOLOGD("processFrameStats");
 
     bool needToNotifyListener = false;
@@ -326,10 +336,14 @@ bool ECOSession::processFrameStats(const ECOData& stats) {
     }
 
     if (needToNotifyListener && mListener != nullptr) {
-        mListener->onNewInfo(info);
+        Status status = mListener->onNewInfo(info);
+        if (!status.isOk()) {
+            ECOLOGE("%s: Failed to publish info: %s due to binder error", __FUNCTION__,
+                    info.debugString().c_str());
+            // Remove the listener. The lock has been acquired outside this function.
+            mListener = nullptr;
+        }
     }
-
-    return true;
 }
 
 Status ECOSession::getIsCameraRecording(bool* _aidl_return) {
@@ -342,7 +356,13 @@ Status ECOSession::addStatsProvider(
         const sp<::android::media::eco::IECOServiceStatsProvider>& provider,
         const ::android::media::eco::ECOData& config, bool* status) {
     ::android::String16 name;
-    provider->getName(&name);
+    Status result = provider->getName(&name);
+    if (!result.isOk()) {
+        // This binder transaction failure may due to permission issue.
+        *status = false;
+        ALOGE("Failed to get provider name");
+        return STATUS_ERROR(ERROR_PERMISSION_DENIED, "Failed to get provider name");
+    }
 
     ECOLOGV("Try to add stats provider name: %s uid: %d pid %d", ::android::String8(name).string(),
             IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
@@ -399,6 +419,15 @@ Status ECOSession::addInfoListener(
     ALOGV("%s: Add listener %p", __FUNCTION__, listener.get());
     std::scoped_lock<std::mutex> lock(mSessionLock);
 
+    ::android::String16 name;
+    Status result = listener->getName(&name);
+    if (!result.isOk()) {
+        // This binder transaction failure may due to permission issue.
+        *status = false;
+        ALOGE("Failed to get listener name");
+        return STATUS_ERROR(ERROR_PERMISSION_DENIED, "Failed to get listener name");
+    }
+
     if (mListener != nullptr) {
         ECOLOGE("ECOService 1.0 only supports one listener");
         *status = false;
@@ -434,9 +463,6 @@ Status ECOSession::addInfoListener(
         ECOLOGE("%s: listener config is invalid", __FUNCTION__);
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "listener config is not valid");
     }
-
-    ::android::String16 name;
-    listener->getName(&name);
 
     ECOLOGD("Info listener name: %s uid: %d pid %d", ::android::String8(name).string(),
             IPCThreadState::self()->getCallingUid(), IPCThreadState::self()->getCallingPid());
@@ -509,8 +535,12 @@ status_t ECOSession::dump(int fd, const Vector<String16>& /*args*/) {
             "profile: %d level: %d\n",
             mWidth, mHeight, mIsCameraRecording, mTargetBitrateBps, mCodecType, mCodecProfile,
             mCodecLevel);
-    dprintf(fd, "Provider: %s \n", ::android::String8(mProviderName).string());
-    dprintf(fd, "Listener: %s \n", ::android::String8(mListenerName).string());
+    if (mProvider != nullptr) {
+        dprintf(fd, "Provider: %s \n", ::android::String8(mProviderName).string());
+    }
+    if (mListener != nullptr) {
+        dprintf(fd, "Listener: %s \n", ::android::String8(mListenerName).string());
+    }
     dprintf(fd, "\n===================\n\n");
 
     return NO_ERROR;
