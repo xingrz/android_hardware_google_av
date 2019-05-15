@@ -99,6 +99,11 @@ interface IECOSession {
     int getHeight();
 
     /**
+     * Return whether the session is for camera recording.
+     */
+    boolean getIsCameraRecording();
+
+    /**
      * Query the number of listeners that a session has.
      */
     int getNumOfListeners();
