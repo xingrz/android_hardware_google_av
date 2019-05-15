@@ -108,10 +108,10 @@ private:
     std::mutex mSessionLock;
 
     // Process the session stats received from provider.
-    bool processSessionStats(const ECOData& stats);
+    void processSessionStats(const ECOData& stats);
 
     // Process the frame stats received from provider.
-    bool processFrameStats(const ECOData& stats);
+    void processFrameStats(const ECOData& stats);
 
     // Generate the latest session info if available.
     ECOData generateLatestSessionInfoEcoData();
