@@ -32,6 +32,8 @@ namespace android {
 namespace media {
 namespace eco {
 
+using ::android::binder::Status;
+
 /**
  * ECOServiceStatsProvider interface class.
  */
@@ -46,10 +48,10 @@ public:
 
     virtual ~ECOServiceStatsProvider() {}
 
-    virtual ::android::binder::Status getType(int32_t* _aidl_return) = 0;
-    virtual ::android::binder::Status getName(::android::String16* _aidl_return) = 0;
+    virtual Status getType(int32_t* _aidl_return) = 0;
+    virtual Status getName(::android::String16* _aidl_return) = 0;
     virtual Status getECOSession(::android::sp<::android::IBinder>* _aidl_return) = 0;
-    virtual ::android::binder::Status isCameraRecording(bool* _aidl_return) = 0;
+    virtual Status isCameraRecording(bool* _aidl_return) = 0;
 
     // IBinder::DeathRecipient implementation
     virtual void binderDied(const wp<IBinder>& who);
