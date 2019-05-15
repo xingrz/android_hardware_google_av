@@ -48,10 +48,10 @@ public:
 
     virtual ~ECOServiceInfoListener() {}
 
-    virtual ::android::binder::Status getType(int32_t* _aidl_return) = 0;
-    virtual ::android::binder::Status getName(::android::String16* _aidl_return) = 0;
+    virtual Status getType(int32_t* _aidl_return) = 0;
+    virtual Status getName(::android::String16* _aidl_return) = 0;
     virtual Status getECOSession(::android::sp<::android::IBinder>* _aidl_return) = 0;
-    virtual ::android::binder::Status onNewInfo(const ::android::media::eco::ECOData& newInfo) = 0;
+    virtual Status onNewInfo(const ::android::media::eco::ECOData& newInfo) = 0;
 
     // IBinder::DeathRecipient implementation.
     virtual void binderDied(const wp<IBinder>& who);
