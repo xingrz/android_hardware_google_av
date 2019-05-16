@@ -81,8 +81,8 @@ constexpr char ENCODER_INPUT_WIDTH[] = "encoder-input-width";
 constexpr char ENCODER_INPUT_HEIGHT[] = "encoder-input-height";
 constexpr char ENCODER_OUTPUT_WIDTH[] = "encoder-output-width";
 constexpr char ENCODER_OUTPUT_HEIGHT[] = "encoder-output-height";
-constexpr char ENCODER_TARGET_BITRATE_BPS[] = "encoder-target-bitrate-bps";
-constexpr char ENCODER_ACTUAL_BITRATE_BPS[] = "encoder-actual-bitrate-bps";
+constexpr char ENCODER_TARGET_BITRATE_BPS[] = "encoder-target-bitrate-bps";  // Session info
+constexpr char ENCODER_ACTUAL_BITRATE_BPS[] = "encoder-actual-bitrate-bps";  // Frame info
 constexpr char ENCODER_KFI_FRAMES[] = "encoder-kfi-frames";
 constexpr char ENCODER_FRAMERATE_FPS[] = "encoder-framerate-fps";
 

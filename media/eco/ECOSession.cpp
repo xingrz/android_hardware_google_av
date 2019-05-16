@@ -299,9 +299,13 @@ void ECOSession::processFrameStats(const ECOData& stats) {
         const ECOData::ECODataValueType value = entry.second;
         ECOLOGD("Processing %s key", key.c_str());
 
-        // Only process the keys that are supported by ECOService 1.0.
-        if (!key.compare(FRAME_NUM) || !key.compare(FRAME_PTS_US) || !key.compare(FRAME_TYPE) ||
-            !key.compare(FRAME_SIZE_BYTES)) {
+        if (!key.compare(KEY_STATS_TYPE)) {
+            // Skip the key KEY_STATS_TYPE as that has been parsed already.
+            continue;
+        } else if (!key.compare(FRAME_NUM) || !key.compare(FRAME_PTS_US) ||
+                   !key.compare(FRAME_TYPE) || !key.compare(FRAME_SIZE_BYTES) ||
+                   !key.compare(ENCODER_ACTUAL_BITRATE_BPS)) {
+            // Only process the keys that are supported by ECOService 1.0.
             info.set(key, value);
         } else if (!key.compare(FRAME_AVG_QP)) {
             // Check the qp to see if need to notify the listener.
