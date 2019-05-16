@@ -24,6 +24,8 @@
 #include <media/OMXBuffer.h>
 #include <codec2/hidl/client.h>
 
+#include "InputSurfaceWrapper.h"
+
 namespace android {
 
 /**
@@ -33,7 +35,12 @@ namespace android {
  * to work in any other usage than IGraphicBufferSource.
  */
 struct C2OMXNode : public BnOMXNode {
-    explicit C2OMXNode(const std::shared_ptr<Codec2Client::Component> &comp);
+
+    using InputGater = InputSurfaceWrapper::InputGater;
+
+    explicit C2OMXNode(
+            const std::shared_ptr<Codec2Client::Component> &comp,
+            const std::shared_ptr<InputGater> &inputGater);
     ~C2OMXNode() override = default;
 
     // IOMXNode
@@ -80,6 +87,7 @@ struct C2OMXNode : public BnOMXNode {
 
 private:
     std::weak_ptr<Codec2Client::Component> mComp;
+    std::weak_ptr<InputGater> mInputGater;
     sp<IOMXBufferSource> mBufferSource;
     std::shared_ptr<C2Allocator> mAllocator;
     std::atomic_uint64_t mFrameIndex;
