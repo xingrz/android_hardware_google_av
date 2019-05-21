@@ -308,6 +308,18 @@ private:
         // onInputBufferAvailable() can (and will) be called afterwards.
         bool allocate(const char* callerTag = nullptr);
 
+        // Return true and decrease #component and #output by one if they are
+        // all greater than zero; return false otherwise.
+        //
+        // callerTag is used for logging only.
+        //
+        // allocateOutput() is called by CCodecBufferChannel::InputGater to
+        // check whether the component can accept a queue operation. This is
+        // used when the input comes from an input surface rather than from
+        // queueInputBuffer(). Calling allocateOutput() is similar to calling
+        // allocate() when the input capacity is infinite.
+        bool allocateOutput(const char* callerTag = nullptr);
+
         // Increase #input, #component and #output by one.
         //
         // callerTag is used for logging only.
@@ -356,6 +368,9 @@ private:
     inline bool hasCryptoOrDescrambler() {
         return mCrypto != NULL || mDescrambler != NULL;
     }
+
+    struct InputGater;
+    std::shared_ptr<InputGater> mInputGater;
 };
 
 // Conversion of a c2_status_t value to a status_t value may depend on the
