@@ -407,8 +407,9 @@ Status ECOSession::removeStatsProvider(
         const sp<::android::media::eco::IECOServiceStatsProvider>& provider, bool* status) {
     std::scoped_lock<std::mutex> lock(mSessionLock);
     // Check if the provider is the same as current provider for the session.
-    if (provider.get() != mProvider.get()) {
+    if (IInterface::asBinder(provider) != IInterface::asBinder(mProvider)) {
         *status = false;
+        ECOLOGE("Failed to remove provider");
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Provider does not match");
     }
 
@@ -484,8 +485,9 @@ Status ECOSession::removeInfoListener(
         const sp<::android::media::eco::IECOServiceInfoListener>& listener, bool* _aidl_return) {
     std::scoped_lock<std::mutex> lock(mSessionLock);
     // Check if the listener is the same as current listener for the session.
-    if (listener.get() != mListener.get()) {
+    if (IInterface::asBinder(listener) != IInterface::asBinder(mListener)) {
         *_aidl_return = false;
+        ECOLOGE("Failed to remove listener");
         return STATUS_ERROR(ERROR_ILLEGAL_ARGUMENT, "Listener does not match");
     }
 
