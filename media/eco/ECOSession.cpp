@@ -497,11 +497,12 @@ Status ECOSession::removeInfoListener(
     return binder::Status::ok();
 }
 
-Status ECOSession::pushNewStats(const ::android::media::eco::ECOData& stats, bool*) {
+Status ECOSession::pushNewStats(const ::android::media::eco::ECOData& stats, bool* _aidl_return) {
     ECOLOGV("ECOSession get new stats type: %s", stats.getDataTypeString().c_str());
     std::unique_lock<std::mutex> lock(mStatsQueueLock);
     mStatsQueue.push_back(stats);
     mWorkerWaitCV.notify_all();
+    *_aidl_return = true;
     return binder::Status::ok();
 }
 
