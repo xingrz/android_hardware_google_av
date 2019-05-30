@@ -304,7 +304,8 @@ void ECOSession::processFrameStats(const ECOData& stats) {
             continue;
         } else if (!key.compare(FRAME_NUM) || !key.compare(FRAME_PTS_US) ||
                    !key.compare(FRAME_TYPE) || !key.compare(FRAME_SIZE_BYTES) ||
-                   !key.compare(ENCODER_ACTUAL_BITRATE_BPS)) {
+                   !key.compare(ENCODER_ACTUAL_BITRATE_BPS) ||
+                   !key.compare(ENCODER_FRAMERATE_FPS)) {
             // Only process the keys that are supported by ECOService 1.0.
             info.set(key, value);
         } else if (!key.compare(FRAME_AVG_QP)) {
