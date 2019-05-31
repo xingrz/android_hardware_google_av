@@ -33,33 +33,15 @@ public:
 
     virtual ~InputSurfaceWrapper() = default;
 
-    struct InputGater {
-        /**
-         * Try to reserve an input in the pipeline. If this function returns
-         * true, the pipeline slot is reserved. An implementation of
-         * InputSurfaceWrapper should not call Component::queue() if canQueue()
-         * returns false.
-         *
-         * \return true if the input can be reserved; false otherwise.
-         */
-        virtual bool canQueue() = 0;
-        virtual ~InputGater() = default;
-    };
-
     /**
      * Connect the surface with |comp|. A surface can
      * connect to at most one component at a time.
-     *
-     * `inputGater->canQueue()` will be called before queuing a buffer. If it
-     * returns false, the buffer will not be queued to `comp` and simply
-     * dropped.
      *
      * \return OK               successfully connected to |comp|
      * \return ALREADY_EXISTS   already connected to another component.
      */
     virtual status_t connect(
-            const std::shared_ptr<Codec2Client::Component> &comp,
-            const std::shared_ptr<InputGater> &inputGater) = 0;
+            const std::shared_ptr<Codec2Client::Component> &comp) = 0;
 
     /**
      * Disconnect the surface from the component if any.

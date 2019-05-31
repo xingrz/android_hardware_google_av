@@ -139,8 +139,7 @@ public:
 
     ~C2InputSurfaceWrapper() override = default;
 
-    status_t connect(const std::shared_ptr<Codec2Client::Component> &comp,
-                     const std::shared_ptr<InputGater>& /*inputGater*/) override {
+    status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
         if (mConnection != nullptr) {
             return ALREADY_EXISTS;
         }
@@ -192,9 +191,8 @@ public:
     }
     ~GraphicBufferSourceWrapper() override = default;
 
-    status_t connect(const std::shared_ptr<Codec2Client::Component> &comp,
-                     const std::shared_ptr<InputGater> &inputGater) override {
-        mNode = new C2OMXNode(comp, inputGater);
+    status_t connect(const std::shared_ptr<Codec2Client::Component> &comp) override {
+        mNode = new C2OMXNode(comp);
         mNode->setFrameSize(mWidth, mHeight);
 
         // NOTE: we do not use/pass through color aspects from GraphicBufferSource as we
@@ -375,7 +373,6 @@ private:
     sp<C2OMXNode> mNode;
     uint32_t mWidth;
     uint32_t mHeight;
-    std::shared_ptr<C2OMXNode::InputGater> mInputGater;
     Config mConfig;
 };
 
