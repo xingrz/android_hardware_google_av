@@ -26,6 +26,7 @@ namespace android {
 namespace media {
 namespace eco {
 
+static const char* kDisableEcoServiceProperty = "media.ecoservice.disable";
 static const char* kDebugLogsLevelProperty = "media.ecoservice.log.level";
 static const char* kDebugLogStats = "media.ecoservice.log.stats";
 static const char* kDebugLogStatsSize = "media.ecoservice.log.stats.size";
