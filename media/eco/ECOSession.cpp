@@ -209,13 +209,25 @@ void ECOSession::processSessionStats(const ECOData& stats) {
             if (width != mWidth) {
                 ECOLOGW("Codec width: %d, expected: %d", width, mWidth);
             }
-            ECOLOGV("codec width is %d", width);
+            ECOLOGV("codec input width is %d", width);
         } else if (!key.compare(ENCODER_INPUT_HEIGHT)) {
             int32_t height = std::get<int32_t>(value);
             if (height != mHeight) {
                 ECOLOGW("Codec height: %d, expected: %d", height, mHeight);
             }
-            ECOLOGV("codec height is %d", height);
+            ECOLOGV("codec input height is %d", height);
+        } else if (!key.compare(ENCODER_OUTPUT_WIDTH)) {
+            mOutputWidth = std::get<int32_t>(value);
+            if (mOutputWidth != mWidth) {
+                ECOLOGW("Codec output width: %d, expected: %d", mOutputWidth, mWidth);
+            }
+            ECOLOGV("codec output width is %d", mOutputWidth);
+        } else if (!key.compare(ENCODER_OUTPUT_HEIGHT)) {
+            mOutputHeight = std::get<int32_t>(value);
+            if (mOutputHeight != mHeight) {
+                ECOLOGW("Codec output height: %d, expected: %d", mOutputHeight, mHeight);
+            }
+            ECOLOGV("codec output height is %d", mOutputHeight);
         } else {
             ECOLOGW("Unknown session stats key %s from provider.", key.c_str());
             continue;
