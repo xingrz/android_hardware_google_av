@@ -1301,21 +1301,7 @@ public:
 
     sp<Codec2Buffer> allocateArrayBuffer() override {
         // TODO: proper max output size
-        size_t capacity = kLinearBufferSize;
-        int32_t width = 0, height = 0;
-        bool video = mFormat->findInt32(KEY_MAX_WIDTH, &width)
-                  && mFormat->findInt32(KEY_MAX_HEIGHT, &height);
-        if (!video) {
-            video = mFormat->findInt32(KEY_WIDTH, &width)
-                 && mFormat->findInt32(KEY_HEIGHT, &height);
-        }
-        if (video) {
-            // Assuming data compression ratio better than 3:1.
-            capacity = std::min(std::max(capacity, (size_t)width * height / 2),
-                                kMaxLinearBufferSize);
-        }
-        ALOGD("[%s] Using linear capacity of %zu for array buffer", mName, capacity);
-        return new LocalLinearBuffer(mFormat, new ABuffer(capacity));
+        return new LocalLinearBuffer(mFormat, new ABuffer(kLinearBufferSize));
     }
 };
 
@@ -1593,8 +1579,7 @@ CCodecBufferChannel::CCodecBufferChannel(
       mFirstValidFrameIndex(0u),
       mMetaMode(MODE_NONE),
       mAvailablePipelineCapacity(),
-      mInputMetEos(false),
-      mPendingEosTimestamp(INT64_MIN) {
+      mInputMetEos(false) {
     Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
     buffers->reset(new DummyInputBuffers(""));
 }
@@ -1679,13 +1664,23 @@ status_t CCodecBufferChannel::queueInputBufferInternal(const sp<MediaCodecBuffer
     std::list<std::unique_ptr<C2Work>> items;
     items.push_back(std::move(work));
     c2_status_t err = mComponent->queue(&items);
+
+    if (err == C2_OK && eos && buffer->size() > 0u) {
+        mCCodecCallback->onWorkQueued(false);
+        work.reset(new C2Work);
+        work->input.ordinal.timestamp = timeUs;
+        work->input.ordinal.frameIndex = mFrameIndex++;
+        // WORKAROUND: keep client timestamp in customOrdinal
+        work->input.ordinal.customOrdinal = timeUs;
+        work->input.buffers.clear();
+        work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
+
+        items.clear();
+        items.push_back(std::move(work));
+        err = mComponent->queue(&items);
+    }
     if (err == C2_OK) {
-        if (eos && buffer->size() > 0u) {
-            mCCodecCallback->onWorkQueued(false);
-            mPendingEosTimestamp = timeUs;
-        } else {
-            mCCodecCallback->onWorkQueued(eos);
-        }
+        mCCodecCallback->onWorkQueued(eos);
 
         Mutexed<std::unique_ptr<InputBuffers>>::Locked buffers(mInputBuffers);
         bool released = (*buffers)->releaseBuffer(buffer, nullptr, true);
@@ -1735,6 +1730,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
     sp<EncryptedLinearBlockBuffer> encryptedBuffer((EncryptedLinearBlockBuffer *)buffer.get());
 
     ssize_t result = -1;
+    ssize_t codecDataOffset = 0;
     if (mCrypto != nullptr) {
         ICrypto::DestinationBuffer destination;
         if (secure) {
@@ -1775,9 +1771,16 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
 
         CasStatus status = CasStatus::OK;
         hidl_string detailedError;
+        ScramblingControl sctrl = ScramblingControl::UNSCRAMBLED;
+
+        if (key != nullptr) {
+            sctrl = (ScramblingControl)key[0];
+            // Adjust for the PES offset
+            codecDataOffset = key[2] | (key[3] << 8);
+        }
 
         auto returnVoid = mDescrambler->descramble(
-                key != NULL ? (ScramblingControl)key[0] : ScramblingControl::UNSCRAMBLED,
+                sctrl,
                 hidlSubSamples,
                 srcBuffer,
                 0,
@@ -1797,6 +1800,11 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
             return UNKNOWN_ERROR;
         }
 
+        if (result < codecDataOffset) {
+            ALOGD("invalid codec data offset: %zd, result %zd", codecDataOffset, result);
+            return BAD_VALUE;
+        }
+
         ALOGV("[%s] descramble succeeded, %zd bytes", mName, result);
 
         if (dstBuffer.type == BufferType::SHARED_MEMORY) {
@@ -1804,7 +1812,7 @@ status_t CCodecBufferChannel::queueSecureInputBuffer(
         }
     }
 
-    buffer->setRange(0, result);
+    buffer->setRange(codecDataOffset, result - codecDataOffset);
     return queueInputBufferInternal(buffer);
 }
 
@@ -1818,31 +1826,9 @@ void CCodecBufferChannel::feedInputBufferIfAvailable() {
 }
 
 void CCodecBufferChannel::feedInputBufferIfAvailableInternal() {
-    while ((!mInputMetEos || mPendingEosTimestamp != INT64_MIN) &&
+    while (!mInputMetEos &&
            !mReorderStash.lock()->hasPending() &&
            mAvailablePipelineCapacity.allocate("feedInputBufferIfAvailable")) {
-        int64_t pendingEosTimestamp = mPendingEosTimestamp.exchange(INT64_MIN);
-        if (pendingEosTimestamp != INT64_MIN) {
-            mAvailablePipelineCapacity.freeInputSlots(1, "feedInputBufferIfAvailable: queue eos");
-
-            std::unique_ptr<C2Work> work(new C2Work);
-            work->input.ordinal.timestamp = pendingEosTimestamp;
-            work->input.ordinal.frameIndex = mFrameIndex++;
-            // WORKAROUND: keep client timestamp in customOrdinal
-            work->input.ordinal.customOrdinal = pendingEosTimestamp;
-            work->input.buffers.clear();
-            work->input.flags = C2FrameData::FLAG_END_OF_STREAM;
-
-            std::list<std::unique_ptr<C2Work>> items;
-            items.push_back(std::move(work));
-            if (mComponent->queue(&items) == C2_OK) {
-                mCCodecCallback->onWorkQueued(true);
-            } else {
-                ALOGD("[%s] failed to queue EOS to the component", mName);
-                mCCodecCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
-            }
-            continue;
-        }
         sp<MediaCodecBuffer> inBuffer;
         size_t index;
         {
@@ -1936,6 +1922,11 @@ status_t CCodecBufferChannel::renderOutputBuffer(
         std::static_pointer_cast<const C2StreamHdrStaticInfo::output>(
                 c2Buffer->getInfo(C2StreamHdrStaticInfo::output::PARAM_TYPE));
 
+    // HDR10 plus info
+    std::shared_ptr<const C2StreamHdr10PlusInfo::output> hdr10PlusInfo =
+        std::static_pointer_cast<const C2StreamHdr10PlusInfo::output>(
+                c2Buffer->getInfo(C2StreamHdr10PlusInfo::output::PARAM_TYPE));
+
     {
         Mutexed<OutputSurface>::Locked output(mOutputSurface);
         if (output->surface == nullptr) {
@@ -1963,33 +1954,41 @@ status_t CCodecBufferChannel::renderOutputBuffer(
             videoScalingMode,
             transform,
             Fence::NO_FENCE, 0);
-    if (hdrStaticInfo) {
-        struct android_smpte2086_metadata smpte2086_meta = {
-            .displayPrimaryRed = {
-                hdrStaticInfo->mastering.red.x, hdrStaticInfo->mastering.red.y
-            },
-            .displayPrimaryGreen = {
-                hdrStaticInfo->mastering.green.x, hdrStaticInfo->mastering.green.y
-            },
-            .displayPrimaryBlue = {
-                hdrStaticInfo->mastering.blue.x, hdrStaticInfo->mastering.blue.y
-            },
-            .whitePoint = {
-                hdrStaticInfo->mastering.white.x, hdrStaticInfo->mastering.white.y
-            },
-            .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
-            .minLuminance = hdrStaticInfo->mastering.minLuminance,
-        };
-
-        struct android_cta861_3_metadata cta861_meta = {
-            .maxContentLightLevel = hdrStaticInfo->maxCll,
-            .maxFrameAverageLightLevel = hdrStaticInfo->maxFall,
-        };
-
+    if (hdrStaticInfo || hdr10PlusInfo) {
         HdrMetadata hdr;
-        hdr.validTypes = HdrMetadata::SMPTE2086 | HdrMetadata::CTA861_3;
-        hdr.smpte2086 = smpte2086_meta;
-        hdr.cta8613 = cta861_meta;
+        if (hdrStaticInfo) {
+            struct android_smpte2086_metadata smpte2086_meta = {
+                .displayPrimaryRed = {
+                    hdrStaticInfo->mastering.red.x, hdrStaticInfo->mastering.red.y
+                },
+                .displayPrimaryGreen = {
+                    hdrStaticInfo->mastering.green.x, hdrStaticInfo->mastering.green.y
+                },
+                .displayPrimaryBlue = {
+                    hdrStaticInfo->mastering.blue.x, hdrStaticInfo->mastering.blue.y
+                },
+                .whitePoint = {
+                    hdrStaticInfo->mastering.white.x, hdrStaticInfo->mastering.white.y
+                },
+                .maxLuminance = hdrStaticInfo->mastering.maxLuminance,
+                .minLuminance = hdrStaticInfo->mastering.minLuminance,
+            };
+
+            struct android_cta861_3_metadata cta861_meta = {
+                .maxContentLightLevel = hdrStaticInfo->maxCll,
+                .maxFrameAverageLightLevel = hdrStaticInfo->maxFall,
+            };
+
+            hdr.validTypes = HdrMetadata::SMPTE2086 | HdrMetadata::CTA861_3;
+            hdr.smpte2086 = smpte2086_meta;
+            hdr.cta8613 = cta861_meta;
+        }
+        if (hdr10PlusInfo) {
+            hdr.validTypes |= HdrMetadata::HDR10PLUS;
+            hdr.hdr10plus.assign(
+                    hdr10PlusInfo->m.value,
+                    hdr10PlusInfo->m.value + hdr10PlusInfo->flexCount());
+        }
         qbi.setHdrMetadata(hdr);
     }
     // we don't have dirty regions
@@ -2078,6 +2077,11 @@ status_t CCodecBufferChannel::start(
         if (!iStreamFormat || !oStreamFormat) {
             return UNKNOWN_ERROR;
         }
+    } else if (err != C2_OK) {
+        return UNKNOWN_ERROR;
+    }
+
+    {
         Mutexed<ReorderStash>::Locked reorder(mReorderStash);
         reorder->clear();
         if (reorderDepth) {
@@ -2086,10 +2090,7 @@ status_t CCodecBufferChannel::start(
         if (reorderKey) {
             reorder->setKey(reorderKey.value);
         }
-    } else if (err != C2_OK) {
-        return UNKNOWN_ERROR;
     }
-
     // TODO: get this from input format
     bool secure = mComponent->getName().find(".secure") != std::string::npos;
 
@@ -2238,7 +2239,7 @@ status_t CCodecBufferChannel::start(
                                     C2_DONT_BLOCK,
                                     &params);
             if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
-                ALOGD("[%s] Query input allocators returned %zu params => %s (%u)",
+                ALOGD("[%s] Query output allocators returned %zu params => %s (%u)",
                         mName, params.size(), asString(err), err);
             } else if (err == C2_OK && params.size() == 1) {
                 C2PortAllocatorsTuning::output *outputAllocators =
@@ -2256,11 +2257,39 @@ status_t CCodecBufferChannel::start(
                 }
             }
 
-            // use bufferqueue if outputting to a surface
-            if (pools->outputAllocatorId == C2PlatformAllocatorStore::GRALLOC
-                    && outputSurface
-                    && ((poolMask >> C2PlatformAllocatorStore::BUFFERQUEUE) & 1)) {
-                pools->outputAllocatorId = C2PlatformAllocatorStore::BUFFERQUEUE;
+            // use bufferqueue if outputting to a surface.
+            // query C2PortSurfaceAllocatorTuning::output from component, or use default allocator
+            // if unsuccessful.
+            if (outputSurface) {
+                params.clear();
+                err = mComponent->query({ },
+                                        { C2PortSurfaceAllocatorTuning::output::PARAM_TYPE },
+                                        C2_DONT_BLOCK,
+                                        &params);
+                if ((err != C2_OK && err != C2_BAD_INDEX) || params.size() != 1) {
+                    ALOGD("[%s] Query output surface allocator returned %zu params => %s (%u)",
+                            mName, params.size(), asString(err), err);
+                } else if (err == C2_OK && params.size() == 1) {
+                    C2PortSurfaceAllocatorTuning::output *surfaceAllocator =
+                        C2PortSurfaceAllocatorTuning::output::From(params[0].get());
+                    if (surfaceAllocator) {
+                        std::shared_ptr<C2Allocator> allocator;
+                        // verify allocator IDs and resolve default allocator
+                        allocatorStore->fetchAllocator(surfaceAllocator->value, &allocator);
+                        if (allocator) {
+                            pools->outputAllocatorId = allocator->getId();
+                        } else {
+                            ALOGD("[%s] component requested invalid surface output allocator ID %u",
+                                    mName, surfaceAllocator->value);
+                            err = C2_BAD_VALUE;
+                        }
+                    }
+                }
+                if (pools->outputAllocatorId == C2PlatformAllocatorStore::GRALLOC
+                        && err != C2_OK
+                        && ((poolMask >> C2PlatformAllocatorStore::BUFFERQUEUE) & 1)) {
+                    pools->outputAllocatorId = C2PlatformAllocatorStore::BUFFERQUEUE;
+                }
             }
 
             if ((poolMask >> pools->outputAllocatorId) & 1) {
@@ -2313,11 +2342,12 @@ status_t CCodecBufferChannel::start(
                     outputGeneration);
         }
 
-        (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
-        if (oStreamFormat.value == C2BufferData::LINEAR) {
+        if (oStreamFormat.value == C2BufferData::LINEAR
+                && mComponentName.find("c2.qti.") == std::string::npos) {
             // WORKAROUND: if we're using early CSD workaround we convert to
             //             array mode, to appease apps assuming the output
             //             buffers to be of the same size.
+            (*buffers) = (*buffers)->toArrayMode(kMinOutputBufferArraySize);
 
             int32_t channelCount;
             int32_t sampleRate;
@@ -2368,7 +2398,6 @@ status_t CCodecBufferChannel::start(
 #endif
 
     mInputMetEos = false;
-    mPendingEosTimestamp = INT64_MIN;
     mSync.start();
     return OK;
 }
@@ -2418,7 +2447,8 @@ status_t CCodecBufferChannel::requestInitialInputBuffers() {
                     ALOGD("[%s] buffer capacity too small for the config (%zu < %zu)",
                             mName, buffer->capacity(), config->size());
                 }
-            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0) {
+            } else if (oStreamFormat.value == C2BufferData::LINEAR && i == 0
+                    && mComponentName.find("c2.qti.") == std::string::npos) {
                 // WORKAROUND: Some apps expect CSD available without queueing
                 //             any input. Queue an empty buffer to get the CSD.
                 buffer->setRange(0, 0);
@@ -2549,6 +2579,7 @@ bool CCodecBufferChannel::handleWork(
     }
 
     const std::unique_ptr<C2Worklet> &worklet = work->worklets.front();
+
     std::shared_ptr<C2Buffer> buffer;
     // NOTE: MediaCodec usage supposedly have only one output stream.
     if (worklet->output.buffers.size() > 1u) {

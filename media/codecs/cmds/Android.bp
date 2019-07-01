@@ -15,7 +15,6 @@ cc_binary {
         "libcutils",
         "libgui",
         "liblog",
-        "libmediaextractor",
         "libstagefright",
         "libstagefright_foundation",
         "libui",
@@ -25,7 +24,6 @@ cc_binary {
     cflags: [
         "-Werror",
         "-Wall",
-        "-std=c++14",
     ],
 
     sanitize: {

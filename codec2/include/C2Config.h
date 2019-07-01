@@ -180,6 +180,7 @@ enum C2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexPictureTypeMask,
     kParamIndexPictureType,
+    kParamIndexHdr10PlusMetadata,
 
     /* ------------------------------------ video components ------------------------------------ */
 
@@ -237,6 +238,8 @@ enum C2ParamIndexKind : C2Param::type_index_t {
     kParamIndexTimeOffset, // input-surface, struct
     kParamIndexMinFrameRate, // input-surface, float
     kParamIndexTimestampGapAdjustment, // input-surface, struct
+
+    kParamIndexSurfaceAllocator, // u32
 
     // deprecated indices due to renaming
     kParamIndexAacStreamFormat = kParamIndexAacPackaging,
@@ -904,6 +907,18 @@ typedef C2GlobalParam<C2Tuning, C2SimpleArrayStruct<C2Allocator::id_t>, kParamIn
 constexpr char C2_PARAMKEY_PRIVATE_ALLOCATORS[] = "algo.buffers.allocator-ids";
 
 /**
+ * Allocator to use for outputting to surface.
+ *
+ * Components can optionally request allocator type for outputting to surface.
+ *
+ * If none specified, client will use the default BufferQueue-backed allocator ID for outputting to
+ * surface.
+ */
+typedef C2PortParam<C2Tuning, C2Uint32Value, kParamIndexSurfaceAllocator>
+        C2PortSurfaceAllocatorTuning;
+constexpr char C2_PARAMKEY_OUTPUT_SURFACE_ALLOCATOR[] = "output.buffers.surface-allocator-id";
+
+/**
  * Block pools to use.
  *
  * These are allocated by the client for the component using the allocator IDs specified by the
@@ -1545,6 +1560,14 @@ struct C2HdrStaticMetadataStruct {
 typedef C2StreamParam<C2Info, C2HdrStaticMetadataStruct, kParamIndexHdrStaticMetadata>
         C2StreamHdrStaticInfo;
 constexpr char C2_PARAMKEY_HDR_STATIC_INFO[] = "raw.hdr-static-info";
+
+/**
+ * HDR10+ Metadata Info.
+ */
+typedef C2StreamParam<C2Info, C2BlobValue, kParamIndexHdr10PlusMetadata>
+        C2StreamHdr10PlusInfo;
+constexpr char C2_PARAMKEY_INPUT_HDR10_PLUS_INFO[] = "input.hdr10-plus-info";
+constexpr char C2_PARAMKEY_OUTPUT_HDR10_PLUS_INFO[] = "output.hdr10-plus-info";
 
 /* ------------------------------------ block-based coding ----------------------------------- */
 

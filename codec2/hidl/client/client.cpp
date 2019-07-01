@@ -30,8 +30,8 @@
 #include <bufferpool/ClientManager.h>
 #include <cutils/native_handle.h>
 #include <gui/bufferqueue/1.0/H2BGraphicBufferProducer.h>
+#include <gui/bufferqueue/1.0/WGraphicBufferProducer.h>
 #include <hidl/HidlSupport.h>
-#include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
 #undef LOG
 
 #include <android/hardware/media/bufferpool/1.0/IClientManager.h>
@@ -553,6 +553,7 @@ const std::vector<C2Component::Traits>& Codec2Client::listComponents() const {
                 for (size_t i = 0; i < t.size(); ++i) {
                     c2_status_t status = objcpy(
                             &mTraitsList[i], &mAliasesBuffer[i], t[i]);
+                    mTraitsList[i].owner = mInstanceName;
                     if (status != C2_OK) {
                         ALOGE("listComponents -- corrupted output.");
                         return;
@@ -1130,7 +1131,8 @@ c2_status_t Codec2Client::Component::setOutputSurface(
         C2BlockPool::local_id_t blockPoolId,
         const sp<IGraphicBufferProducer>& surface,
         uint32_t generation) {
-    sp<HGraphicBufferProducer> igbp = surface->getHalInterface();
+    sp<HGraphicBufferProducer> igbp =
+            surface->getHalInterface<HGraphicBufferProducer>();
     if (!igbp) {
         igbp = new TWGraphicBufferProducer<HGraphicBufferProducer>(surface);
     }

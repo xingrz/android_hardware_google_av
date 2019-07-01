@@ -376,10 +376,9 @@ private:
     Mutexed<ReorderStash> mReorderStash;
 
     std::atomic_bool mInputMetEos;
-    std::atomic_int64_t mPendingEosTimestamp;
 
     inline bool hasCryptoOrDescrambler() {
-        return mCrypto != NULL || mDescrambler != NULL;
+        return mCrypto != nullptr || mDescrambler != nullptr;
     }
 };
 
