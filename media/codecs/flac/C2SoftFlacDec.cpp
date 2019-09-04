@@ -169,9 +169,12 @@ static void fillEmptyWork(const std::unique_ptr<C2Work> &work) {
 void C2SoftFlacDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -297,7 +300,6 @@ void C2SoftFlacDec::process(
     work->worklets.front()->output.buffers.clear();
     work->worklets.front()->output.buffers.push_back(createLinearBuffer(block, 0, outSize));
     work->worklets.front()->output.ordinal = work->input.ordinal;
-    work->workletsProcessed = 1u;
     if (eos) {
         mSignalledOutputEos = true;
         ALOGV("signalled EOS");

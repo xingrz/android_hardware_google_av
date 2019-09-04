@@ -361,11 +361,35 @@ void SimpleC2Component::finish(
     }
     if (work) {
         fillWork(work);
-        Mutexed<ExecState>::Locked state(mExecState);
-        std::shared_ptr<C2Component::Listener> listener = state->mListener;
-        state.unlock();
+        std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
         listener->onWorkDone_nb(shared_from_this(), vec(work));
         ALOGV("returning pending work");
+    }
+}
+
+void SimpleC2Component::cloneAndSend(
+        uint64_t frameIndex,
+        const std::unique_ptr<C2Work> &currentWork,
+        std::function<void(const std::unique_ptr<C2Work> &)> fillWork) {
+    std::unique_ptr<C2Work> work(new C2Work);
+    if (currentWork->input.ordinal.frameIndex == frameIndex) {
+        work->input.flags = currentWork->input.flags;
+        work->input.ordinal = currentWork->input.ordinal;
+    } else {
+        Mutexed<PendingWork>::Locked pending(mPendingWork);
+        if (pending->count(frameIndex) == 0) {
+            ALOGW("unknown frame index: %" PRIu64, frameIndex);
+            return;
+        }
+        work->input.flags = pending->at(frameIndex)->input.flags;
+        work->input.ordinal = pending->at(frameIndex)->input.ordinal;
+    }
+    work->worklets.emplace_back(new C2Worklet);
+    if (work) {
+        fillWork(work);
+        std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
+        listener->onWorkDone_nb(shared_from_this(), vec(work));
+        ALOGV("cloned and sending work");
     }
 }
 
@@ -465,6 +489,13 @@ bool SimpleC2Component::processQueue() {
     }
 
     ALOGV("start processing frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
+    // If input buffer list is not empty, it means we have some input to process on.
+    // However, input could be a null buffer. In such case, clear the buffer list
+    // before making call to process().
+    if (!work->input.buffers.empty() && !work->input.buffers[0]) {
+        ALOGD("Encountered null input buffer. Clearing the input buffer");
+        work->input.buffers.clear();
+    }
     process(work, mOutputBlockPool);
     ALOGV("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     {
