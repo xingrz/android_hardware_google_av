@@ -24,7 +24,7 @@
 #include <binder/IMemory.h>
 #include <media/hardware/VideoAPI.h>
 #include <media/MediaCodecBuffer.h>
-#include <media/ICrypto.h>
+#include <mediadrm/ICrypto.h>
 
 namespace android {
 

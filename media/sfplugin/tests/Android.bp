@@ -33,6 +33,10 @@ cc_test {
         "hardware/google/av/media/sfplugin",
     ],
 
+    header_libs: [
+        "libmediadrm_headers",
+    ],
+
     shared_libs: [
         "libbinder",
         "libgui",
