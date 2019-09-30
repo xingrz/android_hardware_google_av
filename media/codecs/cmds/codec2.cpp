@@ -31,7 +31,6 @@
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
 #include <media/DataSource.h>
-#include <media/ICrypto.h>
 #include <media/IMediaHTTPService.h>
 #include <media/MediaSource.h>
 #include <media/stagefright/foundation/ABuffer.h>
