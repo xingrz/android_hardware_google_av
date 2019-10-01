@@ -15,7 +15,6 @@ cc_library {
         "libcutils",
         "libgui",
         "libhidlbase",
-        "libhidltransport",
         "liblog",
         "libstagefright_bufferpool@1.0",
         "libstagefright_bufferqueue_helper",
