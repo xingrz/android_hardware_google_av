@@ -32,8 +32,6 @@ cc_library {
         "libbase",
         "libcutils",
         "libhidlbase",
-        "libhidltransport",
-        "libhwbinder",
         "liblog",
         "libstagefright_bufferpool@1.0",
         "libstagefright_bufferqueue_helper",
