@@ -216,7 +216,7 @@ public:
         };
 
         uint64_t mbs = uint64_t((size.v.width + 15) / 16) * ((size.v.height + 15) / 16);
-        float mbsPerSec = float(mbs) / frameRate.v.value;
+        float mbsPerSec = float(mbs) * frameRate.v.value;
 
         // Check if the supplied level meets the MB / bitrate requirements. If
         // not, update the level with the lowest level meeting the requirements.
@@ -374,7 +374,7 @@ C2SoftAvcEnc::C2SoftAvcEnc(
       mSawInputEOS(false),
       mSawOutputEOS(false),
       mSignalledError(false),
-      mCodecCtx(NULL),
+      mCodecCtx(nullptr),
       // TODO: output buffer size
       mOutBufferSize(524288) {
 
@@ -414,8 +414,8 @@ c2_status_t C2SoftAvcEnc::onFlush_sm() {
 }
 
 void  C2SoftAvcEnc::initEncParams() {
-    mCodecCtx = NULL;
-    mMemRecords = NULL;
+    mCodecCtx = nullptr;
+    mMemRecords = nullptr;
     mNumMemRecords = DEFAULT_MEM_REC_CNT;
     mHeaderGenerated = 0;
     mNumCores = GetCPUCoreCount();
@@ -436,8 +436,8 @@ void  C2SoftAvcEnc::initEncParams() {
     mEntropyMode = DEFAULT_ENTROPY_MODE;
     mBframes = DEFAULT_B_FRAMES;
 
-    gettimeofday(&mTimeStart, NULL);
-    gettimeofday(&mTimeEnd, NULL);
+    gettimeofday(&mTimeStart, nullptr);
+    gettimeofday(&mTimeEnd, nullptr);
 }
 
 c2_status_t C2SoftAvcEnc::setDimensions() {
@@ -872,7 +872,7 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
 
         s_num_mem_rec_ip.e_cmd = IV_CMD_GET_NUM_MEM_REC;
 
-        status = ive_api_function(0, &s_num_mem_rec_ip, &s_num_mem_rec_op);
+        status = ive_api_function(nullptr, &s_num_mem_rec_ip, &s_num_mem_rec_op);
 
         if (status != IV_SUCCESS) {
             ALOGE("Get number of memory records failed = 0x%x\n",
@@ -889,7 +889,7 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
         return C2_CORRUPTED;
     }
     mMemRecords = (iv_mem_rec_t *)malloc(mNumMemRecords * sizeof(iv_mem_rec_t));
-    if (NULL == mMemRecords) {
+    if (nullptr == mMemRecords) {
         ALOGE("Unable to allocate memory for hold memory records: Size %zu",
                 mNumMemRecords * sizeof(iv_mem_rec_t));
         mSignalledError = true;
@@ -901,7 +901,7 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
         ps_mem_rec = mMemRecords;
         for (size_t i = 0; i < mNumMemRecords; i++) {
             ps_mem_rec->u4_size = sizeof(iv_mem_rec_t);
-            ps_mem_rec->pv_base = NULL;
+            ps_mem_rec->pv_base = nullptr;
             ps_mem_rec->u4_mem_size = 0;
             ps_mem_rec->u4_mem_alignment = 0;
             ps_mem_rec->e_mem_type = IV_NA_MEM_TYPE;
@@ -930,7 +930,7 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
         s_fill_mem_rec_ip.u4_max_srch_rng_x = DEFAULT_MAX_SRCH_RANGE_X;
         s_fill_mem_rec_ip.u4_max_srch_rng_y = DEFAULT_MAX_SRCH_RANGE_Y;
 
-        status = ive_api_function(0, &s_fill_mem_rec_ip, &s_fill_mem_rec_op);
+        status = ive_api_function(nullptr, &s_fill_mem_rec_ip, &s_fill_mem_rec_op);
 
         if (status != IV_SUCCESS) {
             ALOGE("Fill memory records failed = 0x%x\n",
@@ -949,7 +949,7 @@ c2_status_t C2SoftAvcEnc::initEncoder() {
         for (size_t i = 0; i < mNumMemRecords; i++) {
             ps_mem_rec->pv_base = ive_aligned_malloc(
                     ps_mem_rec->u4_mem_alignment, ps_mem_rec->u4_mem_size);
-            if (ps_mem_rec->pv_base == NULL) {
+            if (ps_mem_rec->pv_base == nullptr) {
                 ALOGE("Allocation failure for mem record id %zu size %u\n", i,
                         ps_mem_rec->u4_mem_size);
                 return C2_CORRUPTED;
@@ -1085,14 +1085,18 @@ c2_status_t C2SoftAvcEnc::releaseEncoder() {
     /* Free memory records */
     ps_mem_rec = mMemRecords;
     for (size_t i = 0; i < s_retrieve_mem_op.u4_num_mem_rec_filled; i++) {
-        ive_aligned_free(ps_mem_rec->pv_base);
+        if (ps_mem_rec) ive_aligned_free(ps_mem_rec->pv_base);
+        else {
+            ALOGE("memory record is null.");
+            return C2_CORRUPTED;
+        }
         ps_mem_rec++;
     }
 
-    free(mMemRecords);
+    if (mMemRecords) free(mMemRecords);
 
     // clear other pointers into the space being free()d
-    mCodecCtx = NULL;
+    mCodecCtx = nullptr;
 
     mStarted = false;
 
@@ -1116,15 +1120,15 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
     ps_encode_op->u4_size = sizeof(ive_video_encode_op_t);
 
     ps_encode_ip->e_cmd = IVE_CMD_VIDEO_ENCODE;
-    ps_encode_ip->pv_bufs = NULL;
-    ps_encode_ip->pv_mb_info = NULL;
-    ps_encode_ip->pv_pic_info = NULL;
+    ps_encode_ip->pv_bufs = nullptr;
+    ps_encode_ip->pv_mb_info = nullptr;
+    ps_encode_ip->pv_pic_info = nullptr;
     ps_encode_ip->u4_mb_info_type = 0;
     ps_encode_ip->u4_pic_info_type = 0;
     ps_encode_ip->u4_is_last = 0;
     ps_encode_ip->u4_timestamp_high = timestamp >> 32;
     ps_encode_ip->u4_timestamp_low = timestamp & 0xFFFFFFFF;
-    ps_encode_op->s_out_buf.pv_buf = NULL;
+    ps_encode_op->s_out_buf.pv_buf = nullptr;
 
     /* Initialize color formats */
     memset(ps_inp_raw_buf, 0, sizeof(iv_raw_buf_t));
@@ -1273,18 +1277,20 @@ c2_status_t C2SoftAvcEnc::setEncodeArgs(
 void C2SoftAvcEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
 
     IV_STATUS_T status;
     WORD32 timeDelay, timeTaken;
     uint64_t timestamp = work->input.ordinal.timestamp.peekull();
 
     // Initialize encoder if not already initialized
-    if (mCodecCtx == NULL) {
+    if (mCodecCtx == nullptr) {
         if (C2_OK != initEncoder()) {
             ALOGE("Failed to initialize encoder");
-            work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1302,12 +1308,11 @@ void C2SoftAvcEnc::process(
         constexpr uint32_t kHeaderLength = MIN_STREAM_SIZE;
         uint8_t header[kHeaderLength];
         error = setEncodeArgs(
-                &s_encode_ip, &s_encode_op, NULL, header, kHeaderLength, timestamp);
+                &s_encode_ip, &s_encode_op, nullptr, header, kHeaderLength, timestamp);
         if (error != C2_OK) {
             ALOGE("setEncodeArgs failed: %d", error);
             mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = error;
+            work->result = C2_CORRUPTED;
             return;
         }
         status = ive_api_function(mCodecCtx, &s_encode_ip, &s_encode_op);
@@ -1325,6 +1330,12 @@ void C2SoftAvcEnc::process(
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(s_encode_op.s_out_buf.u4_bytes, 0u);
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, header, s_encode_op.s_out_buf.u4_bytes);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
@@ -1398,14 +1409,12 @@ void C2SoftAvcEnc::process(
         c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
         if (err != C2_OK) {
             ALOGE("fetch linear block err = %d", err);
-            work->workletsProcessed = 1u;
             work->result = err;
             return;
         }
         C2WriteView wView = block->map().get();
         if (wView.error() != C2_OK) {
             ALOGE("write view map err = %d", wView.error());
-            work->workletsProcessed = 1u;
             work->result = wView.error();
             return;
         }
@@ -1413,9 +1422,8 @@ void C2SoftAvcEnc::process(
         error = setEncodeArgs(
                 &s_encode_ip, &s_encode_op, view.get(), wView.base(), wView.capacity(), timestamp);
         if (error != C2_OK) {
-            mSignalledError = true;
             ALOGE("setEncodeArgs failed : %d", error);
-            work->workletsProcessed = 1u;
+            mSignalledError = true;
             work->result = error;
             return;
         }
@@ -1424,7 +1432,7 @@ void C2SoftAvcEnc::process(
         //         mInFile, s_encode_ip.s_inp_buf.apv_bufs[0],
         //         (mHeight * mStride * 3 / 2));
 
-        GETTIME(&mTimeStart, NULL);
+        GETTIME(&mTimeStart, nullptr);
         /* Compute time elapsed between end of previous decode()
          * to start of current decode() */
         TIME_DIFF(mTimeEnd, mTimeStart, timeDelay);
@@ -1439,7 +1447,6 @@ void C2SoftAvcEnc::process(
             ALOGE("Encode Frame failed = 0x%x\n",
                     s_encode_op.u4_error_code);
             mSignalledError = true;
-            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1450,7 +1457,7 @@ void C2SoftAvcEnc::process(
         mBuffers[s_encode_ip.s_inp_buf.apv_bufs[0]] = inputBuffer;
     }
 
-    GETTIME(&mTimeEnd, NULL);
+    GETTIME(&mTimeEnd, nullptr);
     /* Compute time taken for decode() */
     TIME_DIFF(mTimeStart, mTimeEnd, timeTaken);
 
@@ -1459,7 +1466,7 @@ void C2SoftAvcEnc::process(
 
     void *freed = s_encode_op.s_inp_buf.apv_bufs[0];
     /* If encoder frees up an input buffer, mark it as free */
-    if (freed != NULL) {
+    if (freed != nullptr) {
         if (mBuffers.count(freed) == 0u) {
             ALOGD("buffer not tracked");
         } else {
@@ -1485,7 +1492,6 @@ void C2SoftAvcEnc::process(
         }
         work->worklets.front()->output.buffers.push_back(buffer);
     }
-    work->workletsProcessed = 1u;
 
     if (s_encode_op.u4_is_last) {
         // outputBufferHeader->nFlags |= OMX_BUFFERFLAG_EOS;

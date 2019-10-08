@@ -21,7 +21,6 @@
 #include <binder/ProcessState.h>
 #include <gtest/gtest.h>
 #include <gui/Surface.h>
-#include <media/ICrypto.h>
 #include <media/MediaCodecBuffer.h>
 #include <media/hardware/VideoAPI.h>
 #include <media/stagefright/MediaCodec.h>
@@ -29,6 +28,7 @@
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
+#include <mediadrm/ICrypto.h>
 
 namespace android {
 

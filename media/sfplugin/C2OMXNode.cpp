@@ -104,7 +104,7 @@ status_t C2OMXNode::getParameter(OMX_INDEXTYPE index, void *params, size_t size)
 
 status_t C2OMXNode::setParameter(OMX_INDEXTYPE index, const void *params, size_t size) {
     // handle max/fixed frame duration control
-    if (index == OMX_IndexParamMaxFrameDurationForBitrateControl
+    if (index == (OMX_INDEXTYPE)OMX_IndexParamMaxFrameDurationForBitrateControl
             && params != NULL
             && size == sizeof(OMX_PARAM_U32TYPE)) {
         // The incoming number is an int32_t contained in OMX_U32.

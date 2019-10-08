@@ -97,6 +97,26 @@ public:
                 .withSetter(ProfileLevelSetter, mSize)
                 .build());
 
+        mHdr10PlusInfoInput = C2StreamHdr10PlusInfo::input::AllocShared(0);
+        addParameter(
+                DefineParam(mHdr10PlusInfoInput, C2_PARAMKEY_INPUT_HDR10_PLUS_INFO)
+                .withDefault(mHdr10PlusInfoInput)
+                .withFields({
+                    C2F(mHdr10PlusInfoInput, m.value).any(),
+                })
+                .withSetter(Hdr10PlusInfoInputSetter)
+                .build());
+
+        mHdr10PlusInfoOutput = C2StreamHdr10PlusInfo::output::AllocShared(0);
+        addParameter(
+                DefineParam(mHdr10PlusInfoOutput, C2_PARAMKEY_OUTPUT_HDR10_PLUS_INFO)
+                .withDefault(mHdr10PlusInfoOutput)
+                .withFields({
+                    C2F(mHdr10PlusInfoOutput, m.value).any(),
+                })
+                .withSetter(Hdr10PlusInfoOutputSetter)
+                .build());
+
 #if 0
         // sample BT.2020 static info
         mHdrStaticInfo = std::make_shared<C2StreamHdrStaticInfo::output>();
@@ -217,6 +237,18 @@ public:
         return C2R::Ok();
     }
 
+    static C2R Hdr10PlusInfoInputSetter(bool mayBlock, C2P<C2StreamHdr10PlusInfo::input> &me) {
+        (void)mayBlock;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
+    }
+
+    static C2R Hdr10PlusInfoOutputSetter(bool mayBlock, C2P<C2StreamHdr10PlusInfo::output> &me) {
+        (void)mayBlock;
+        (void)me;  // TODO: validate
+        return C2R::Ok();
+    }
+
 private:
     std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
     std::shared_ptr<C2StreamPictureSizeInfo::output> mSize;
@@ -228,6 +260,8 @@ private:
 #if 0
     std::shared_ptr<C2StreamHdrStaticInfo::output> mHdrStaticInfo;
 #endif
+    std::shared_ptr<C2StreamHdr10PlusInfo::input> mHdr10PlusInfoInput;
+    std::shared_ptr<C2StreamHdr10PlusInfo::output> mHdr10PlusInfoOutput;
 #endif
 };
 
@@ -320,6 +354,10 @@ status_t C2SoftVpxDec::initDecoder() {
     if (!mCodecCtx) {
         mCodecCtx = new vpx_codec_ctx_t;
     }
+    if (!mCodecCtx) {
+        ALOGE("mCodecCtx is null");
+        return NO_MEMORY;
+    }
 
     vpx_codec_dec_cfg_t cfg;
     memset(&cfg, 0, sizeof(vpx_codec_dec_cfg_t));
@@ -366,7 +404,8 @@ void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wor
                            const std::shared_ptr<C2GraphicBlock> &block) {
     std::shared_ptr<C2Buffer> buffer = createGraphicBuffer(block,
                                                            C2Rect(mWidth, mHeight));
-    auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
+    auto fillWork = [buffer, index, intf = this->mIntf](
+            const std::unique_ptr<C2Work> &work) {
         uint32_t flags = 0;
         if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
                 (c2_cntr64_t(index) == work->input.ordinal.frameIndex)) {
@@ -378,6 +417,28 @@ void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wor
         work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->workletsProcessed = 1u;
+
+        for (const std::unique_ptr<C2Param> &param: work->input.configUpdate) {
+            if (param) {
+                C2StreamHdr10PlusInfo::input *hdr10PlusInfo =
+                        C2StreamHdr10PlusInfo::input::From(param.get());
+
+                if (hdr10PlusInfo != nullptr) {
+                    std::vector<std::unique_ptr<C2SettingResult>> failures;
+                    std::unique_ptr<C2Param> outParam = C2Param::CopyAsStream(
+                            *param.get(), true /*output*/, param->stream());
+                    c2_status_t err = intf->config(
+                            { outParam.get() }, C2_MAY_BLOCK, &failures);
+                    if (err == C2_OK) {
+                        work->worklets.front()->output.configUpdate.push_back(
+                                C2Param::Copy(*outParam.get()));
+                    } else {
+                        ALOGE("finishWork: Config update size failed");
+                    }
+                    break;
+                }
+            }
+        }
     };
     if (work && c2_cntr64_t(index) == work->input.ordinal.frameIndex) {
         fillWork(work);
@@ -389,9 +450,12 @@ void C2SoftVpxDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wor
 void C2SoftVpxDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 0u;
     work->worklets.front()->output.configUpdate.clear();
+    work->worklets.front()->output.flags = work->input.flags;
+
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -440,9 +504,9 @@ void C2SoftVpxDec::process(
                 mCodecCtx, bitstream, inSize, &frameIndex, 0);
         if (err != VPX_CODEC_OK) {
             ALOGE("on2 decoder failed to decode frame. err: %d", err);
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         }
     }
@@ -510,8 +574,8 @@ bool C2SoftVpxDec::outputBuffer(
         } else {
             ALOGE("Config update size failed");
             mSignalledError = true;
-            work->result = C2_CORRUPTED;
             work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return false;
         }
 

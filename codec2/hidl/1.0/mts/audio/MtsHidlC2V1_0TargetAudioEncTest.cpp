@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 #include <stdio.h>
 #include <fstream>
+#include <algorithm>
 
 #include <codec2/hidl/client.h>
 #include <C2AllocatorIon.h>
@@ -95,6 +96,7 @@ class Codec2AudioEncHidlTest : public ::testing::VtsHalHidlTargetTestBase {
         const StringToName kStringToName[] = {
             {"aac", aac},
             {"flac", flac},
+            {"opus", opus},
             {"amrnb", amrnb},
             {"amrwb", amrwb},
         };
@@ -134,37 +136,17 @@ class Codec2AudioEncHidlTest : public ::testing::VtsHalHidlTargetTestBase {
     // callback function to process onWorkDone received by Listener
     void handleWorkDone(std::list<std::unique_ptr<C2Work>>& workItems) {
         for (std::unique_ptr<C2Work>& work : workItems) {
-            // handle configuration changes in work done
-            if (!work->worklets.empty() &&
-                (work->worklets.front()->output.configUpdate.size() != 0)) {
-                ALOGV("Config Update");
-                std::vector<std::unique_ptr<C2Param>> updates =
-                    std::move(work->worklets.front()->output.configUpdate);
-                std::vector<C2Param*> configParam;
-                std::vector<std::unique_ptr<C2SettingResult>> failures;
-                for (size_t i = 0; i < updates.size(); ++i) {
-                    C2Param* param = updates[i].get();
-                    if (param->index() == C2StreamCsdInfo::output::PARAM_TYPE) {
-                        mCsd = true;
-                    }
-                }
+            if (!work->worklets.empty()) {
+                workDone(mComponent, work, mFlushedIndices, mQueueLock,
+                         mQueueCondition, mWorkQueue, mEos, mCsd,
+                         mFramesReceived);
             }
-            mFramesReceived++;
-            mEos = (work->worklets.front()->output.flags &
-                    C2FrameData::FLAG_END_OF_STREAM) != 0;
-            ALOGV("WorkDone: frameID received %d",
-                (int)work->worklets.front()->output.ordinal.frameIndex.peeku());
-            work->input.buffers.clear();
-            work->worklets.clear();
-            typedef std::unique_lock<std::mutex> ULock;
-            ULock l(mQueueLock);
-            mWorkQueue.push_back(std::move(work));
-            mQueueCondition.notify_all();
         }
     }
     enum standardComp {
         aac,
         flac,
+        opus,
         amrnb,
         amrwb,
         unknown_comp,
@@ -175,6 +157,8 @@ class Codec2AudioEncHidlTest : public ::testing::VtsHalHidlTargetTestBase {
     bool mDisableTest;
     standardComp mCompName;
     uint32_t mFramesReceived;
+    std::list<uint64_t> mFlushedIndices;
+
     C2BlockPool::local_id_t mBlockPoolId;
     std::shared_ptr<C2BlockPool> mLinearPool;
     std::shared_ptr<C2Allocator> mLinearAllocator;
@@ -264,6 +248,8 @@ void GetURLForComponent(Codec2AudioEncHidlTest::standardComp comp, char* mURL) {
          "bbb_raw_1ch_16khz_s16le.raw"},
         {Codec2AudioEncHidlTest::standardComp::flac,
          "bbb_raw_2ch_48khz_s16le.raw"},
+        {Codec2AudioEncHidlTest::standardComp::opus,
+         "bbb_raw_2ch_48khz_s16le.raw"},
     };
 
     for (size_t i = 0; i < sizeof(kCompToURL) / sizeof(kCompToURL[0]); ++i) {
@@ -274,19 +260,16 @@ void GetURLForComponent(Codec2AudioEncHidlTest::standardComp comp, char* mURL) {
     }
 }
 
-void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &component,
-                   std::mutex &queueLock, std::condition_variable &queueCondition,
-                   std::list<std::unique_ptr<C2Work>> &workQueue,
-                   std::shared_ptr<C2Allocator> &linearAllocator,
-                   std::shared_ptr<C2BlockPool> &linearPool,
-                   C2BlockPool::local_id_t blockPoolId,
+void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& component,
+                   std::mutex &queueLock, std::condition_variable& queueCondition,
+                   std::list<std::unique_ptr<C2Work>>& workQueue,
+                   std::list<uint64_t>& flushedIndices,
+                   std::shared_ptr<C2BlockPool>& linearPool,
                    std::ifstream& eleStream, uint32_t nFrames,
                    int32_t samplesPerFrame, int32_t nChannels,
-                   int32_t nSampleRate,bool signalEOS = true) {
+                   int32_t nSampleRate, bool flushed = false,
+                   bool signalEOS = true) {
     typedef std::unique_lock<std::mutex> ULock;
-    linearPool =
-        std::make_shared<C2PooledBlockPool>(linearAllocator, blockPoolId++);
-    component->start();
 
     uint32_t frameID = 0;
     uint32_t maxRetry = 0;
@@ -314,11 +297,19 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &comp
         }
         if (signalEOS && (nFrames == 1))
             flags |= C2FrameData::FLAG_END_OF_STREAM;
-
+        if (flushed) {
+            flags |= SYNC_FRAME;
+            flushed = false;
+        }
         work->input.flags = (C2FrameData::flags_t)flags;
         work->input.ordinal.timestamp = timestamp;
         work->input.ordinal.frameIndex = frameID;
+        {
+            ULock l(queueLock);
+            flushedIndices.emplace_back(frameID);
+        }
         char* data = (char*)malloc(bytesCount);
+        ASSERT_NE(data, nullptr);
         eleStream.read(data, bytesCount);
         ASSERT_EQ(eleStream.gcount(), bytesCount);
         std::shared_ptr<C2LinearBlock> block;
@@ -357,28 +348,6 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component> &comp
     }
 }
 
-void waitOnInputConsumption(std::mutex& queueLock,
-                            std::condition_variable& queueCondition,
-                            std::list<std::unique_ptr<C2Work>>& workQueue) {
-    typedef std::unique_lock<std::mutex> ULock;
-    uint32_t queueSize;
-    uint32_t maxRetry = 0;
-    {
-        ULock l(queueLock);
-        queueSize = workQueue.size();
-    }
-    while ((maxRetry < MAX_RETRY) && (queueSize < MAX_INPUT_BUFFERS)) {
-        ULock l(queueLock);
-        if (queueSize != workQueue.size()) {
-            queueSize = workQueue.size();
-            maxRetry = 0;
-        } else {
-            queueCondition.wait_for(l, TIME_OUT);
-            maxRetry++;
-        }
-    }
-}
-
 TEST_F(Codec2AudioEncHidlTest, validateCompName) {
     if (mDisableTest) return;
     ALOGV("Checks if the given component is a valid audio component");
@@ -389,6 +358,7 @@ TEST_F(Codec2AudioEncHidlTest, validateCompName) {
 TEST_F(Codec2AudioEncHidlTest, EncodeTest) {
     ALOGV("EncodeTest");
     if (mDisableTest) return;
+    ASSERT_EQ(mComponent->start(), C2_OK);
     char mURL[512];
     strcpy(mURL, gEnv->getRes().c_str());
     GetURLForComponent(mCompName, mURL);
@@ -408,6 +378,11 @@ TEST_F(Codec2AudioEncHidlTest, EncodeTest) {
             nSampleRate = 48000;
             samplesPerFrame = 1152;
             break;
+        case opus:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 960;
+            break;
         case amrnb:
             nChannels = 1;
             nSampleRate = 8000;
@@ -423,42 +398,192 @@ TEST_F(Codec2AudioEncHidlTest, EncodeTest) {
     }
     setupConfigParam(mComponent, nChannels, nSampleRate);
     std::ifstream eleStream;
+    uint32_t numFrames = 128;
     eleStream.open(mURL, std::ifstream::binary);
     ASSERT_EQ(eleStream.is_open(), true);
     ALOGV("mURL : %s", mURL);
     ASSERT_NO_FATAL_FAILURE(
         encodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
-                      mLinearAllocator, mLinearPool, mBlockPoolId, eleStream,
-                      128, samplesPerFrame, nChannels, nSampleRate));
-
+                      mFlushedIndices, mLinearPool, eleStream, numFrames,
+                      samplesPerFrame, nChannels, nSampleRate));
     // blocking call to ensures application to Wait till all the inputs are
     // consumed
-    if (!mEos) {
-        ALOGD("Waiting for input consumption");
-        ASSERT_NO_FATAL_FAILURE(
-            waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
-    }
-
+    ASSERT_NO_FATAL_FAILURE(
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
     eleStream.close();
-    if (mFramesReceived != 128) {
+    if (mFramesReceived != numFrames) {
         ALOGE("Input buffer count and Output buffer count mismatch");
-        ALOGE("framesReceived : %d inputFrames : 128", mFramesReceived);
+        ALOGE("framesReceived : %d inputFrames : %u", mFramesReceived, numFrames);
         ASSERT_TRUE(false);
     }
-    if ((mCompName == flac || mCompName == aac)) {
+    if ((mCompName == flac || mCompName == opus || mCompName == aac)) {
         if (!mCsd) {
             ALOGE("CSD buffer missing");
             ASSERT_TRUE(false);
         }
     }
+    ASSERT_EQ(mEos, true);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
+}
+
+TEST_F(Codec2AudioEncHidlTest, EOSTest) {
+    description("Test empty input buffer with EOS flag");
+    if (mDisableTest) return;
+    ASSERT_EQ(mComponent->start(), C2_OK);
+
+    typedef std::unique_lock<std::mutex> ULock;
+    std::unique_ptr<C2Work> work;
+    {
+        ULock l(mQueueLock);
+        if (!mWorkQueue.empty()) {
+            work.swap(mWorkQueue.front());
+            mWorkQueue.pop_front();
+        } else {
+            ALOGE("mWorkQueue Empty is not expected at the start of the test");
+            ASSERT_TRUE(false);
+        }
+    }
+    ASSERT_NE(work, nullptr);
+    work->input.flags = (C2FrameData::flags_t)C2FrameData::FLAG_END_OF_STREAM;
+    work->input.ordinal.timestamp = 0;
+    work->input.ordinal.frameIndex = 0;
+    work->input.buffers.clear();
+    work->worklets.clear();
+    work->worklets.emplace_back(new C2Worklet);
+
+    std::list<std::unique_ptr<C2Work>> items;
+    items.push_back(std::move(work));
+    ASSERT_EQ(mComponent->queue(&items), C2_OK);
+    uint32_t queueSize;
+    {
+        ULock l(mQueueLock);
+        queueSize = mWorkQueue.size();
+        if (queueSize < MAX_INPUT_BUFFERS) {
+            mQueueCondition.wait_for(l, TIME_OUT);
+        }
+    }
+    ASSERT_EQ(mEos, true);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
+}
+
+TEST_F(Codec2AudioEncHidlTest, FlushTest) {
+    description("Test Request for flush");
+    if (mDisableTest) return;
+    ASSERT_EQ(mComponent->start(), C2_OK);
+
+    typedef std::unique_lock<std::mutex> ULock;
+    char mURL[512];
+    strcpy(mURL, gEnv->getRes().c_str());
+    GetURLForComponent(mCompName, mURL);
+
+    // Setting default configuration
+    mFlushedIndices.clear();
+    int32_t nChannels = 2;
+    int32_t nSampleRate = 44100;
+    int32_t samplesPerFrame = 1024;
+    switch (mCompName) {
+        case aac:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 1024;
+            break;
+        case flac:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 1152;
+            break;
+        case opus:
+            nChannels = 2;
+            nSampleRate = 48000;
+            samplesPerFrame = 960;
+            break;
+        case amrnb:
+            nChannels = 1;
+            nSampleRate = 8000;
+            samplesPerFrame = 160;
+            break;
+        case amrwb:
+            nChannels = 1;
+            nSampleRate = 16000;
+            samplesPerFrame = 160;
+            break;
+        default:
+            ASSERT_TRUE(false);
+    }
+    setupConfigParam(mComponent, nChannels, nSampleRate);
+    std::ifstream eleStream;
+    uint32_t numFramesFlushed = 30;
+    uint32_t numFrames = 128;
+    eleStream.open(mURL, std::ifstream::binary);
+    ASSERT_EQ(eleStream.is_open(), true);
+    ALOGV("mURL : %s", mURL);
+    ASSERT_NO_FATAL_FAILURE(
+        encodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
+                      mFlushedIndices, mLinearPool, eleStream, numFramesFlushed,
+                      samplesPerFrame, nChannels, nSampleRate));
+    std::list<std::unique_ptr<C2Work>> flushedWork;
+    c2_status_t err =
+        mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+    ASSERT_EQ(err, C2_OK);
+    ASSERT_NO_FATAL_FAILURE(
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+            (size_t)MAX_INPUT_BUFFERS - flushedWork.size()));
+    uint64_t frameIndex;
+    {
+        //Update mFlushedIndices based on the index received from flush()
+        ULock l(mQueueLock);
+        for (std::unique_ptr<C2Work>& work : flushedWork) {
+            ASSERT_NE(work, nullptr);
+            frameIndex = work->input.ordinal.frameIndex.peeku();
+            std::list<uint64_t>::iterator frameIndexIt =
+                std::find(mFlushedIndices.begin(), mFlushedIndices.end(),
+                          frameIndex);
+            if (!mFlushedIndices.empty() &&
+                (frameIndexIt != mFlushedIndices.end())) {
+                mFlushedIndices.erase(frameIndexIt);
+                work->input.buffers.clear();
+                work->worklets.clear();
+                mWorkQueue.push_back(std::move(work));
+            }
+        }
+    }
+    mFlushedIndices.clear();
+    ASSERT_NO_FATAL_FAILURE(
+        encodeNFrames(mComponent, mQueueLock, mQueueCondition, mWorkQueue,
+                      mFlushedIndices, mLinearPool, eleStream,
+                      numFrames - numFramesFlushed, samplesPerFrame,
+                      nChannels, nSampleRate, true));
+    eleStream.close();
+    err =
+        mComponent->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+    ASSERT_EQ(err, C2_OK);
+    ASSERT_NO_FATAL_FAILURE(
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue,
+            (size_t)MAX_INPUT_BUFFERS - flushedWork.size()));
+    {
+        //Update mFlushedIndices based on the index received from flush()
+        ULock l(mQueueLock);
+        for (std::unique_ptr<C2Work>& work : flushedWork) {
+            ASSERT_NE(work, nullptr);
+            frameIndex = work->input.ordinal.frameIndex.peeku();
+            std::list<uint64_t>::iterator frameIndexIt =
+                std::find(mFlushedIndices.begin(), mFlushedIndices.end(),
+                          frameIndex);
+            if (!mFlushedIndices.empty() &&
+                (frameIndexIt != mFlushedIndices.end())) {
+                mFlushedIndices.erase(frameIndexIt);
+                work->input.buffers.clear();
+                work->worklets.clear();
+                mWorkQueue.push_back(std::move(work));
+            }
+        }
+    }
+    ASSERT_EQ(mFlushedIndices.empty(), true);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
 }
 
 }  // anonymous namespace
 
-// TODO : Thumbnail Test
-// TODO : Test EOS
-// TODO : Flush Test
-// TODO : Timestamps deviation
 int main(int argc, char** argv) {
     gEnv = new ComponentTestEnvironment();
     ::testing::AddGlobalTestEnvironment(gEnv);

@@ -117,7 +117,7 @@ public:
 private:
     status_t createDecoder();
     status_t setNumCores();
-    status_t setParams(size_t stride);
+    status_t setParams(size_t stride, IVD_VIDEO_DECODE_MODE_T dec_mode);
     void getVersion();
     status_t initDecoder();
     bool setDecodeArgs(ivd_video_decode_ip_t *ps_decode_ip,
@@ -162,7 +162,7 @@ private:
     uint32_t mStride;
     bool mSignalledOutputEos;
     bool mSignalledError;
-
+    bool mHeaderDecoded;
     // Color aspects. These are ISO values and are meant to detect changes in aspects to avoid
     // converting them to C2 values for each frame
     struct VuiColorAspects {

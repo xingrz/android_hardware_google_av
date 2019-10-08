@@ -20,8 +20,7 @@
 
 #include <codec2/hidl/1.0/types.h>
 
-#include <media/stagefright/bqhelper/WGraphicBufferProducer.h>
-
+#include <gui/bufferqueue/1.0/WGraphicBufferProducer.h>
 #include <C2AllocatorIon.h>
 #include <C2AllocatorGralloc.h>
 #include <C2BlockInternal.h>
@@ -1657,7 +1656,8 @@ void forEachBlock(const std::list<std::unique_ptr<C2Work>>& workList,
 }
 
 sp<HGraphicBufferProducer> getHgbp(const sp<IGraphicBufferProducer>& igbp) {
-    sp<HGraphicBufferProducer> hgbp = igbp->getHalInterface();
+    sp<HGraphicBufferProducer> hgbp =
+            igbp->getHalInterface<HGraphicBufferProducer>();
     return hgbp ? hgbp :
             new TWGraphicBufferProducer<HGraphicBufferProducer>(igbp);
 }
