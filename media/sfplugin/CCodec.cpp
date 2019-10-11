@@ -533,6 +533,10 @@ public:
         mCodec->onWorkQueued(eos);
     }
 
+    void onOutputBuffersChanged() override {
+        mCodec->mCallback->onOutputBuffersChanged();
+    }
+
 private:
     CCodec *mCodec;
 };
@@ -1325,6 +1329,10 @@ void CCodec::flush() {
 
     std::list<std::unique_ptr<C2Work>> flushedWork;
     c2_status_t err = comp->flush(C2Component::FLUSH_COMPONENT, &flushedWork);
+    {
+        Mutexed<std::list<std::unique_ptr<C2Work>>>::Locked queue(mWorkDoneQueue);
+        flushedWork.splice(flushedWork.end(), *queue);
+    }
     if (err != C2_OK) {
         // TODO: convert err into status_t
         mCallback->onError(UNKNOWN_ERROR, ACTION_CODE_FATAL);
@@ -1370,9 +1378,7 @@ void CCodec::signalResume() {
 }
 
 void CCodec::signalSetParameters(const sp<AMessage> &params) {
-    sp<AMessage> msg = new AMessage(kWhatSetParameters, this);
-    msg->setMessage("params", params);
-    msg->post();
+    setParameters(params);
 }
 
 void CCodec::setParameters(const sp<AMessage> &params) {
@@ -1501,8 +1507,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
         }
         case kWhatStart: {
             // C2Component::start() should return within 500ms.
-            // WORKAROUND: start sometimes takes longer than expected.
-            setDeadline(now, 2500ms, "start");
+            setDeadline(now, 550ms, "start");
             mQueuedWorkCount = 0;
             start();
             break;
@@ -1538,13 +1543,6 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
             setInputSurface(surface);
             break;
         }
-        case kWhatSetParameters: {
-            setDeadline(now, 50ms, "setParameters");
-            sp<AMessage> params;
-            CHECK(msg->findMessage("params", &params));
-            setParameters(params);
-            break;
-        }
         case kWhatWorkDone: {
             std::unique_ptr<C2Work> work;
             size_t numDiscardedInputBuffers;
@@ -1572,7 +1570,10 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                 (new AMessage(kWhatWorkDone, this))->post();
             }
 
-            subQueuedWorkCount(1);
+            if (work->worklets.empty()
+                    || !(work->worklets.front()->output.flags & C2FrameData::FLAG_INCOMPLETE)) {
+                subQueuedWorkCount(1);
+            }
             // handle configuration changes in work done
             Mutexed<Config>::Locked config(mConfig);
             bool changed = false;
@@ -1614,6 +1615,7 @@ void CCodec::onMessageReceived(const sp<AMessage> &msg) {
                     C2StreamColorAspectsInfo::output::PARAM_TYPE,
                     C2StreamDataSpaceInfo::output::PARAM_TYPE,
                     C2StreamHdrStaticInfo::output::PARAM_TYPE,
+                    C2StreamHdr10PlusInfo::output::PARAM_TYPE,
                     C2StreamPixelAspectRatioInfo::output::PARAM_TYPE,
                     C2StreamSurfaceScalingInfo::output::PARAM_TYPE
                 };
@@ -1697,7 +1699,7 @@ void CCodec::onWorkQueued(bool eos) {
         deadline->set(std::chrono::steady_clock::now() + 3s, "eos");
     }
     // TODO: query and use input/pipeline/output delay combined
-    if (count >= 8) {
+    if (count >= 4) {
         CCodecWatchdog::getInstance()->watch(this);
         Mutexed<NamedTimePoint>::Locked deadline(mQueueDeadline);
         deadline->set(std::chrono::steady_clock::now() + 3s, "queue");

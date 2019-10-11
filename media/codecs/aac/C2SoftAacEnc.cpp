@@ -144,17 +144,17 @@ C2SoftAacEnc::C2SoftAacEnc(
         const std::shared_ptr<IntfImpl> &intfImpl)
     : SimpleC2Component(std::make_shared<SimpleInterface<IntfImpl>>(name, id, intfImpl)),
       mIntf(intfImpl),
-      mAACEncoder(NULL),
+      mAACEncoder(nullptr),
       mSBRMode(-1),
       mSBRRatio(0),
       mAACProfile(AOT_AAC_LC),
       mNumBytesPerInputFrame(0u),
       mOutBufferSize(0u),
       mSentCodecSpecificData(false),
-      mInputTimeSet(false),
       mInputSize(0),
-      mInputTimeUs(0),
-      mSignalledError(false) {
+      mInputTimeUs(-1ll),
+      mSignalledError(false),
+      mOutIndex(0u) {
 }
 
 C2SoftAacEnc::~C2SoftAacEnc() {
@@ -176,9 +176,8 @@ status_t C2SoftAacEnc::initEncoder() {
 
 c2_status_t C2SoftAacEnc::onStop() {
     mSentCodecSpecificData = false;
-    mInputTimeSet = false;
     mInputSize = 0u;
-    mInputTimeUs = 0;
+    mInputTimeUs = -1ll;
     mSignalledError = false;
     return C2_OK;
 }
@@ -194,9 +193,7 @@ void C2SoftAacEnc::onRelease() {
 
 c2_status_t C2SoftAacEnc::onFlush_sm() {
     mSentCodecSpecificData = false;
-    mInputTimeSet = false;
     mInputSize = 0u;
-    mInputTimeUs = 0;
     return C2_OK;
 }
 
@@ -285,8 +282,10 @@ status_t C2SoftAacEnc::setAudioParams() {
 void C2SoftAacEnc::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
-    work->workletsProcessed = 0u;
+    work->workletsProcessed = 1u;
+    work->worklets.front()->output.flags = work->input.flags;
 
     if (mSignalledError) {
         return;
@@ -300,10 +299,10 @@ void C2SoftAacEnc::process(
         // The very first thing we want to output is the codec specific
         // data.
 
-        if (AACENC_OK != aacEncEncode(mAACEncoder, NULL, NULL, NULL, NULL)) {
+        if (AACENC_OK != aacEncEncode(mAACEncoder, nullptr, nullptr, nullptr, nullptr)) {
             ALOGE("Unable to initialize encoder for profile / sample-rate / bit-rate / channels");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
@@ -316,14 +315,19 @@ void C2SoftAacEnc::process(
         AACENC_InfoStruct encInfo;
         if (AACENC_OK != aacEncInfo(mAACEncoder, &encInfo)) {
             ALOGE("Failed to get AAC encoder info");
-            // TODO: notify(OMX_EventError, OMX_ErrorUndefined, 0, NULL);
             mSignalledError = true;
+            work->result = C2_CORRUPTED;
             return;
         }
 
         std::unique_ptr<C2StreamCsdInfo::output> csd =
             C2StreamCsdInfo::output::AllocUnique(encInfo.confSize, 0u);
-        // TODO: check NO_MEMORY
+        if (!csd) {
+            ALOGE("CSD allocation failed");
+            mSignalledError = true;
+            work->result = C2_NO_MEMORY;
+            return;
+        }
         memcpy(csd->m.value, encInfo.confBuf, encInfo.confSize);
         ALOGV("put csd");
 #if defined(LOG_NDEBUG) && !LOG_NDEBUG
@@ -333,6 +337,7 @@ void C2SoftAacEnc::process(
 
         mOutBufferSize = encInfo.maxOutBufBytes;
         mNumBytesPerInputFrame = encInfo.frameLength * channelCount * sizeof(int16_t);
+        mInputTimeUs = work->input.ordinal.timestamp;
 
         mSentCodecSpecificData = true;
     }
@@ -346,11 +351,6 @@ void C2SoftAacEnc::process(
         data = view.data();
         capacity = view.capacity();
     }
-    if (!mInputTimeSet && capacity > 0) {
-        mInputTimeUs = work->input.ordinal.timestamp;
-        mInputTimeSet = true;
-    }
-    uint64_t timestamp = mInputTimeUs.peeku();
 
     size_t numFrames = (capacity + mInputSize + (eos ? mNumBytesPerInputFrame - 1 : 0))
             / mNumBytesPerInputFrame;
@@ -358,22 +358,11 @@ void C2SoftAacEnc::process(
           capacity, mInputSize, numFrames, mNumBytesPerInputFrame);
 
     std::shared_ptr<C2LinearBlock> block;
+    std::shared_ptr<C2Buffer> buffer;
     std::unique_ptr<C2WriteView> wView;
     uint8_t *outPtr = temp;
     size_t outAvailable = 0u;
-
-    if (numFrames) {
-        C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
-        // TODO: error handling, proper usage, etc.
-        c2_status_t err = pool->fetchLinearBlock(mOutBufferSize * numFrames, usage, &block);
-        if (err != C2_OK) {
-            ALOGE("err = %d", err);
-        }
-
-        wView.reset(new C2WriteView(block->map().get()));
-        outPtr = wView->data();
-        outAvailable = wView->size();
-    }
+    uint64_t inputIndex = work->input.ordinal.frameIndex.peeku();
 
     AACENC_InArgs inargs;
     AACENC_OutArgs outargs;
@@ -405,15 +394,60 @@ void C2SoftAacEnc::process(
     outBufDesc.bufSizes          = outBufferSize;
     outBufDesc.bufElSizes        = outBufferElSize;
 
-    // Encode the mInputFrame, which is treated as a modulo buffer
     AACENC_ERROR encoderErr = AACENC_OK;
-    size_t nOutputBytes = 0;
+
+    class FillWork {
+    public:
+        FillWork(uint32_t flags, C2WorkOrdinalStruct ordinal,
+                 const std::shared_ptr<C2Buffer> &buffer)
+            : mFlags(flags), mOrdinal(ordinal), mBuffer(buffer) {
+        }
+        ~FillWork() = default;
+
+        void operator()(const std::unique_ptr<C2Work> &work) {
+            work->worklets.front()->output.flags = (C2FrameData::flags_t)mFlags;
+            work->worklets.front()->output.buffers.clear();
+            work->worklets.front()->output.ordinal = mOrdinal;
+            work->workletsProcessed = 1u;
+            work->result = C2_OK;
+            if (mBuffer) {
+                work->worklets.front()->output.buffers.push_back(mBuffer);
+            }
+            ALOGV("timestamp = %lld, index = %lld, w/%s buffer",
+                  mOrdinal.timestamp.peekll(),
+                  mOrdinal.frameIndex.peekll(),
+                  mBuffer ? "" : "o");
+        }
+
+    private:
+        const uint32_t mFlags;
+        const C2WorkOrdinalStruct mOrdinal;
+        const std::shared_ptr<C2Buffer> mBuffer;
+    };
+
+    C2WorkOrdinalStruct outOrdinal = work->input.ordinal;
 
     while (encoderErr == AACENC_OK && inargs.numInSamples > 0) {
+        if (numFrames && !block) {
+            C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
+            // TODO: error handling, proper usage, etc.
+            c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
+            if (err != C2_OK) {
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
+            }
+
+            wView.reset(new C2WriteView(block->map().get()));
+            outPtr = wView->data();
+            outAvailable = wView->size();
+            --numFrames;
+        }
+
         memset(&outargs, 0, sizeof(outargs));
 
         outBuffer[0] = outPtr;
-        outBufferSize[0] = outAvailable - nOutputBytes;
+        outBufferSize[0] = outAvailable;
 
         encoderErr = aacEncEncode(mAACEncoder,
                                   &inBufDesc,
@@ -422,17 +456,32 @@ void C2SoftAacEnc::process(
                                   &outargs);
 
         if (encoderErr == AACENC_OK) {
+            if (buffer) {
+                outOrdinal.frameIndex = mOutIndex++;
+                outOrdinal.timestamp = mInputTimeUs;
+                cloneAndSend(
+                        inputIndex,
+                        work,
+                        FillWork(C2FrameData::FLAG_INCOMPLETE, outOrdinal, buffer));
+                buffer.reset();
+            }
+
             if (outargs.numOutBytes > 0) {
                 mInputSize = 0;
                 int consumed = (capacity / sizeof(int16_t)) - inargs.numInSamples
                         + outargs.numInSamples;
                 mInputTimeUs = work->input.ordinal.timestamp
                         + (consumed * 1000000ll / channelCount / sampleRate);
+                buffer = createLinearBuffer(block, 0, outargs.numOutBytes);
+#if defined(LOG_NDEBUG) && !LOG_NDEBUG
+                hexdump(outPtr, std::min(outargs.numOutBytes, 256));
+#endif
+                outPtr = temp;
+                outAvailable = 0;
+                block.reset();
             } else {
                 mInputSize += outargs.numInSamples * sizeof(int16_t);
             }
-            outPtr += outargs.numOutBytes;
-            nOutputBytes += outargs.numOutBytes;
 
             if (outargs.numInSamples > 0) {
                 inBuffer[0] = (int16_t *)inBuffer[0] + outargs.numInSamples;
@@ -440,15 +489,31 @@ void C2SoftAacEnc::process(
                 inargs.numInSamples -= outargs.numInSamples;
             }
         }
-        ALOGV("encoderErr = %d nOutputBytes = %zu; mInputSize = %zu inargs.numInSamples = %d",
-              encoderErr, nOutputBytes, mInputSize, inargs.numInSamples);
+        ALOGV("encoderErr = %d mInputSize = %zu inargs.numInSamples = %d, mInputTimeUs = %lld",
+              encoderErr, mInputSize, inargs.numInSamples, mInputTimeUs.peekll());
     }
 
     if (eos && inBufferSize[0] > 0) {
+        if (numFrames && !block) {
+            C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
+            // TODO: error handling, proper usage, etc.
+            c2_status_t err = pool->fetchLinearBlock(mOutBufferSize, usage, &block);
+            if (err != C2_OK) {
+                ALOGE("fetchLinearBlock failed : err = %d", err);
+                work->result = C2_NO_MEMORY;
+                return;
+            }
+
+            wView.reset(new C2WriteView(block->map().get()));
+            outPtr = wView->data();
+            outAvailable = wView->size();
+            --numFrames;
+        }
+
         memset(&outargs, 0, sizeof(outargs));
 
         outBuffer[0] = outPtr;
-        outBufferSize[0] = outAvailable - nOutputBytes;
+        outBufferSize[0] = outAvailable;
 
         // Flush
         inargs.numInSamples = -1;
@@ -458,27 +523,12 @@ void C2SoftAacEnc::process(
                            &outBufDesc,
                            &inargs,
                            &outargs);
-
-        nOutputBytes += outargs.numOutBytes;
     }
 
-    work->worklets.front()->output.flags =
-        (C2FrameData::flags_t)(eos ? C2FrameData::FLAG_END_OF_STREAM : 0);
-    work->worklets.front()->output.buffers.clear();
-    work->worklets.front()->output.ordinal = work->input.ordinal;
-    work->worklets.front()->output.ordinal.timestamp = timestamp;
-    work->workletsProcessed = 1u;
-    if (nOutputBytes) {
-        work->worklets.front()->output.buffers.push_back(
-                createLinearBuffer(block, 0, nOutputBytes));
-    }
-
-#if 0
-    ALOGI("sending %d bytes of data (time = %lld us, flags = 0x%08lx)",
-          nOutputBytes, mInputTimeUs.peekll(), outHeader->nFlags);
-
-    hexdump(outHeader->pBuffer + outHeader->nOffset, outHeader->nFilledLen);
-#endif
+    outOrdinal.frameIndex = mOutIndex++;
+    outOrdinal.timestamp = mInputTimeUs;
+    FillWork((C2FrameData::flags_t)(eos ? C2FrameData::FLAG_END_OF_STREAM : 0),
+             outOrdinal, buffer)(work);
 }
 
 c2_status_t C2SoftAacEnc::drain(
@@ -500,9 +550,7 @@ c2_status_t C2SoftAacEnc::drain(
 
     (void)pool;
     mSentCodecSpecificData = false;
-    mInputTimeSet = false;
     mInputSize = 0u;
-    mInputTimeUs = 0;
 
     // TODO: we don't have any pending work at this time to drain.
     return C2_OK;

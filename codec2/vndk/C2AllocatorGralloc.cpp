@@ -303,6 +303,7 @@ private:
     const C2HandleGralloc *mLockedHandle;
     bool mLocked;
     C2Allocator::id_t mAllocatorId;
+    std::mutex mMappedLock;
 };
 
 C2AllocationGralloc::C2AllocationGralloc(
@@ -352,6 +353,7 @@ c2_status_t C2AllocationGralloc::map(
     // TODO
     (void) fence;
 
+    std::lock_guard<std::mutex> lock(mMappedLock);
     if (mBuffer && mLocked) {
         ALOGD("already mapped");
         return C2_DUPLICATE;
@@ -558,6 +560,8 @@ c2_status_t C2AllocationGralloc::unmap(
     // TODO: check addr and size, use fence
     (void)addr;
     (void)rect;
+
+    std::lock_guard<std::mutex> lock(mMappedLock);
     c2_status_t err = C2_OK;
     mMapper->unlock(
             const_cast<native_handle_t *>(mBuffer),

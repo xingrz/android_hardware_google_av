@@ -94,7 +94,7 @@ std::string ReflectedParamUpdater::Dict::debugString(size_t indent_) const {
             s << "string " << it.first << " = \"" << strValue.c_str() << "\"";
         } else if (it.second.find(&bufValue)) {
             s << "Buffer " << it.first << " = ";
-            if (bufValue != NULL && bufValue->data() != NULL && bufValue->size() <= 64) {
+            if (bufValue != nullptr && bufValue->data() != nullptr && bufValue->size() <= 64) {
                 s << "{" << std::endl;
                 AString tmp;
                 hexdump(bufValue->data(), bufValue->size(), indent_ + 4, &tmp);

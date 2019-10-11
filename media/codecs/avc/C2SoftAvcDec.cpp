@@ -328,7 +328,8 @@ C2SoftAvcDec::C2SoftAvcDec(
       mOutBufferFlush(nullptr),
       mIvColorFormat(IV_YUV_420P),
       mWidth(320),
-      mHeight(240) {
+      mHeight(240),
+      mHeaderDecoded(false) {
     GENERATE_FILE_NAMES();
     CREATE_DUMP_FILE(mInFile);
 }
@@ -385,8 +386,10 @@ c2_status_t C2SoftAvcDec::onFlush_sm() {
         }
     }
 
-    ivd_aligned_free(nullptr, mOutBufferFlush);
-    mOutBufferFlush = nullptr;
+    if (mOutBufferFlush) {
+        ivd_aligned_free(nullptr, mOutBufferFlush);
+        mOutBufferFlush = nullptr;
+    }
 
     return C2_OK;
 }
@@ -438,7 +441,7 @@ status_t C2SoftAvcDec::setNumCores() {
     return OK;
 }
 
-status_t C2SoftAvcDec::setParams(size_t stride) {
+status_t C2SoftAvcDec::setParams(size_t stride, IVD_VIDEO_DECODE_MODE_T dec_mode) {
     ivd_ctl_set_config_ip_t s_set_dyn_params_ip;
     ivd_ctl_set_config_op_t s_set_dyn_params_op;
 
@@ -448,7 +451,7 @@ status_t C2SoftAvcDec::setParams(size_t stride) {
     s_set_dyn_params_ip.u4_disp_wd = (UWORD32) stride;
     s_set_dyn_params_ip.e_frm_skip_mode = IVD_SKIP_NONE;
     s_set_dyn_params_ip.e_frm_out_mode = IVD_DISPLAY_FRAME_OUT;
-    s_set_dyn_params_ip.e_vid_dec_mode = IVD_DECODE_FRAME;
+    s_set_dyn_params_ip.e_vid_dec_mode = dec_mode;
     s_set_dyn_params_op.u4_size = sizeof(ivd_ctl_set_config_op_t);
     IV_API_CALL_STATUS_T status = ivdec_api_function(mDecHandle,
                                                      &s_set_dyn_params_ip,
@@ -491,7 +494,7 @@ status_t C2SoftAvcDec::initDecoder() {
     mSignalledError = false;
     resetPlugin();
     (void) setNumCores();
-    if (OK != setParams(mStride)) return UNKNOWN_ERROR;
+    if (OK != setParams(mStride, IVD_DECODE_FRAME)) return UNKNOWN_ERROR;
     (void) getVersion();
 
     return OK;
@@ -629,6 +632,7 @@ status_t C2SoftAvcDec::resetDecoder() {
     mStride = 0;
     (void) setNumCores();
     mSignalledError = false;
+    mHeaderDecoded = false;
 
     return OK;
 }
@@ -682,14 +686,8 @@ void C2SoftAvcDec::finishWork(uint64_t index, const std::unique_ptr<C2Work> &wor
         buffer->setInfo(mIntf->getColorAspects_l());
     }
 
-    auto fillWork = [buffer, index](const std::unique_ptr<C2Work> &work) {
-        uint32_t flags = 0;
-        if ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) &&
-                (c2_cntr64_t(index) == work->input.ordinal.frameIndex)) {
-            flags |= C2FrameData::FLAG_END_OF_STREAM;
-            ALOGV("signalling eos");
-        }
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
+    auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
@@ -709,7 +707,7 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
     }
     if (mStride != ALIGN64(mWidth)) {
         mStride = ALIGN64(mWidth);
-        if (OK != setParams(mStride)) return C2_CORRUPTED;
+        if (OK != setParams(mStride, IVD_DECODE_FRAME)) return C2_CORRUPTED;
     }
     if (mOutBlock &&
             (mOutBlock->width() != mStride || mOutBlock->height() != mHeight)) {
@@ -739,8 +737,10 @@ c2_status_t C2SoftAvcDec::ensureDecoderState(const std::shared_ptr<C2BlockPool> 
 void C2SoftAvcDec::process(
         const std::unique_ptr<C2Work> &work,
         const std::shared_ptr<C2BlockPool> &pool) {
+    // Initialize output work
     work->result = C2_OK;
     work->workletsProcessed = 0u;
+    work->worklets.front()->output.flags = work->input.flags;
     if (mSignalledError || mSignalledOutputEos) {
         work->result = C2_BAD_VALUE;
         return;
@@ -769,6 +769,7 @@ void C2SoftAvcDec::process(
     while (inPos < inSize) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -785,11 +786,18 @@ void C2SoftAvcDec::process(
             if (!setDecodeArgs(&s_decode_ip, &s_decode_op, &rView, &wView,
                                inOffset + inPos, inSize - inPos, workIndex)) {
                 mSignalledError = true;
+                work->workletsProcessed = 1u;
                 work->result = C2_CORRUPTED;
                 return;
             }
+
+            if (false == mHeaderDecoded) {
+                /* Decode header and get dimensions */
+                setParams(mStride, IVD_DECODE_HEADER);
+            }
+
             WORD32 delay;
-            GETTIME(&mTimeStart, NULL);
+            GETTIME(&mTimeStart, nullptr);
             TIME_DIFF(mTimeEnd, mTimeStart, delay);
             (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
             WORD32 decodeTime;
@@ -800,22 +808,32 @@ void C2SoftAvcDec::process(
         }
         if (IVD_MEM_ALLOC_FAILED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGE("allocation failure in decoder");
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         } else if (IVD_STREAM_WIDTH_HEIGHT_NOT_SUPPORTED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGE("unsupported resolution : %dx%d", mWidth, mHeight);
-            work->result = C2_CORRUPTED;
             mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
             return;
         } else if (IVD_RES_CHANGED == (s_decode_op.u4_error_code & 0xFF)) {
             ALOGV("resolution changed");
             drainInternal(DRAIN_COMPONENT_NO_EOS, pool, work);
             resetDecoder();
             resetPlugin();
-            continue;
+            work->workletsProcessed = 0u;
+
+            /* Decode header and get new dimensions */
+            setParams(mStride, IVD_DECODE_HEADER);
+            (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         }
         if (0 < s_decode_op.u4_pic_wd && 0 < s_decode_op.u4_pic_ht) {
+            if (mHeaderDecoded == false) {
+                mHeaderDecoded = true;
+                setParams(ALIGN64(s_decode_op.u4_pic_wd), IVD_DECODE_FRAME);
+            }
             if (s_decode_op.u4_pic_wd != mWidth || s_decode_op.u4_pic_ht != mHeight) {
                 mWidth = s_decode_op.u4_pic_wd;
                 mHeight = s_decode_op.u4_pic_ht;
@@ -823,8 +841,17 @@ void C2SoftAvcDec::process(
 
                 C2VideoSizeStreamInfo::output size(0u, mWidth, mHeight);
                 std::vector<std::unique_ptr<C2SettingResult>> failures;
-                (void)mIntf->config({&size}, C2_MAY_BLOCK, &failures);
-                work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
+                c2_status_t err = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
+                if (err == OK) {
+                    work->worklets.front()->output.configUpdate.push_back(
+                        C2Param::Copy(size));
+                } else {
+                    ALOGE("Cannot set width and height");
+                    mSignalledError = true;
+                    work->workletsProcessed = 1u;
+                    work->result = C2_CORRUPTED;
+                    return;
+                }
                 continue;
             }
         }
@@ -832,6 +859,10 @@ void C2SoftAvcDec::process(
         hasPicture |= (1 == s_decode_op.u4_frame_decoded_flag);
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
+        }
+        if (0 == s_decode_op.u4_num_bytes_consumed) {
+            ALOGD("Bytes consumed is zero. Ignoring remaining bytes");
+            break;
         }
         inPos += s_decode_op.u4_num_bytes_consumed;
         if (hasPicture && (inSize - inPos)) {
@@ -865,6 +896,7 @@ c2_status_t C2SoftAvcDec::drainInternal(
     while (true) {
         if (C2_OK != ensureDecoderState(pool)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return C2_CORRUPTED;
         }
@@ -877,19 +909,16 @@ c2_status_t C2SoftAvcDec::drainInternal(
         ivd_video_decode_op_t s_decode_op;
         if (!setDecodeArgs(&s_decode_ip, &s_decode_op, nullptr, &wView, 0, 0, 0)) {
             mSignalledError = true;
+            work->workletsProcessed = 1u;
             return C2_CORRUPTED;
         }
         (void) ivdec_api_function(mDecHandle, &s_decode_ip, &s_decode_op);
         if (s_decode_op.u4_output_present) {
             finishWork(s_decode_op.u4_ts, work);
         } else {
+            fillEmptyWork(work);
             break;
         }
-    }
-
-    if (drainMode == DRAIN_COMPONENT_WITH_EOS &&
-            work && work->workletsProcessed == 0u) {
-        fillEmptyWork(work);
     }
 
     return C2_OK;

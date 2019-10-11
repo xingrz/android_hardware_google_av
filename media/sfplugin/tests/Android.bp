@@ -19,7 +19,6 @@ cc_test {
     cflags: [
         "-Werror",
         "-Wall",
-        "-std=c++14",
     ],
 }
 
@@ -32,6 +31,10 @@ cc_test {
 
     include_dirs: [
         "hardware/google/av/media/sfplugin",
+    ],
+
+    header_libs: [
+        "libmediadrm_headers",
     ],
 
     shared_libs: [
@@ -49,6 +52,5 @@ cc_test {
     cflags: [
         "-Werror",
         "-Wall",
-        "-std=c++14",
     ],
 }

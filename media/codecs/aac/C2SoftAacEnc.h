@@ -17,6 +17,8 @@
 #ifndef ANDROID_C2_SOFT_AAC_ENC_H_
 #define ANDROID_C2_SOFT_AAC_ENC_H_
 
+#include <atomic>
+
 #include <SimpleC2Component.h>
 
 #include "aacenc_lib.h"
@@ -55,11 +57,11 @@ private:
     UINT mOutBufferSize;
 
     bool mSentCodecSpecificData;
-    bool mInputTimeSet;
     size_t mInputSize;
     c2_cntr64_t mInputTimeUs;
 
     bool mSignalledError;
+    std::atomic_uint64_t mOutIndex;
 
     status_t initEncoder();
 

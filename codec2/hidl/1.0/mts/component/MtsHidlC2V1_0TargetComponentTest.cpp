@@ -31,21 +31,28 @@ static ComponentTestEnvironment* gEnv = nullptr;
 namespace {
 
 // google.codec2 Component test setup
-class Codec2ComponentHalTest : public ::testing::VtsHalHidlTargetTestBase {
+class Codec2ComponentHidlTest : public ::testing::VtsHalHidlTargetTestBase {
    private:
     typedef ::testing::VtsHalHidlTargetTestBase Super;
 
    public:
     virtual void SetUp() override {
         Super::SetUp();
+        mEos = false;
         mClient = android::Codec2Client::CreateFromService(
             gEnv->getInstance().c_str());
         ASSERT_NE(mClient, nullptr);
-        mListener.reset(new CodecListener());
+        mListener.reset(new CodecListener(
+            [this](std::list<std::unique_ptr<C2Work>>& workItems) {
+                handleWorkDone(workItems);
+            }));
         ASSERT_NE(mListener, nullptr);
         mClient->createComponent(gEnv->getComponent().c_str(), mListener,
                                  &mComponent);
         ASSERT_NE(mComponent, nullptr);
+        for (int i = 0; i < MAX_INPUT_BUFFERS; ++i) {
+            mWorkQueue.emplace_back(new C2Work);
+        }
     }
 
     virtual void TearDown() override {
@@ -59,6 +66,23 @@ class Codec2ComponentHalTest : public ::testing::VtsHalHidlTargetTestBase {
         }
         Super::TearDown();
     }
+    // callback function to process onWorkDone received by Listener
+    void handleWorkDone(std::list<std::unique_ptr<C2Work>>& workItems) {
+        for (std::unique_ptr<C2Work>& work : workItems) {
+            if (!work->worklets.empty()) {
+                bool mCsd = false;
+                uint32_t mFramesReceived = 0;
+                std::list<uint64_t> mFlushedIndices;
+                workDone(mComponent, work, mFlushedIndices, mQueueLock, mQueueCondition,
+                         mWorkQueue, mEos, mCsd, mFramesReceived);
+            }
+        }
+    }
+
+    bool mEos;
+    std::mutex mQueueLock;
+    std::condition_variable mQueueCondition;
+    std::list<std::unique_ptr<C2Work>> mWorkQueue;
 
     std::shared_ptr<android::Codec2Client> mClient;
     std::shared_ptr<android::Codec2Client::Listener> mListener;
@@ -71,7 +95,7 @@ class Codec2ComponentHalTest : public ::testing::VtsHalHidlTargetTestBase {
 };
 
 // Test Empty Flush
-TEST_F(Codec2ComponentHalTest, EmptyFlush) {
+TEST_F(Codec2ComponentHidlTest, EmptyFlush) {
     ALOGV("Empty Flush Test");
     c2_status_t err = mComponent->start();
     ASSERT_EQ(err, C2_OK);
@@ -87,7 +111,7 @@ TEST_F(Codec2ComponentHalTest, EmptyFlush) {
 }
 
 // Test Queue Empty Work
-TEST_F(Codec2ComponentHalTest, QueueEmptyWork) {
+TEST_F(Codec2ComponentHidlTest, QueueEmptyWork) {
     ALOGV("Queue Empty Work Test");
     c2_status_t err = mComponent->start();
     ASSERT_EQ(err, C2_OK);
@@ -102,44 +126,38 @@ TEST_F(Codec2ComponentHalTest, QueueEmptyWork) {
 }
 
 // Test Component Configuration
-TEST_F(Codec2ComponentHalTest, Config) {
+TEST_F(Codec2ComponentHidlTest, Config) {
     ALOGV("Configuration Test");
 
     C2String name = mComponent->getName();
     EXPECT_NE(name.empty(), true) << "Invalid Component Name";
 
+    c2_status_t err = C2_OK;
+    std::vector<std::unique_ptr<C2Param>> queried;
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+
     // Query supported params by the component
     std::vector<std::shared_ptr<C2ParamDescriptor>> params;
-    c2_status_t err = mComponent->querySupportedParams(&params);
+    err = mComponent->querySupportedParams(&params);
     ASSERT_EQ(err, C2_OK);
     ALOGV("Number of total params - %zu", params.size());
 
-    // Query Component Domain Type
-    std::vector<std::unique_ptr<C2Param>> queried;
-    err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE},
-                            C2_DONT_BLOCK, &queried);
-    EXPECT_NE(queried.size(), 0u);
-    std::string inputDomain =
-        ((C2StreamMediaTypeSetting::input*)queried[0].get())->m.value;
-    EXPECT_NE(inputDomain.empty(), true) << "Invalid Component Domain";
-
-    // Configure Component Domain
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-    C2PortMediaTypeSetting::input* portMediaType =
-        C2PortMediaTypeSetting::input::From(queried[0].get());
-    err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
-    ASSERT_EQ(err, C2_OK);
-    ASSERT_EQ(failures.size(), 0u);
-
-    // TODO: Query/Config on other common Params
+    // Query and config all the supported params
+    for (std::shared_ptr<C2ParamDescriptor> p : params) {
+        ALOGD("Querying index %d", (int)p->index());
+        err = mComponent->query({}, {p->index()}, C2_DONT_BLOCK, &queried);
+        EXPECT_NE(queried.size(), 0u);
+        EXPECT_EQ(err, C2_OK);
+        err = mComponent->config({queried[0].get()}, C2_DONT_BLOCK, &failures);
+        ASSERT_EQ(err, C2_OK);
+        ASSERT_EQ(failures.size(), 0u);
+    }
 }
 
 // Test Multiple Start Stop Reset Test
-TEST_F(Codec2ComponentHalTest, MultipleStartStopReset) {
+TEST_F(Codec2ComponentHidlTest, MultipleStartStopReset) {
     ALOGV("Multiple Start Stop and Reset Test");
     c2_status_t err = C2_OK;
-
-#define MAX_RETRY 16
 
     for (size_t i = 0; i < MAX_RETRY; i++) {
         err = mComponent->start();
@@ -168,9 +186,67 @@ TEST_F(Codec2ComponentHalTest, MultipleStartStopReset) {
     ASSERT_NE(err, C2_OK);
 }
 
+// Test Component Release API
+TEST_F(Codec2ComponentHidlTest, MultipleRelease) {
+    ALOGV("Multiple Release Test");
+    c2_status_t err = mComponent->start();
+    ASSERT_EQ(err, C2_OK);
+
+    // Query Component Domain Type
+    std::vector<std::unique_ptr<C2Param>> queried;
+    err = mComponent->query({}, {C2PortMediaTypeSetting::input::PARAM_TYPE},
+                            C2_DONT_BLOCK, &queried);
+    EXPECT_NE(queried.size(), 0u);
+
+    // Configure Component Domain
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+    C2PortMediaTypeSetting::input* portMediaType =
+        C2PortMediaTypeSetting::input::From(queried[0].get());
+    err = mComponent->config({portMediaType}, C2_DONT_BLOCK, &failures);
+    ASSERT_EQ(err, C2_OK);
+    ASSERT_EQ(failures.size(), 0u);
+
+    for (size_t i = 0; i < MAX_RETRY; i++) {
+        err = mComponent->release();
+        ASSERT_EQ(err, C2_OK);
+    }
+}
+
+class Codec2ComponentInputTests : public Codec2ComponentHidlTest,
+        public ::testing::WithParamInterface<std::pair<uint32_t, bool> > {
+};
+
+TEST_P(Codec2ComponentInputTests, InputBufferTest) {
+    description("Tests for different inputs");
+
+    uint32_t flags = GetParam().first;
+    bool isNullBuffer = GetParam().second;
+    if (isNullBuffer) ALOGD("Testing for null input buffer with flag : %u", flags);
+    else ALOGD("Testing for empty input buffer with flag : %u", flags);
+    mEos = false;
+    ASSERT_EQ(mComponent->start(), C2_OK);
+    ASSERT_NO_FATAL_FAILURE(testInputBuffer(
+        mComponent, mQueueLock, mWorkQueue, flags, isNullBuffer));
+
+    ALOGD("Waiting for input consumption");
+    ASSERT_NO_FATAL_FAILURE(
+        waitOnInputConsumption(mQueueLock, mQueueCondition, mWorkQueue));
+
+    if (flags == C2FrameData::FLAG_END_OF_STREAM) ASSERT_EQ(mEos, true);
+    ASSERT_EQ(mComponent->stop(), C2_OK);
+    ASSERT_EQ(mComponent->reset(), C2_OK);
+}
+
+INSTANTIATE_TEST_CASE_P(NonStdInputs, Codec2ComponentInputTests, ::testing::Values(
+    std::make_pair(0, true),
+    std::make_pair(C2FrameData::FLAG_END_OF_STREAM, true),
+    std::make_pair(0, false),
+    std::make_pair(C2FrameData::FLAG_CODEC_CONFIG, false),
+    std::make_pair(C2FrameData::FLAG_END_OF_STREAM, false)));
+
 }  // anonymous namespace
 
-// TODO: Add test for Invalid work, Invalid Config handling
+// TODO: Add test for Invalid work,
 // TODO: Add test for Invalid states
 int main(int argc, char** argv) {
     gEnv = new ComponentTestEnvironment();
