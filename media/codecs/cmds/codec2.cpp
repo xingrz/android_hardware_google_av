@@ -30,6 +30,7 @@
 
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
+#include <datasource/DataSourceFactory.h>
 #include <media/DataSource.h>
 #include <media/IMediaHTTPService.h>
 #include <media/MediaSource.h>
@@ -37,7 +38,6 @@
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
 #include <media/stagefright/foundation/AUtils.h>
-#include <media/stagefright/DataSourceFactory.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
 #include <media/stagefright/MediaExtractorFactory.h>
