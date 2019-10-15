@@ -20,6 +20,7 @@ cc_library_shared {
     header_libs: [
         "libmediadrm_headers",
         "libstagefright_codec2_internal",
+        "media_ndk_headers",
     ],
 
     shared_libs: [
@@ -35,7 +36,7 @@ cc_library_shared {
         "libhidlallocatorutils",
         "libhidlbase",
         "liblog",
-        "libmedia",
+        "libmedia_codeclist",
         "libmedia_omx",
         "libstagefright_bufferqueue_helper",
         "libstagefright_ccodec_utils",
