@@ -1162,9 +1162,9 @@ public:
         switch (c2buffer->data().type()) {
             case C2BufferData::LINEAR: {
                 uint32_t size = kLinearBufferSize;
-                const C2ConstLinearBlock &block = c2buffer->data().linearBlocks().front();
-                if (block.size() < kMaxLinearBufferSize / 2) {
-                    size = block.size() * 2;
+                const size_t blockSize = c2buffer->data().linearBlocks().front().size();
+                if (blockSize < kMaxLinearBufferSize / 2) {
+                    size = blockSize * 2;
                 } else {
                     size = kMaxLinearBufferSize;
                 }

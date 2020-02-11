@@ -33,7 +33,7 @@
 #include <datasource/DataSourceFactory.h>
 #include <media/DataSource.h>
 #include <media/IMediaHTTPService.h>
-#include <media/MediaSource.h>
+#include <media/stagefright/MediaSource.h>
 #include <media/stagefright/foundation/ABuffer.h>
 #include <media/stagefright/foundation/ALooper.h>
 #include <media/stagefright/foundation/AMessage.h>
@@ -417,7 +417,7 @@ int main(int argc, char **argv) {
         const char *filename = argv[k];
 
         sp<DataSource> dataSource =
-            DataSourceFactory::CreateFromURI(nullptr /* httpService */, filename);
+            DataSourceFactory::getInstance()->CreateFromURI(nullptr /* httpService */, filename);
 
         if (strncasecmp(filename, "sine:", 5) && dataSource == nullptr) {
             fprintf(stderr, "Unable to create data source.\n");
