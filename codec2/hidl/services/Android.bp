@@ -33,8 +33,6 @@ cc_binary {
             required: ["codec2.vendor.base.policy"],
         },
     },
-
-    compile_multilib: "32",
 }
 
 cc_library_shared {
@@ -88,7 +86,5 @@ cc_library_shared {
         "libstagefright_soft_c2gsmdec",
         "libstagefright_soft_c2xaacdec",
     ],
-
-    compile_multilib: "32",
 }
 
